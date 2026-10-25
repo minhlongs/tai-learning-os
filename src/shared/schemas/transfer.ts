@@ -291,8 +291,14 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
         errors.push(`Một dòng trong ${key} không hợp lệ.`);
         continue;
       }
-      const id = (row as { id?: unknown }).id;
-      if (typeof id !== "string" || id.length === 0) {
+      // A row's identity is whatever its table's primary key is. Most tables
+      // have a single `id` column; `skill_prerequisites` does not, and its row
+      // is identified by the pair of skills it joins — so it is checked on that
+      // pair rather than on an `id` it never had.
+      const identity = key === "skillPrerequisites"
+        ? (["skillId", "prerequisiteId"] as const).map((field) => (row as Record<string, unknown>)[field])
+        : [(row as { id?: unknown }).id];
+      if (identity.some((value) => typeof value !== "string" || value.length === 0)) {
         errors.push(`Một dòng trong ${key} thiếu mã định danh.`);
       }
     }
