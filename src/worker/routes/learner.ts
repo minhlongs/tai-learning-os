@@ -16,6 +16,7 @@
 import type {
   FinalizeSessionResponse,
   LearnerHomeResponse,
+  LessonStepPayload,
   RequestHintResponse,
   StartSessionResponse,
   SubmitAttemptRequest,
@@ -24,12 +25,17 @@ import type {
 import type { Submission } from "../../shared/schemas/answer";
 import { clampHelp, hintFor } from "../../shared/schemas/answer";
 import { parseExercise } from "../../shared/schemas/exercise";
-import type { ExerciseSpec } from "../../shared/schemas/exercise";
+import { toLearnerExercise } from "../../shared/schemas/exercise";
 import type { LearnerRow } from "../db/schema";
 import * as repo from "../db/repositories";
 import { badRequest, forbidden, notFound, ok, readJsonBody, serverError } from "../http/response";
 import type { Handler, HandlerContext } from "../http/middleware";
-import { GuardError, loadStepContexts, recordAttemptWithDerivation } from "../services/session-service";
+import {
+  GuardError,
+  loadStepContexts,
+  recordAttemptWithDerivation,
+  type StepContext,
+} from "../services/session-service";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -211,7 +217,10 @@ export const startSession: Handler = async (context) => {
     return forbidden("Bài học này chưa được phụ huynh phê duyệt.");
   }
 
-  const steps = await loadStepContexts(context.env.DB, lesson.id);
+  // Checked before any session row is written, so a broken lesson leaves
+  // nothing behind to resume.
+  const steps = toStepPayloads(await loadStepContexts(context.env.DB, lesson.id));
+  if (!steps) return serverError();
 
   // Resume rather than duplicate: an unfinished session keeps its attempts.
   const existing = await repo.findInProgressSessionForLearner(context.env.DB, learner.id);
@@ -222,7 +231,7 @@ export const startSession: Handler = async (context) => {
         lessonId: lesson.id,
         lessonTitleVi: lesson.title_vi,
         subjectId: lesson.subject_id,
-        steps: steps.map(toStepPayload),
+        steps,
       });
     }
     // A different lesson is unfinished: close it out so only one is in progress.
@@ -260,7 +269,7 @@ export const startSession: Handler = async (context) => {
     lessonId: lesson.id,
     lessonTitleVi: lesson.title_vi,
     subjectId: lesson.subject_id,
-    steps: steps.map(toStepPayload),
+    steps,
   });
 };
 
@@ -451,15 +460,29 @@ export const finalizeSession: Handler = async (context) => {
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 
-/** A step as the client may see it: content only, never the answer key. */
-function toStepPayload(step: Awaited<ReturnType<typeof loadStepContexts>>[number]) {
-  return {
-    id: step.stepId,
-    position: step.position,
-    kind: step.kind,
-    content: step.content as ExerciseSpec,
-    explanationVi: null,
-  };
+/**
+ * Steps as the client may see them: content only, never the answer key.
+ *
+ * Null when any step's stored content no longer validates. That is a content
+ * bug, not something to show the learner part of: skipping the step would leave
+ * a gap in the sequence the learner cannot finish past.
+ */
+function toStepPayloads(steps: readonly StepContext[]): LessonStepPayload[] | null {
+  const payloads: LessonStepPayload[] = [];
+  for (const step of steps) {
+    if (!step.content) return null;
+    payloads.push({
+      id: step.stepId,
+      position: step.position,
+      kind: step.kind,
+      // The stored spec carries the answer because the grader needs it; this is
+      // the one place it crosses a boundary toward the browser, so it is
+      // stripped here rather than anywhere the client has to remember to do it.
+      content: toLearnerExercise(step.content),
+      explanationVi: null,
+    });
+  }
+  return payloads;
 }
 
 function tallyBySession(
@@ -494,6 +517,14 @@ function stateRank(state: LearnerHomeResponse["currentObjectives"][number]["stat
 /**
  * The school year a session belongs to, created on first use so teaching is
  * never blocked by an administrative row the parent has not entered yet.
+ *
+ * The lookup and the insert are deliberately not a single atomic step, because
+ * D1 has no INSERT-OR-IGNORE guarantee here that also returns the id. Two
+ * requests racing — a lesson screen mounts twice in React StrictMode, or a
+ * learner double-taps — both find nothing and both insert, and the unique
+ * constraint on (learner_id, label) rejects the loser. Losing that race is
+ * normal and harmless, so the row created by the winner is read back instead of
+ * failing the request.
  */
 async function resolveSchoolYear(context: HandlerContext, learner: LearnerRow): Promise<string | null> {
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -505,16 +536,25 @@ async function resolveSchoolYear(context: HandlerContext, learner: LearnerRow): 
   const year = Number(todayIso.slice(0, 4));
   const startedThisYear = Number(todayIso.slice(5, 7)) >= 8;
   const startYear = startedThisYear ? year : year - 1;
-  await repo.createSchoolYear(context.env.DB, {
-    id,
-    learnerId: learner.id,
-    label: `${startYear}-${startYear + 1}`,
-    startsOn: `${startYear}-09-01`,
-    endsOn: `${startYear + 1}-06-30`,
-    grade: learner.grade,
-    now,
-  });
-  return id;
+  const label = `${startYear}-${startYear + 1}`;
+
+  try {
+    await repo.createSchoolYear(context.env.DB, {
+      id,
+      learnerId: learner.id,
+      label,
+      startsOn: `${startYear}-09-01`,
+      endsOn: `${startYear + 1}-06-30`,
+      grade: learner.grade,
+      now,
+    });
+    return id;
+  } catch {
+    // Another request created this exact school year first. Its row is the one
+    // the school knows about, so the session joins it rather than erroring.
+    const raced = await repo.findActiveSchoolYear(context.env.DB, learner.id, todayIso);
+    return raced?.id ?? null;
+  }
 }
 
 /** Reject a submission whose shape does not match any known interaction. */

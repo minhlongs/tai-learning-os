@@ -23,13 +23,13 @@
  *     no animation reward. The screen shows what happened.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   StartSessionResponse,
   SubmitAttemptRequest,
   SubmitAttemptResponse,
 } from "../../../shared/api-contract";
-import type { ExerciseSpec } from "../../../shared/schemas/exercise";
+import type { LearnerExerciseSpec } from "../../../shared/schemas/exercise";
 import type { LessonStepKind } from "../../../shared/schemas/attempt";
 import type { Submission } from "../../../shared/schemas/answer";
 import { api, failureMessage } from "../../lib/api";
@@ -66,6 +66,43 @@ const EMPTY_STEP: StepState = {
 /** The five levels, in the product's fixed disclosure order. */
 const HINT_LEVELS = [1, 2, 3, 4] as const;
 
+/** In-flight or completed start-session requests, keyed by lesson id.
+ *
+ * Module-level on purpose: React StrictMode double-invokes effects in
+ * development, so the mount effect runs twice in quick succession and both
+ * invocations would otherwise POST a session for the same lesson. Which means a
+ * real HTTP request the moment the screen opens, and two concurrent ones race
+ * each other on the server for rows that are meant to be written once.
+ *
+ * Two properties matter and neither follows from the other:
+ *
+ *  - It caches the PROMISE, not a flag. A `Set` of issued lesson ids looks like
+ *    the same guard, but the first invocation's cleanup sets `live` false before
+ *    its response arrives, so the second invocation would skip the post AND find
+ *    nothing stored — the screen would load forever. The promise is shared, so
+ *    a later caller simply awaits the request that is already running.
+ *  - It caches FAILURES as a settled promise too, so a rejected attempt is not
+ *    replayed forever; the learner can retry by re-entering the lesson. */
+const startSessionFlights = new Map<string, Promise<StartSessionResponse>>();
+
+/** POST a session for `lessonId`, joining one already in flight. */
+function startSessionFlight(lessonId: string): Promise<StartSessionResponse> {
+  const existing = startSessionFlights.get(lessonId);
+  if (existing) return existing;
+
+  const flight = api
+    .post<StartSessionResponse>(endpoints.startSession, { lessonId })
+    .then((result) => {
+      if (result.ok) return result.value;
+      // Do not memoize a failure: a network blip must not pin the lesson shut
+      // for the rest of the browser session.
+      startSessionFlights.delete(lessonId);
+      throw new Error(failureMessage(result.failure));
+    });
+  startSessionFlights.set(lessonId, flight);
+  return flight;
+}
+
 export function LessonScreen({
   lessonId,
   onNavigate,
@@ -81,25 +118,19 @@ export function LessonScreen({
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
 
-  // Starting the session must happen exactly once per lesson. React StrictMode
-  // double-invokes effects in development, and a duplicate POST would create a
-  // second abandoned session row for the same lesson.
-  const started = useRef<string | null>(null);
-
   useEffect(() => {
     let live = true;
-    if (started.current === lessonId) return;
-    started.current = lessonId;
-    void api
-      .post<StartSessionResponse>(endpoints.startSession, { lessonId })
-      .then((result) => {
+    void startSessionFlight(lessonId)
+      .then((value) => {
         if (!live) return;
-        if (result.ok) {
-          setStart(result.value);
-          setError(null);
-        } else {
-          setError(failureMessage(result.failure));
-        }
+        setStart(value);
+        setError(null);
+      })
+      .catch((error: unknown) => {
+        if (!live) return;
+        // The flight rejects with an already-localised message, so this is a
+        // fallback for an unexpected throw rather than a second translation.
+        setError(error instanceof Error ? error.message : "Không mở được bài học.");
       });
     return () => {
       live = false;
@@ -133,6 +164,7 @@ export function LessonScreen({
           }
           // The server clamps and owns the text. We ask for `level`; we record
           // what came back, and the level we have reached is the max of both.
+          setError(null);
           patchStep(step.id, {
             helpLevel: Math.max(state.helpLevel, result.value.level),
             hints: result.value.hintVi ? [...state.hints, result.value.hintVi] : state.hints,
@@ -148,6 +180,7 @@ export function LessonScreen({
       setSubmitting(true);
       const body: SubmitAttemptRequest = {
         stepId: step.id,
+        sessionId: start.sessionId,
         submission,
         helpLevel: state.helpLevel,
       };
@@ -159,6 +192,7 @@ export function LessonScreen({
             setError(failureMessage(result.failure));
             return;
           }
+          setError(null);
           patchStep(step.id, {
             outcome: result.value.outcome,
             messageVi: result.value.messageVi,
@@ -170,7 +204,7 @@ export function LessonScreen({
     [patchStep, start, state.helpLevel, step],
   );
 
-  const canAdvance = state.outcome === "correct" || state.outcome === "partial";
+  const canAdvance = !submitting && (state.outcome === "correct" || state.outcome === "partial");
   const isLast = index >= steps.length - 1;
 
   const onFinish = useCallback(() => {
@@ -230,8 +264,19 @@ export function LessonScreen({
               <h2 className="lesson-card__question" id="step-question">
                 {questionOf(step.content)}
               </h2>
-              <ExerciseBody exercise={step.content} onAnswer={onAnswer} disabled={submitting} />
+              <ExerciseBody
+                key={step.id}
+                exercise={step.content}
+                onAnswer={onAnswer}
+                disabled={submitting}
+              />
             </section>
+
+            {error ? (
+              <p className="lesson-error" role="alert">
+                {error}
+              </p>
+            ) : null}
 
             <HintTray
               levels={HINT_LEVELS}
@@ -240,12 +285,17 @@ export function LessonScreen({
               onRequest={onRequestHint}
             />
 
-            {state.messageVi ? (
+            {!submitting && state.messageVi ? (
               <section
                 className={`lesson-feedback lesson-feedback--${state.outcome ?? "incorrect"}`}
                 role="status"
                 aria-live="polite"
                 data-testid="attempt-feedback"
+                /* The graded outcome, in the DOM rather than only in the copy.
+                   The message text is chosen per outcome and reworded per
+                   exercise type, so matching Vietnamese strings to recover the
+                   outcome would make every consumer a translator. */
+                data-outcome={state.outcome ?? "incorrect"}
               >
                 <p className="lesson-feedback__message">{state.messageVi}</p>
                 <p className="lesson-feedback__meta">
@@ -271,7 +321,7 @@ export function LessonScreen({
               >
                 ← Bước trước
               </button>
-  {isLast ? (
+              {isLast ? (
                 <button
                   type="button"
                   className="btn btn--primary"
@@ -330,7 +380,7 @@ function stepKindLabel(kind: LessonStepKind): string {
  * the mapping is written out per case so that adding a type without a question
  * is a compile error rather than an empty heading.
  */
-function questionOf(exercise: ExerciseSpec): string {
+function questionOf(exercise: LearnerExerciseSpec): string {
   switch (exercise.type) {
     case "fraction_visual":
       return exercise.question_vi;

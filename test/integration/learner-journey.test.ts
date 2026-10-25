@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getPlatformProxy } from "wrangler";
+import { leaksAnswer } from "../../src/shared/schemas/exercise";
 import { resetData } from "./reset-data";
 
 /**
@@ -166,6 +167,41 @@ describe("lesson approval gates learner access", () => {
   });
 });
 
+describe("the answer key never crosses the wire", () => {
+  it("sends no answer for any step of any lesson", async () => {
+    const lessonIds = await approveEveryLesson();
+    // Precondition on the fixture, not on the code under test: a library where
+    // no step carries an answer cannot prove anything about stripping it.
+    const stored = await storedContents();
+    expect(stored.length, "the library must hold steps").toBeGreaterThan(0);
+    const answerBearing = stored.filter((content) => leaksAnswer(content));
+    expect(answerBearing.length, "the stored content must carry answers to strip")
+      .toBe(stored.length);
+
+    for (const lessonId of lessonIds) {
+      const response = await call("/api/learner/sessions", {
+        method: "POST",
+        json: { lessonId },
+      });
+      expect(response.status, `open ${lessonId}`).toBe(200);
+
+      const body = (await response.json()) as StartSessionResponse;
+      expect(body.steps.length, `${lessonId} must teach a real sequence`).toBeGreaterThan(0);
+
+      for (const step of body.steps) {
+        // No step may carry an answer, and none may leak one through the choices
+        // array. The assertion walks the payload rather than checking a flat
+        // key, so an answer nested inside a rebuilt object still fails.
+        expect(leaksAnswer(step.content), `${lessonId} step ${step.id} leaked an answer`)
+          .toBe(false);
+        // The explanation is unlocked by a correct answer, not by opening the
+        // lesson: it is null here because nothing has been solved yet.
+        expect(step.explanationVi).toBeNull();
+      }
+    }
+  });
+});
+
 describe("attempts are persisted and stay honest", () => {
   it("records a wrong answer, then the correct one, and keeps both", async () => {
     const lessons = await (await call("/api/parent/lessons")).json() as {
@@ -272,10 +308,37 @@ type StartSessionResponse = {
   sessionId: string;
   lessonId: string;
   lessonTitleVi: string;
-  steps: { id: string; kind: string; content: unknown; explanationVi: string | null }[];
+  steps: {
+    id: string;
+    kind: string;
+    content: unknown;
+    explanationVi: string | null;
+  }[];
 };
 
 /* ── fixtures ─────────────────────────────────────────────────────────────── */
+
+/** Every lesson id in the library, with each one approved for the learner. */
+async function approveEveryLesson(): Promise<string[]> {
+  const lessons = await (await call("/api/parent/lessons")).json() as {
+    lessons: { id: string }[];
+  };
+  for (const lesson of lessons.lessons) {
+    const approved = await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId: lesson.id, status: "approved" },
+    });
+    expect(approved.status, `approve ${lesson.id}`).toBe(200);
+  }
+  return lessons.lessons.map((lesson) => lesson.id);
+}
+
+/** Exercise types as stored, read from the database rather than the payload. */
+async function storedContents(): Promise<unknown[]> {
+  const rows = await env.DB.prepare("select content from lesson_steps")
+    .all<{ content: string }>();
+  return rows.results.map((row) => JSON.parse(row.content) as unknown);
+}
 
 /** The answer key for a step, read from the database rather than the payload. */
 async function answerKeyFor(stepId: string): Promise<string | null> {

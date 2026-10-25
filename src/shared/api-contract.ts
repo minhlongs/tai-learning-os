@@ -12,7 +12,7 @@
  */
 
 import type { ApprovalStatus, CompetencyState, SessionStatus } from "./schemas/attempt";
-import type { ExerciseSpec } from "./schemas/exercise";
+import type { ExerciseSpec, LearnerExerciseSpec } from "./schemas/exercise";
 import type { LessonStepKind } from "./schemas/attempt";
 
 /** Returned by GET /api/session and by every authenticated response. */
@@ -88,7 +88,7 @@ export type LessonStepPayload = {
   id: string;
   position: number;
   kind: LessonStepKind;
-  content: ExerciseSpec;
+  content: LearnerExerciseSpec;
   /** Explanation is withheld until the step is completed. */
   explanationVi: string | null;
 };
@@ -98,6 +98,11 @@ export type RequestHintResponse = { level: number; hintVi: string | null };
 
 export type SubmitAttemptRequest = {
   stepId: string;
+  /**
+   * The session the attempt belongs to, sent so the server can bind it to rows
+   * it already owns rather than to whichever session it can find.
+   */
+  sessionId: string;
   submission:
     | { kind: "choice"; choiceId: string }
     | { kind: "fraction"; numerator: number; denominator: number }

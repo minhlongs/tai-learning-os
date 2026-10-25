@@ -84,6 +84,126 @@ export type ExerciseSpec =
   | ReadingComprehensionSpec
   | MultipleChoiceSpec;
 
+/* ── The learner-facing view ─────────────────────────────────────────────────
+ *
+ * The specs above are the AUTHORING shape: they are validated against parent
+ * input and JSON import, and they legitimately contain the answer, because the
+ * grader needs it. The child never receives them.
+ *
+ * These view types are the same shapes with every answer-bearing field removed
+ * by construction. `LearnerExerciseSpec` deliberately has no `correct`, no
+ * `correctNumerator`/`correctDenominator`, and no `evidenceSentence_vi`, so a
+ * mistake in the serialising code cannot leak them: there is nowhere to put the
+ * value. This is a type-level guard on top of the runtime strip, not a
+ * replacement for it — the strip is what actually runs, and a test asserts the
+ * wire carries no answer.
+ */
+
+export type LearnerFractionVisualSpec = Omit<
+  FractionVisualSpec,
+  "correctDenominator" | "correctNumerator"
+>;
+
+/** The picture and the words, minus which word is right and the accepted
+ * sentence vocabulary — the sentence is graded on the server. */
+export type LearnerVocabMatchSpec = {
+  type: "vocab_match";
+  question_vi: string;
+  word: string;
+  image: VocabMatchSpec["image"];
+  choices: { id: string; label_en: string; label_vi: string }[];
+  sentencePrompt_vi: string;
+};
+
+/** A choice as the learner sees it: the label only, never its correctness. */
+export type LearnerChoice = { id: string; label_vi: string };
+
+export type LearnerReadingComprehensionSpec = {
+  type: "reading_comprehension";
+  passage_vi: string;
+  passageTitle_vi: string;
+  question_vi: string;
+  choices: LearnerChoice[];
+};
+
+export type LearnerMultipleChoiceSpec = {
+  type: "multiple_choice";
+  question_vi: string;
+  question_en?: string;
+  choices: LearnerChoice[];
+  hint1_vi: string;
+  hint2_vi: string;
+  hint3_vi: string;
+};
+
+export type LearnerExerciseSpec =
+  | LearnerFractionVisualSpec
+  | LearnerVocabMatchSpec
+  | LearnerReadingComprehensionSpec
+  | LearnerMultipleChoiceSpec;
+
+/** Keys that must never appear in a payload the learner receives. */
+const ANSWER_BEARING_KEYS = [
+  "correct",
+  "correctDenominator",
+  "correctNumerator",
+  "correctChoiceId",
+  "evidenceSentence_vi",
+  "sentenceAcceptedWords",
+] as const;
+
+/**
+ * Strip the answer key from a stored exercise, producing the learner view.
+ *
+ * This is the runtime half of the guard: the learner types make it impossible
+ * to type an answer back in, and this function is what removes it on the way
+ * out. Choices are rebuilt rather than mapped, so a `correct` field cannot
+ * survive by being left behind in an untouched object.
+ */
+export function toLearnerExercise(spec: ExerciseSpec): LearnerExerciseSpec {
+  switch (spec.type) {
+    case "fraction_visual": {
+      const { correctDenominator, correctNumerator, ...rest } = spec;
+      void correctDenominator;
+      void correctNumerator;
+      return { ...rest, type: "fraction_visual" };
+    }
+    case "vocab_match": {
+      const { sentenceAcceptedWords, ...rest } = spec;
+      void sentenceAcceptedWords;
+      return {
+        ...rest,
+        type: "vocab_match",
+        choices: spec.choices.map(({ id, label_en, label_vi }) => ({ id, label_en, label_vi })),
+      };
+    }
+    case "reading_comprehension": {
+      const { evidenceSentence_vi, ...rest } = spec;
+      void evidenceSentence_vi;
+      return {
+        ...rest,
+        type: "reading_comprehension",
+        choices: spec.choices.map(({ id, label_vi }) => ({ id, label_vi })),
+      };
+    }
+    case "multiple_choice":
+      return {
+        ...spec,
+        type: "multiple_choice",
+        choices: spec.choices.map(({ id, label_vi }) => ({ id, label_vi })),
+      };
+  }
+}
+
+/** True when a payload the learner receives still carries an answer. */
+export function leaksAnswer(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(leaksAnswer);
+  if (typeof value !== "object" || value === null) return false;
+  return (Object.keys(value) as readonly string[]).some(
+    (key) => ANSWER_BEARING_KEYS.includes(key as (typeof ANSWER_BEARING_KEYS)[number]) || leaksAnswer((value as Record<string, unknown>)[key]),
+  );
+}
+
 export const EXERCISE_TYPES = [
   "fraction_visual",
   "vocab_match",

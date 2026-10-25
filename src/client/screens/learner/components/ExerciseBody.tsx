@@ -19,7 +19,7 @@
  */
 
 import { useState } from "react";
-import type { ExerciseSpec } from "../../../../shared/schemas/exercise";
+import type { LearnerExerciseSpec } from "../../../../shared/schemas/exercise";
 import type { Submission } from "../../../../shared/schemas/answer";
 import { VocabPicture } from "./VocabPicture";
 
@@ -37,7 +37,12 @@ export function ExerciseBody({
   onAnswer,
   disabled,
 }: {
-  exercise: ExerciseSpec;
+  /**
+   * The learner view, never the authoring spec: this component does not know the
+   * answer, and its type is what makes that structurally true rather than a
+   * promise in a comment.
+   */
+  exercise: LearnerExerciseSpec;
   onAnswer: (submission: Submission) => void;
   disabled: boolean;
 }): React.JSX.Element {
@@ -59,7 +64,7 @@ function FractionBody({
   onAnswer,
   disabled,
 }: {
-  exercise: Extract<ExerciseSpec, { type: "fraction_visual" }>;
+  exercise: Extract<LearnerExerciseSpec, { type: "fraction_visual" }>;
   onAnswer: (submission: Submission) => void;
   disabled: boolean;
 }): React.JSX.Element {
@@ -156,7 +161,7 @@ function VocabBody({
   onAnswer,
   disabled,
 }: {
-  exercise: Extract<ExerciseSpec, { type: "vocab_match" }>;
+  exercise: Extract<LearnerExerciseSpec, { type: "vocab_match" }>;
   onAnswer: (submission: Submission) => void;
   disabled: boolean;
 }): React.JSX.Element {
@@ -232,7 +237,7 @@ function ChoiceBody({
   onAnswer,
   disabled,
 }: {
-  exercise: Extract<ExerciseSpec, { type: "reading_comprehension" | "multiple_choice" }>;
+  exercise: Extract<LearnerExerciseSpec, { type: "reading_comprehension" | "multiple_choice" }>;
   onAnswer: (submission: Submission) => void;
   disabled: boolean;
 }): React.JSX.Element {
