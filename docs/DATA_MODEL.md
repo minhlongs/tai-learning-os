@@ -125,10 +125,9 @@ The `actor` vocabulary (`parent:<id>` | `system` | `learner:<id>`) means an even
 always names *which kind of principal* acted, so a parent correcting a record can
 be distinguished from the system deriving one.
 
-> **⚠ Not yet implemented.** No code writes to `audit_events` today.
-> `src/worker/`, `src/shared/content/`, and the session/approval endpoints that
-> would emit these events do not exist yet. The table, its CHECK constraints, and
-> its indexes are in place; the writers are planned.
+> **Status: Implemented.** `repo.recordAudit` in `src/worker/db/repositories.ts` writes
+> audit records for parent logins, learner enrollment, lesson approvals, data exports,
+> imports, and learner deletion cascades.
 
 ---
 
@@ -182,10 +181,10 @@ The full minimization table, and the controls that keep these fields out, are in
   database it describes. A row is the database's own statement about itself, and
   a new migration is where it changes.
 
-> **⚠ Not yet implemented.** `schema_versions` is **written** by migration 0002
-> and read by **no code today**. `scripts/export-learner.mjs` and the import path
-> do not exist. The version-compatibilty check that this table exists to support
-> is planned, not built. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §4.5.
+> **Status: Implemented.** `scripts/export-learner.mjs` and `/api/data/export` emit
+> `schemaVersions` and `formatVersion: 1` (`TRANSFER_FORMAT_VERSION`), and
+> `/api/data/import` validates incoming envelopes via `validateExportEnvelope` in
+> `src/shared/schemas/transfer.ts`.
 
 ---
 
@@ -265,9 +264,9 @@ TypeScript (`src/shared/content/`) so they can be typechecked and unit-tested, a
 are inserted at runtime by the seed script because their content payload must
 match the exercise schema exactly.
 
-> **⚠ Planned.** `src/shared/content/` and `migrations/seed/0002_demo_learner.sql`
-> do not exist yet. The catalogue above is what the migration installs; no lesson
-> rows exist in the database until the content module and seed script are built.
+> **Status: Implemented.** Lessons live in `src/shared/content/` and are seeded into
+> local D1 via `npm run seed:demo` (`scripts/seed-lessons.mjs` calling `seedLessons`
+> in `test/integration/lesson-seed.ts`).
 
 ---
 
