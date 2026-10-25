@@ -316,6 +316,80 @@ describe("attempts are persisted and stay honest", () => {
     expect(storedAttempt?.help_level).toBe(3);
     expect(storedAttempt?.evidence_kind).toBe("assisted");
   });
+
+  it("prevents client from spoofing helpLevel 0 after server-side hint level 1 or 2 disclosure and keeps competency at SUPPORTED", async () => {
+    const lessons = await (await call("/api/parent/lessons")).json() as {
+      lessons: { id: string }[];
+    };
+    const lessonId = lessons.lessons[0]!.id;
+
+    await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, status: "approved" },
+    });
+
+    const session = await (await call("/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId },
+    })).json() as StartSessionResponse;
+
+    const step0Id = session.steps[0]!.id;
+    const key0 = await answerKeyFor(step0Id);
+
+    // Step 1: Learner requests hint level 1, then spoofs helpLevel: 0
+    await call("/api/learner/hints", {
+      method: "POST",
+      json: { stepId: step0Id, currentLevel: 1, sessionId: session.sessionId },
+    });
+    const res0 = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: session.sessionId,
+        stepId: step0Id,
+        submission: { kind: "choice", choiceId: key0! },
+        helpLevel: 0,
+      },
+    });
+    expect(res0.status).toBe(200);
+    const ev0 = await env.DB.prepare(
+      "select state from skill_evidence where learner_id = (select learner_id from learning_sessions where id = ?)",
+    )
+      .bind(session.sessionId)
+      .first<{ state: string }>();
+    expect(ev0?.state).toBe("SUPPORTED");
+
+    // Step 4 (guided multiple_choice): Learner submits with helpLevel: 2
+    const step3Id = session.steps[3]!.id;
+    const key3 = await answerKeyFor(step3Id);
+    const res3 = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: session.sessionId,
+        stepId: step3Id,
+        submission: { kind: "choice", choiceId: key3! },
+        helpLevel: 2,
+      },
+    });
+    expect(res3.status).toBe(200);
+    // Even with 2 correct answers (helpLevel 1 and helpLevel 2), state MUST stay SUPPORTED, never INDEPENDENT
+    const ev3 = await env.DB.prepare(
+      "select state from skill_evidence where learner_id = (select learner_id from learning_sessions where id = ?)",
+    )
+      .bind(session.sessionId)
+      .first<{ state: string }>();
+    expect(ev3?.state).toBe("SUPPORTED");
+
+    const storedAttempts = await env.DB.prepare(
+      "select help_level, evidence_kind from learning_attempts where session_id = ? order by created_at asc",
+    )
+      .bind(session.sessionId)
+      .all<{ help_level: number; evidence_kind: string }>();
+
+    expect(storedAttempts.results).toEqual([
+      { help_level: 1, evidence_kind: "assisted" },
+      { help_level: 2, evidence_kind: "assisted" },
+    ]);
+  });
 });
 
 describe("restart recovery — data survives the process that wrote it", () => {

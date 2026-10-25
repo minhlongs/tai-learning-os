@@ -17,9 +17,9 @@ export type AppShellProps = {
   onLogout: () => void;
   /** Which nav links to show; the learner area has no parent navigation. */
   area: "learner" | "parent";
+  mode?: "parent" | "learner" | null;
+  onEnterChildMode?: () => void;
 };
-
-import "./TopBar.css";
 
 export function AppShell({
   parentName,
@@ -28,6 +28,8 @@ export function AppShell({
   onNavigate,
   onLogout,
   area,
+  mode,
+  onEnterChildMode,
 }: AppShellProps): React.JSX.Element {
   return (
     <div className="app">
@@ -50,7 +52,7 @@ export function AppShell({
                 className="btn btn--ghost"
                 onClick={() => onNavigate("/parent")}
               >
-                Khu phụ huynh
+                {mode === "learner" ? "Khu phụ huynh (cần mật khẩu)" : "Khu phụ huynh"}
               </button>
             </>
           ) : (
@@ -79,6 +81,16 @@ export function AppShell({
               <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/")}>
                 Trang học tập
               </button>
+              {onEnterChildMode ? (
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={onEnterChildMode}
+                  data-testid="enter-child-mode"
+                >
+                  Giao máy cho bé
+                </button>
+              ) : null}
             </>
           )}
         </nav>
@@ -86,6 +98,7 @@ export function AppShell({
         <span className="topbar__who">
           {parentName ? `Phụ huynh: ${parentName}` : "Chưa đăng nhập"}
           {learnerNickname ? ` · Bé: ${learnerNickname}` : ""}
+          {mode === "learner" ? " · Chế độ của bé" : ""}
         </span>
 
         <button

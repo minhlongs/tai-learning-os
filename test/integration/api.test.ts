@@ -228,7 +228,7 @@ describe("authorization — the protected surface is closed", () => {
     expect(response.status).toBe(403);
   });
 
-  it("enforces rate limiting per client bucket without random requestId bypass", async () => {
+  it("enforces rate limiting per client bucket without random requestId bypass or User-Agent/Accept-Language rotation bypass", async () => {
     let calls = 0;
     const keys: string[] = [];
     const mockLimiter = {
@@ -238,29 +238,29 @@ describe("authorization — the protected surface is closed", () => {
         return { success: calls <= 2 };
       },
     };
-    const makeLoginReq = () =>
+    const makeLoginReq = (ua: string, lang: string) =>
       new Request(`${ORIGIN}/api/session/login`, {
         method: "POST",
         headers: {
           origin: ORIGIN,
-          "user-agent": "rate-limit-test-agent/1.0",
-          "accept-language": "vi-VN",
+          "user-agent": ua,
+          "accept-language": lang,
           "content-type": "application/json",
         },
         body: JSON.stringify({ displayName: DISPLAY_NAME, password: "wrong" }),
       });
 
-    const r1 = await worker.fetch(makeLoginReq(), {
+    const r1 = await worker.fetch(makeLoginReq("agent-1", "vi-VN"), {
       ...env,
       SESSION_SECRET: TEST_SECRET,
       AUTH_RATE_LIMITER: mockLimiter,
     } as never);
-    const r2 = await worker.fetch(makeLoginReq(), {
+    const r2 = await worker.fetch(makeLoginReq("agent-2-rotated", "en-US"), {
       ...env,
       SESSION_SECRET: TEST_SECRET,
       AUTH_RATE_LIMITER: mockLimiter,
     } as never);
-    const r3 = await worker.fetch(makeLoginReq(), {
+    const r3 = await worker.fetch(makeLoginReq("agent-3-spoofed", "fr-FR"), {
       ...env,
       SESSION_SECRET: TEST_SECRET,
       AUTH_RATE_LIMITER: mockLimiter,
@@ -269,9 +269,106 @@ describe("authorization — the protected surface is closed", () => {
     expect(r1.status).toBe(401);
     expect(r2.status).toBe(401);
     expect(r3.status).toBe(429);
-    // Keys must be identical across requests for the same client (no random requestId prefix)
+    // Keys must be identical across requests even when User-Agent and Accept-Language rotate
     expect(keys).toHaveLength(3);
     expect(keys[0]).toBe(keys[1]);
     expect(keys[1]).toBe(keys[2]);
+  });
+});
+
+describe("privilege boundary — child mode (mode: 'learner') vs parent mode (mode: 'parent')", () => {
+  it("blocks all /api/parent/* and /api/data/* routes with 403 while in child mode, and unlocks them only after password verification", async () => {
+    const loginRes = await login(PASSWORD);
+    expect(loginRes.status).toBe(200);
+    const loginInfo = (await loginRes.json()) as { mode?: string };
+    expect(loginInfo.mode).toBe("parent");
+
+    // In parent mode, /api/parent/dashboard succeeds
+    const dashBefore = await call("/api/parent/dashboard");
+    expect(dashBefore.status).toBe(200);
+
+    // Switch session to child mode (mode: "learner")
+    const switchChildRes = await call("/api/session/mode", {
+      method: "POST",
+      json: { mode: "learner" },
+    });
+    expect(switchChildRes.status).toBe(200);
+    absorbSession(switchChildRes);
+    const childInfo = (await switchChildRes.json()) as { csrfToken: string; mode: string };
+    expect(childInfo.mode).toBe("learner");
+    jar.csrf = childInfo.csrfToken;
+
+    // Learner routes continue to work in child mode
+    const subjectsRes = await call("/api/learner/subjects");
+    expect(subjectsRes.status).toBe(200);
+
+    // Every parent and data control route MUST return 403 Forbidden in child mode
+    const forbiddenChecks = [
+      await call("/api/parent/dashboard"),
+      await call("/api/parent/lessons"),
+      await call("/api/parent/lessons/math-rect-area"),
+      await call("/api/parent/lessons/approval", {
+        method: "POST",
+        json: { lessonId: "math-rect-area", status: "approved" },
+      }),
+      await call("/api/parent/lessons/content", {
+        method: "POST",
+        json: { lessonId: "math-rect-area", titleVi: "Hack" },
+      }),
+      await call("/api/parent/skills/correct", {
+        method: "POST",
+        json: { learnerId: "any", skillId: "any", targetState: "INDEPENDENT", reason: "test reason long enough" },
+      }),
+      await call("/api/parent/learners", {
+        method: "POST",
+        json: { nickname: "Bé 2", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+      }),
+      await call("/api/parent/learners/profile", {
+        method: "PATCH",
+        json: { learnerId: "any", nickname: "Bé 2", grade: 4 },
+      }),
+      await call("/api/data/export", { method: "POST", json: {} }),
+      await call("/api/data/import", { method: "POST", json: {} }),
+      await call("/api/data/learner", {
+        method: "DELETE",
+        json: { learnerId: "any", confirmation: "XOA Tài" },
+      }),
+    ];
+
+    for (const response of forbiddenChecks) {
+      expect(response.status).toBe(403);
+    }
+
+    // Attempting to re-enter parent mode WITHOUT password fails with 400
+    const unlockNoPw = await call("/api/session/mode", {
+      method: "POST",
+      json: { mode: "parent" },
+    });
+    expect(unlockNoPw.status).toBe(400);
+
+    // Attempting to re-enter parent mode with WRONG password fails with 403
+    const unlockWrongPw = await call("/api/session/mode", {
+      method: "POST",
+      json: { mode: "parent", password: "WrongPassword12345" },
+    });
+    expect(unlockWrongPw.status).toBe(403);
+
+    // Still locked in child mode
+    expect((await call("/api/parent/dashboard")).status).toBe(403);
+
+    // Unlocking with CORRECT password restores parent mode
+    const unlockOk = await call("/api/session/mode", {
+      method: "POST",
+      json: { mode: "parent", password: PASSWORD },
+    });
+    expect(unlockOk.status).toBe(200);
+    absorbSession(unlockOk);
+    const parentInfo = (await unlockOk.json()) as { csrfToken: string; mode: string };
+    expect(parentInfo.mode).toBe("parent");
+    jar.csrf = parentInfo.csrfToken;
+
+    // Parent routes now succeed again
+    expect((await call("/api/parent/dashboard")).status).toBe(200);
+    expect((await call("/api/parent/lessons")).status).toBe(200);
   });
 });

@@ -102,8 +102,8 @@ The ladder as documented in `competency.ts`:
 | State | Meaning | `describeState` (shown to the parent) |
 |---|---|---|
 | `NOT_OBSERVED` | No independent solve recorded. | Chưa quan sát được |
-| `SUPPORTED` | Reached the answer **with help at level 3+**. | Làm được khi có hỗ trợ |
-| `INDEPENDENT` | Solved with **no more than a small hint**. | Tự làm được |
+| `SUPPORTED` | Reached the answer **with any hint (`helpLevel >= 1`) or retry (`attemptNo > 1`)**. | Làm được khi có hỗ trợ |
+| `INDEPENDENT` | Solved **on the first attempt (`attemptNo === 1`) with zero hints (`helpLevel === 0`) and `evidenceKind === "observed"`**. | Tự làm được |
 | `RETAINED` | Solved independently again **after a scheduled review**. | Nhớ được sau thời gian ôn |
 | `TRANSFERRED` | Solved a **transfer** question independently. | Áp dụng được vào tình huống mới |
 
@@ -111,18 +111,18 @@ The ladder as documented in `competency.ts`:
 
 ```ts
 export const COMPETENCY_CONFIG = {
-  /** Correct attempts with help_level <= SMALL_HINT needed for INDEPENDENT. */
+  /** Correct attempts with help_level === 0 needed for INDEPENDENT. */
   independentMinCorrect: 2,
-  /** Attempts at or below this help level count as "small hint". */
-  smallHint: 2,
+  /** Only zero-hint attempts count toward independent mastery. */
+  smallHint: 0,
   /** An independent solve after a *scheduled* review earns RETAINED. */
   retainedRequiresScheduledReview: true,
 } as const;
 ```
 
 Three values. `independentMinCorrect: 2` is what stops a single lucky guess
-establishing mastery. `smallHint: 2` defines the boundary — level 0, 1 and 2 all
-count as "small"; 3 and 4 do not. `retainedRequiresScheduledReview` is a
+establishing mastery. `smallHint: 0` enforces the strict boundary — only `helpLevel === 0`
+counts as independent; any hint usage (`1`, `2`, `3`, `4`) or repeat attempt (`attemptNo > 1`) is classified as `assisted` (`SUPPORTED`). `retainedRequiresScheduledReview` is a
 documented intent; the derivation reads it through `isReview`, which
 `scheduleReview` does not itself set.
 

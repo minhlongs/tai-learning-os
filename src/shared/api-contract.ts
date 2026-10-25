@@ -22,6 +22,14 @@ export type SessionInfo = {
   /** Learner the parent manages, or null when none is enrolled yet. */
   learner: { id: string; nickname: string } | null;
   csrfToken: string | null;
+  /** Active privilege boundary: "parent" unlocks parent/data routes; "learner" restricts to learner routes. */
+  mode?: "parent" | "learner" | null;
+};
+
+export type SwitchSessionModeRequest = {
+  mode: "parent" | "learner";
+  /** Required when switching to "parent" mode. */
+  password?: string;
 };
 
 // --- Learner home -----------------------------------------------------------

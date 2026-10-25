@@ -55,7 +55,7 @@ export type ProtectedRoute = {
   method: string;
   pattern: RegExp;
   handler: Handler;
-  kind: "protected";
+  kind: "protected" | "parent";
 };
 
 /** Unauthenticated by design. Receives no parent context. */
@@ -70,6 +70,11 @@ export type Route = ProtectedRoute | PublicRoute;
 
 export function protectedRoute(method: string, pattern: RegExp, handler: Handler): ProtectedRoute {
   return { method, pattern, handler, kind: "protected" };
+}
+
+/** Behind authentication AND parent privilege mode (`mode !== "learner"`). */
+export function parentRoute(method: string, pattern: RegExp, handler: Handler): ProtectedRoute {
+  return { method, pattern, handler, kind: "parent" };
 }
 
 export function publicRoute(
@@ -131,7 +136,7 @@ export async function dispatch(
   // Rate limiting, per actor bucket.
   const limiter = pickLimiter(env, path);
   if (limiter) {
-    const key = clientKey(request);
+    const key = clientKey(request, path);
     const { success } = await limiter.limit({ key });
     if (!success) {
       return rateLimited();
@@ -145,6 +150,10 @@ export async function dispatch(
   const parent = await authenticate(request, env);
   if (!parent.ok) {
     return unauthorized();
+  }
+
+  if (match.kind === "parent" && parent.parent.claims.mode === "learner") {
+    return forbidden("Khu vực này dành riêng cho phụ huynh. Vui lòng xác nhận mật khẩu phụ huynh.");
   }
 
   if (!SAFE_METHODS.has(method)) {
@@ -211,8 +220,12 @@ function readCookie(header: string | null, name: string): string | null {
 }
 
 function pickLimiter(env: AppEnv, path: string): { limit: (opts: { key: string }) => Promise<{ success: boolean }> } | null {
-  if (path === "/api/session/login" || path === "/api/session/bootstrap") {
-    return env.AUTH_RATE_LIMITER ?? null;
+  if (
+    path === "/api/session/login" ||
+    path === "/api/session/bootstrap" ||
+    path === "/api/session/mode"
+  ) {
+    return null; // Rate limiting on auth endpoints is applied strictly on failed verification in session.ts
   }
   if (path.startsWith("/api/")) {
     return env.API_RATE_LIMITER ?? null;
@@ -221,14 +234,35 @@ function pickLimiter(env: AppEnv, path: string): { limit: (opts: { key: string }
 }
 
 /**
- * A coarse, privacy-preserving client key. Deliberately NOT the IP: an IP is
- * personal data, and for a single-parent app it identifies a household. The
- * rate limiter needs a bucket, not an identity.
+ * A coarse, privacy-preserving client key. Deliberately NOT the raw IP in logs/DB:
+ * for auth endpoints (`/api/session/login`, `/api/session/bootstrap`, `/api/session/mode`),
+ * we bucket by a fixed auth namespace (`auth:<hash32(ip)>`) rather than `User-Agent`
+ * or `Accept-Language`, so an attacker cannot bypass brute-force throttling by rotating
+ * request headers.
  */
-function clientKey(request: Request): string {
+export function authClientKey(request: Request): string {
+  const ip =
+    request.headers.get("cf-connecting-ip") ??
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "local";
+  return `auth:${hash32(ip)}`;
+}
+
+function clientKey(request: Request, path: string): string {
+  if (
+    path === "/api/session/login" ||
+    path === "/api/session/bootstrap" ||
+    path === "/api/session/mode"
+  ) {
+    return authClientKey(request);
+  }
+  const ip =
+    request.headers.get("cf-connecting-ip") ??
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "local";
   const ua = request.headers.get("user-agent") ?? "unknown";
   const lang = request.headers.get("accept-language") ?? "";
-  return `${ua.length}:${lang.length}:${hash32(ua + lang)}`;
+  return `api:${hash32(ip)}:${ua.length}:${lang.length}:${hash32(ua + lang)}`;
 }
 
 function hash32(value: string): string {

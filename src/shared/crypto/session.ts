@@ -32,6 +32,8 @@ export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 export const SESSION_COOKIE_NAME = "tlo_session";
 export const CSRF_HEADER_NAME = "x-tlo-csrf";
 
+export type SessionMode = "parent" | "learner";
+
 export type SessionClaims = {
   parentId: string;
   /** Display name, carried so the UI can greet without an extra round trip. */
@@ -40,6 +42,8 @@ export type SessionClaims = {
   expiresAt: number;
   /** Token id, so a token can be described in audit events without a secret. */
   tokenId: string;
+  /** Privilege mode: "parent" unlocks /api/parent/* and /api/data/*; "learner" restricts to /api/learner/*. */
+  mode?: SessionMode;
 };
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -67,13 +71,17 @@ const FIELD_SEP = ".";
 const ESCAPED_SEP = "%2E";
 
 function claimsToBytes(claims: SessionClaims): Uint8Array {
-  const fields = [
+  const baseFields = [
     claims.parentId,
     claims.parentDisplayName,
     String(claims.issuedAt),
     String(claims.expiresAt),
     claims.tokenId,
-  ].map((field) => field.split(FIELD_SEP).join(ESCAPED_SEP));
+  ];
+  if (claims.mode === "learner") {
+    baseFields.push("learner");
+  }
+  const fields = baseFields.map((field) => field.split(FIELD_SEP).join(ESCAPED_SEP));
   return ENCODER.encode(fields.join(FIELD_SEP));
 }
 
@@ -83,11 +91,19 @@ export async function createSessionToken(
   parentId: string,
   displayName: string,
   nowMs: number,
+  mode: SessionMode = "parent",
 ): Promise<string> {
   const issuedAt = nowMs;
   const expiresAt = nowMs + SESSION_TTL_MS;
   const tokenId = crypto.randomUUID();
-  const claims: SessionClaims = { parentId, parentDisplayName: displayName, issuedAt, expiresAt, tokenId };
+  const claims: SessionClaims = {
+    parentId,
+    parentDisplayName: displayName,
+    issuedAt,
+    expiresAt,
+    tokenId,
+    mode,
+  };
   const key = await hmacKey(secret);
   const signature = new Uint8Array(
     await crypto.subtle.sign("HMAC", key, asBufferSource(claimsToBytes(claims))),
@@ -140,14 +156,14 @@ function decodeClaims(payloadPart: string): SessionClaims | null {
   try {
     const raw = new TextDecoder().decode(bytes);
     const parts = raw.split(FIELD_SEP);
-    if (parts.length !== 5) return null;
-    const [parentId, parentDisplayName, issuedAt, expiresAt, tokenId] = parts as [
-      string,
-      string,
-      string,
-      string,
-      string,
-    ];
+    if (parts.length !== 5 && parts.length !== 6) return null;
+    const parentId = parts[0]!;
+    const parentDisplayName = parts[1]!;
+    const issuedAt = parts[2]!;
+    const expiresAt = parts[3]!;
+    const tokenId = parts[4]!;
+    const modePart = parts[5];
+    if (parts.length === 6 && modePart !== "learner") return null;
     const issued = Number.parseInt(issuedAt, 10);
     const expires = Number.parseInt(expiresAt, 10);
     if (!Number.isFinite(issued) || !Number.isFinite(expires)) return null;
@@ -158,6 +174,7 @@ function decodeClaims(payloadPart: string): SessionClaims | null {
       issuedAt: issued,
       expiresAt: expires,
       tokenId,
+      mode: modePart === "learner" ? "learner" : "parent",
     };
   } catch {
     return null;

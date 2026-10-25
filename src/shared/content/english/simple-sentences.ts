@@ -76,7 +76,7 @@ export const simpleSentences: LessonDefinition = {
         hint2_vi: "“She” là chủ đề, nên nó phải đứng đầu câu.",
         hint3_vi: "Sau khi biết ai làm, câu cho biết việc làm gì, rồi mới đến việc làm với cái gì.",
       },
-      answerKey: JSON.stringify({ correctChoiceId: "b" }),
+      answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
         "Thứ tự đúng là ai làm trước (“She”), rồi việc làm (“reads”), rồi đồ vật liên quan (“books”). Các đáp án khác đặt chủ đề ở giữa hoặc cuối câu, khiến người đọc không biết ai là người làm việc.",
     },

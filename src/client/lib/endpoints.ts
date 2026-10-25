@@ -7,6 +7,7 @@
 
 export const endpoints = {
   session: "/api/session",
+  sessionMode: "/api/session/mode",
   login: "/api/session/login",
   bootstrap: "/api/session/bootstrap",
   logout: "/api/session/logout",

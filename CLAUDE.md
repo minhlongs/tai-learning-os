@@ -16,12 +16,13 @@
 3. **Deterministic Pedagogy & Mastery Engine**:
    - No generative AI / LLM chat in learner mode.
    - Evidence (`learning_attempts`) is append-only and separated from interpretation (`skill_evidence`).
-   - Hint level $\ge 3$ designates an attempt as `assisted` rather than `observed` (independent).
+   - Any hint usage (`helpLevel >= 1`) or retry (`attemptNo > 1`) designates an attempt as `assisted` (`SUPPORTED`), never `observed` (`INDEPENDENT`).
    - Spaced review uses a deterministic `[1, 3, 7, 14]` day ladder (`src/shared/engine/review.ts`).
 4. **Parent Governance & Security**:
-   - Stateless HMAC-SHA256 session cookie (`tlo_session`, `HttpOnly`, `SameSite=Strict`, 8h TTL) + double-submit CSRF header (`x-tlo-csrf`).
-   - Passwords hashed with PBKDF2-SHA256 (60,000 iterations, 16-byte random salt).
+   - Stateless HMAC-SHA256 session cookie (`tlo_session`, `HttpOnly`, `SameSite=Strict`, 8h TTL) with explicit `mode` claim (`parent` vs `learner`) + double-submit CSRF header (`x-tlo-csrf`).
+   - Passwords hashed with PBKDF2-SHA256 (100,000 iterations, 16-byte random salt).
    - Owner-scoped SQL in `src/worker/db/repositories.ts`: every learner query filters by `parent_id`.
+   - Server-enforced privilege boundary: all `/api/parent/*` and `/api/data/*` routes use `parentRoute` and return `403 Forbidden` when in child mode (`mode: "learner"`). Re-entering parent mode requires server-side password verification via `POST /api/session/mode`.
    - Lessons require explicit `review_approvals.status = 'approved'` before appearing to the learner.
 5. **Child Privacy by Absence**:
    - Never collect or seed full legal name, full date of birth, school name, home address, phone number, email, or personal photos.

@@ -12,12 +12,13 @@
  */
 
 import type { AppEnv } from "./http/middleware";
-import { dispatch, publicRoute, protectedRoute, type Route } from "./http/middleware";
+import { dispatch, publicRoute, protectedRoute, parentRoute, type Route } from "./http/middleware";
 import {
   bootstrapParent,
   getSessionInfo,
   login,
   logout,
+  switchSessionMode,
 } from "./routes/session";
 import {
   finalizeSession,
@@ -52,6 +53,7 @@ const ROUTES: readonly Route[] = [
   publicRoute("POST", /^\/api\/session\/login$/, login),
   publicRoute("POST", /^\/api\/session\/logout$/, logout),
   publicRoute("POST", /^\/api\/session\/bootstrap$/, bootstrapParent),
+  protectedRoute("POST", /^\/api\/session\/mode$/, switchSessionMode),
 
   protectedRoute("GET", /^\/api\/learner\/home$/, getLearnerHome),
   protectedRoute("GET", /^\/api\/learner\/subjects$/, listSubjectsForLearner),
@@ -60,18 +62,18 @@ const ROUTES: readonly Route[] = [
   protectedRoute("POST", /^\/api\/learner\/attempts$/, submitAttempt),
   protectedRoute("POST", /^\/api\/learner\/sessions\/finalize$/, finalizeSession),
 
-  protectedRoute("GET", /^\/api\/parent\/dashboard$/, getParentDashboard),
-  protectedRoute("GET", /^\/api\/parent\/lessons$/, listLessons),
-  protectedRoute("GET", /^\/api\/parent\/lessons\/[^/]+$/, getLessonDetail),
-  protectedRoute("POST", /^\/api\/parent\/lessons\/approval$/, setLessonApproval),
-  protectedRoute("POST", /^\/api\/parent\/lessons\/content$/, updateLessonContent),
-  protectedRoute("POST", /^\/api\/parent\/skills\/correct$/, correctSkillEvidence),
-  protectedRoute("POST", /^\/api\/parent\/learners$/, createLearnerProfile),
-  protectedRoute("PATCH", /^\/api\/parent\/learners\/profile$/, updateLearnerProfile),
+  parentRoute("GET", /^\/api\/parent\/dashboard$/, getParentDashboard),
+  parentRoute("GET", /^\/api\/parent\/lessons$/, listLessons),
+  parentRoute("GET", /^\/api\/parent\/lessons\/[^/]+$/, getLessonDetail),
+  parentRoute("POST", /^\/api\/parent\/lessons\/approval$/, setLessonApproval),
+  parentRoute("POST", /^\/api\/parent\/lessons\/content$/, updateLessonContent),
+  parentRoute("POST", /^\/api\/parent\/skills\/correct$/, correctSkillEvidence),
+  parentRoute("POST", /^\/api\/parent\/learners$/, createLearnerProfile),
+  parentRoute("PATCH", /^\/api\/parent\/learners\/profile$/, updateLearnerProfile),
 
-  protectedRoute("POST", /^\/api\/data\/export$/, exportRecord),
-  protectedRoute("POST", /^\/api\/data\/import$/, importRecord),
-  protectedRoute("DELETE", /^\/api\/data\/learner$/, deleteLearner),
+  parentRoute("POST", /^\/api\/data\/export$/, exportRecord),
+  parentRoute("POST", /^\/api\/data\/import$/, importRecord),
+  parentRoute("DELETE", /^\/api\/data\/learner$/, deleteLearner),
 ];
 
 export default {

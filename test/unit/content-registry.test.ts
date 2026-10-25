@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { LESSONS } from "../../src/shared/content/index";
 import { LESSON_STEP_KINDS } from "../../src/shared/schemas/attempt";
+import { correctChoiceId, gradeSubmission } from "../../src/shared/schemas/answer";
 import { validateExercise } from "../../src/shared/schemas/exercise";
 import type { LessonDefinition } from "../../src/shared/content/types";
 
@@ -134,15 +135,38 @@ describe("lesson registry — nothing the learner cannot see is claimed", () => 
     }
   });
 
-  it("stores an answer key per step, because grading is server-side", () => {
+  it("stores an answer key per step that matches the exercise's correct answer, because grading is server-side", () => {
     // The key exists so the Worker can grade without telling. The learner
     // payload deliberately drops it (see `toStepPayload` in the learner routes),
     // so holding it here is the precondition for that, not a leak.
     for (const lesson of LESSONS) {
       for (const step of lesson.steps) {
         expect(step.answerKey, `${lesson.id} step ${step.position}`).toBeDefined();
+        const parsedKey = JSON.parse(step.answerKey) as Record<string, unknown>;
+        if (step.content.type === "fraction_visual") {
+          expect(parsedKey.correctNumerator, `${lesson.id} step ${step.position}`).toBe(
+            step.content.correctNumerator,
+          );
+          expect(parsedKey.correctDenominator, `${lesson.id} step ${step.position}`).toBe(
+            step.content.correctDenominator,
+          );
+        } else {
+          expect(parsedKey.correctChoiceId, `${lesson.id} step ${step.position}`).toBe(
+            correctChoiceId(step.content),
+          );
+        }
       }
     }
+  });
+
+  it("grades the English simple-sentences step 3 ('She reads books.') as correct when choosing option 'a'", () => {
+    const lesson = LESSONS.find((l) => l.id === "eng-simple-sentences");
+    expect(lesson).toBeDefined();
+    const step3 = lesson!.steps.find((s) => s.position === 3);
+    expect(step3).toBeDefined();
+    expect(JSON.parse(step3!.answerKey)).toEqual({ correctChoiceId: "a" });
+    const grade = gradeSubmission(step3!.content, { kind: "choice", choiceId: "a" }, 0);
+    expect(grade.outcome).toBe("correct");
   });
 });
 

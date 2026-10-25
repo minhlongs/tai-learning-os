@@ -13,6 +13,7 @@
  * learner's record.
  */
 import { LESSONS } from "../../src/shared/content/index";
+import { correctChoiceId } from "../../src/shared/schemas/answer";
 import { validateExercise } from "../../src/shared/schemas/exercise";
 
 /** Every lesson-level column, as stored. */
@@ -78,7 +79,32 @@ export function validateRegistry(dbSkills?: readonly string[]): readonly SeedPro
       }
       kinds.add(step.kind);
       const result = validateExercise(step.content);
-      if (!result.ok) fail(`step ${step.position}: ${result.error}`);
+      if (!result.ok) {
+        fail(`step ${step.position}: ${result.error}`);
+      } else {
+        try {
+          const parsedKey = JSON.parse(step.answerKey) as Record<string, unknown>;
+          if (step.content.type === "fraction_visual") {
+            if (
+              parsedKey.correctNumerator !== step.content.correctNumerator ||
+              parsedKey.correctDenominator !== step.content.correctDenominator
+            ) {
+              fail(
+                `step ${step.position}: answerKey fraction does not match exercise correctNumerator/correctDenominator`,
+              );
+            }
+          } else {
+            const expectedChoiceId = correctChoiceId(step.content);
+            if (parsedKey.correctChoiceId !== expectedChoiceId) {
+              fail(
+                `step ${step.position}: answerKey correctChoiceId "${String(parsedKey.correctChoiceId)}" does not match exercise correct choice "${String(expectedChoiceId)}"`,
+              );
+            }
+          }
+        } catch {
+          fail(`step ${step.position}: answerKey is not valid JSON`);
+        }
+      }
     });
 
     if (lesson.steps.length > 0 && !kinds.has("transfer")) {

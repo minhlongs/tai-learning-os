@@ -11,8 +11,8 @@ export type SubmissionOutcome = (typeof SUBMISSION_OUTCOMES)[number];
 
 /**
  * How this attempt record came to exist.
- *   observed         learner answered unaided (no more than a small hint)
- *   assisted         learner answered after substantial help (hint level 3+)
+ *   observed          learner answered unaided on the first attempt (help_level === 0, attempt_no === 1)
+ *   assisted          learner answered after hints (help_level >= 1) or on retry (attempt_no > 1)
  *   parent_correction the parent recorded an observation by hand
  */
 export const EVIDENCE_KINDS = ["observed", "assisted", "parent_correction"] as const;
@@ -47,8 +47,11 @@ export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
  * Derive the evidence kind for a stored attempt. This is the single place that
  * decides provenance, so the database never holds an ambiguous record.
  */
-export function evidenceKindFor(outcome: SubmissionOutcome, helpLevel: number): EvidenceKind {
-  if (helpLevel >= 3) return "assisted";
-  if (outcome === "correct" && helpLevel <= 2) return "observed";
-  return "observed";
+export function evidenceKindFor(
+  outcome: SubmissionOutcome,
+  helpLevel: number,
+  attemptNo = 1,
+): EvidenceKind {
+  if (outcome === "correct" && helpLevel === 0 && attemptNo === 1) return "observed";
+  return "assisted";
 }

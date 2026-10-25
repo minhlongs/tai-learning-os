@@ -22,6 +22,7 @@ export type SessionState = {
   session: SessionInfo;
   error: ApiFailure | null;
   reload: () => void;
+  updateSession: (info: SessionInfo) => void;
 };
 
 /** Remember a session the server just issued (login / bootstrap). */
@@ -65,5 +66,12 @@ export function useSession(): SessionState {
     setLoading(true);
     setNonce((n) => n + 1);
   }, []);
-  return { loading, session, error, reload };
+
+  const updateSession = useCallback((info: SessionInfo) => {
+    setSession(info);
+    setCsrfToken(info.csrfToken);
+    setError(null);
+  }, []);
+
+  return { loading, session, error, reload, updateSession };
 }

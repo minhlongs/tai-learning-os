@@ -7,8 +7,8 @@
  *
  * The states form a ladder:
  *   NOT_OBSERVED  no attempt recorded for the skill
- *   SUPPORTED     reached the answer with help at level 3+
- *   INDEPENDENT   solved with no more than a small hint
+ *   SUPPORTED     reached the answer with hints (level 1+) or after multiple tries
+ *   INDEPENDENT   solved unaided on the first attempt (help_level === 0, attemptNo === 1)
  *   RETAINED      solved independently again after a scheduled review
  *   TRANSFERRED   solved a transfer question independently
  *
@@ -22,8 +22,8 @@ import type { CompetencyState, SubmissionOutcome, EvidenceKind } from "../schema
 export const COMPETENCY_CONFIG = {
   /** Correct attempts with help_level <= SMALL_HINT needed for INDEPENDENT. */
   independentMinCorrect: 2,
-  /** Attempts at or below this help level count as "small hint". */
-  smallHint: 2,
+  /** Only completely unassisted attempts (help_level === 0) count as independent. */
+  smallHint: 0,
   /** An independent solve after a *scheduled* review earns RETAINED. */
   retainedRequiresScheduledReview: true,
 } as const;
@@ -52,13 +52,13 @@ export type CompetencyDerivation = {
   reason_vi: string;
 };
 
-/** A helper: is this attempt "unassisted enough" to count as independent? */
+/** A helper: is this attempt strictly unassisted on the first try? */
 export function isIndependentAttempt(evidence: AttemptEvidence): boolean {
-  if (evidence.evidenceKind === "parent_correction") return false;
+  if (evidence.evidenceKind !== "observed") return false;
   if (evidence.outcome !== "correct") return false;
-  if (evidence.helpLevel > COMPETENCY_CONFIG.smallHint) return false;
+  if (evidence.helpLevel !== 0) return false;
   // Multiple guesses on the same step disqualify independent solve
-  if (evidence.attemptNo !== undefined && evidence.attemptNo > 1) return false;
+  if (evidence.attemptNo !== undefined && evidence.attemptNo !== 1) return false;
   return true;
 }
 
@@ -74,7 +74,7 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
   const independent = relevant.filter(isIndependentAttempt);
   const assisted = relevant.filter(
     (a) =>
-      a.outcome === "correct" &&
+      (a.outcome === "correct" || a.outcome === "partial") &&
       a.evidenceKind !== "parent_correction" &&
       !isIndependentAttempt(a),
   );

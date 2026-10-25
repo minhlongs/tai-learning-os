@@ -28,9 +28,9 @@ import {
 } from "../../shared/crypto/session";
 import type { SessionInfo } from "../../shared/api-contract";
 import * as repo from "../db/repositories";
-import { badRequest, ok, readJsonBody, unauthorized, forbidden, serverError } from "../http/response";
+import { badRequest, ok, readJsonBody, unauthorized, forbidden, rateLimited, serverError } from "../http/response";
 import { SESSION_TTL_MS } from "../../shared/crypto/session";
-import type { AppEnv } from "../http/middleware";
+import { authClientKey, type AppEnv } from "../http/middleware";
 
 /* ── GET /api/session ─────────────────────────────────────────────────────── */
 
@@ -83,7 +83,88 @@ export async function getSessionInfo(context: {
     parentDisplayName: parent.display_name,
     learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
     csrfToken,
+    mode: verified.mode ?? "parent",
   });
+}
+
+/* ── POST /api/session/mode ──────────────────────────────────────────────── */
+
+export async function switchSessionMode(context: {
+  request: Request;
+  env: AppEnv;
+}): Promise<Response> {
+  const { request, env } = context;
+  const parsed = await readJsonBody(request, 2_000);
+  if (!parsed.ok) return parsed.response;
+
+  const body = parsed.body as { mode?: unknown; password?: unknown };
+  if (body.mode !== "parent" && body.mode !== "learner") {
+    return badRequest("Chế độ phiên không hợp lệ. Chỉ chấp nhận 'parent' hoặc 'learner'.");
+  }
+
+  const cookie = request.headers.get("cookie") ?? "";
+  const token = readCookie(cookie, "tlo_session");
+  if (!token) return unauthorized();
+
+  const secret = env.SESSION_SECRET;
+  if (!secret) return serverError();
+
+  const verified = await verifySessionToken(secret, token, Date.now());
+  if (!verified.ok) return unauthorized();
+
+  const parent = await repo.findParentById(env.DB, verified.claims.parentId);
+  if (!parent) return unauthorized();
+
+  const now = Date.now();
+
+  if (body.mode === "parent") {
+    if (typeof body.password !== "string" || body.password.length === 0) {
+      return badRequest("Cần nhập mật khẩu để chuyển sang chế độ phụ huynh.");
+    }
+    const valid = await verifyPassword(body.password, parent.password_hash);
+    if (!valid) {
+      if (env.AUTH_RATE_LIMITER) {
+        const { success } = await env.AUTH_RATE_LIMITER.limit({ key: authClientKey(request) });
+        if (!success) return rateLimited();
+      }
+      return forbidden("Mật khẩu phụ huynh không chính xác.");
+    }
+  }
+
+  const targetMode = body.mode;
+  const newToken = await createSessionToken(
+    secret,
+    parent.id,
+    parent.display_name,
+    now,
+    targetMode,
+  );
+
+  const issued = await verifySessionToken(secret, newToken, now);
+  if (!issued.ok) return serverError();
+
+  const csrfToken = await csrfTokenFor(secret, issued.claims.tokenId);
+  const learner = await repo.findFirstLearnerForParent(env.DB, parent.id);
+
+  await repo.recordAudit(env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${parent.id}`,
+    action: targetMode === "parent" ? "session.mode_parent" : "session.mode_learner",
+    subject: parent.id,
+    detail: JSON.stringify({ previousMode: verified.claims.mode ?? "parent", newMode: targetMode }),
+    now,
+  });
+
+  const response = ok<SessionInfo>({
+    authenticated: true,
+    parentDisplayName: parent.display_name,
+    learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
+    csrfToken,
+    mode: targetMode,
+  });
+
+  response.headers.append("set-cookie", sessionCookie(newToken, issued.claims.expiresAt, isSecure(request)));
+  return response;
 }
 
 /* ── POST /api/session/login ─────────────────────────────────────────────── */
@@ -104,10 +185,22 @@ export async function login(context: { request: Request; env: AppEnv }): Promise
   const parent = await repo.findParentByDisplayName(env.DB, body.displayName.trim());
   // Uniform failure: a wrong name and a wrong password are indistinguishable,
   // so this endpoint cannot be used to enumerate parent accounts.
-  if (!parent) return unauthorized();
+  if (!parent) {
+    if (env.AUTH_RATE_LIMITER) {
+      const { success } = await env.AUTH_RATE_LIMITER.limit({ key: authClientKey(request) });
+      if (!success) return rateLimited();
+    }
+    return unauthorized();
+  }
 
   const valid = await verifyPassword(body.password, parent.password_hash);
-  if (!valid) return unauthorized();
+  if (!valid) {
+    if (env.AUTH_RATE_LIMITER) {
+      const { success } = await env.AUTH_RATE_LIMITER.limit({ key: authClientKey(request) });
+      if (!success) return rateLimited();
+    }
+    return unauthorized();
+  }
 
   const now = Date.now();
   if (needsRehash(parent.password_hash)) {
@@ -135,6 +228,7 @@ export async function login(context: { request: Request; env: AppEnv }): Promise
     parentDisplayName: parent.display_name,
     learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
     csrfToken,
+    mode: "parent",
   };
 
   await repo.recordAudit(env.DB, {
@@ -186,6 +280,10 @@ export async function bootstrapParent(context: { request: Request; env: AppEnv }
   // its hash is supplied as a deployment secret rather than chosen in a form.
   const existing = await repo.countParents(env.DB);
   if (existing > 0) {
+    if (env.AUTH_RATE_LIMITER) {
+      const { success } = await env.AUTH_RATE_LIMITER.limit({ key: authClientKey(request) });
+      if (!success) return rateLimited();
+    }
     return forbidden(
       "Tài khoản phụ huynh đã được tạo. Vui lòng đăng nhập bằng mật khẩu của bạn.",
     );
@@ -252,7 +350,7 @@ function isSecure(request: Request): boolean {
   return url.protocol === "https:";
 }
 
-type VerifiedToken = { parentId: string; tokenId: string; expiresAt: number };
+type VerifiedToken = { parentId: string; tokenId: string; expiresAt: number; mode?: "parent" | "learner" };
 
 async function verifyToken(secret: string, token: string): Promise<
   ({ ok: true } & VerifiedToken) | { ok: false; reason: string }
@@ -264,6 +362,7 @@ async function verifyToken(secret: string, token: string): Promise<
     parentId: result.claims.parentId,
     tokenId: result.claims.tokenId,
     expiresAt: result.claims.expiresAt,
+    mode: result.claims.mode,
   };
 }
 

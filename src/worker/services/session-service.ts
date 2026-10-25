@@ -87,7 +87,9 @@ export async function recordAttemptWithDerivation(
 
   const attemptId = crypto.randomUUID();
   const evidenceKind: "observed" | "assisted" | "parent_correction" =
-    grade.outcome === "correct" && input.helpLevel <= 2 ? "observed" : "assisted";
+    grade.outcome === "correct" && input.helpLevel === 0 && attemptNo === 1
+      ? "observed"
+      : "assisted";
 
   await repo.recordAttempt(db, {
     id: attemptId,

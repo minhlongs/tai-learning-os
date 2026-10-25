@@ -75,19 +75,25 @@ describe("deriveCompetency — a single correct guess is not mastery", () => {
   });
 
   it("does not promote ONE correct attempt with a small hint", () => {
-    const result = deriveCompetency([correct({ helpLevel: 1 })]);
-    expect(result.independentCount).toBe(1);
+    const result = deriveCompetency([correct({ helpLevel: 1, evidenceKind: "assisted" })]);
+    expect(result.independentCount).toBe(0);
+    expect(result.assistedCount).toBe(1);
+    expect(result.state).toBe("SUPPORTED");
     expect(result.state).not.toBe("INDEPENDENT");
   });
 
   it("reflects the configured minimum in the reported reason", () => {
     expect(COMPETENCY_CONFIG.independentMinCorrect).toBe(2);
+    expect(COMPETENCY_CONFIG.smallHint).toBe(0);
   });
 });
 
 describe("deriveCompetency — the independent threshold", () => {
-  it("promotes to INDEPENDENT on two unassisted correct attempts", () => {
-    const result = deriveCompetency([correct(), correct()]);
+  it("promotes to INDEPENDENT on two unassisted correct attempts (helpLevel: 0, attemptNo: 1)", () => {
+    const result = deriveCompetency([
+      correct({ helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
+      correct({ helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
+    ]);
     expect(result.independentCount).toBe(2);
     expect(result.state).toBe("INDEPENDENT");
   });
@@ -97,14 +103,47 @@ describe("deriveCompetency — the independent threshold", () => {
     expect(result.state).toBe("INDEPENDENT");
   });
 
-  it("treats help level 2 (small hint) as still independent", () => {
-    const result = deriveCompetency([correct({ helpLevel: 2 }), correct({ helpLevel: 2 })]);
-    expect(result.state).toBe("INDEPENDENT");
+  it("treats helpLevel 1 as SUPPORTED / assisted, NOT INDEPENDENT", () => {
+    const result = deriveCompetency([
+      correct({ helpLevel: 1, evidenceKind: "assisted" }),
+      correct({ helpLevel: 1, evidenceKind: "assisted" }),
+    ]);
+    expect(result.independentCount).toBe(0);
+    expect(result.assistedCount).toBe(2);
+    expect(result.state).toBe("SUPPORTED");
+    expect(result.state).not.toBe("INDEPENDENT");
   });
 
-  it("does not promote when help level 3 is involved", () => {
-    const result = deriveCompetency([correct(), correct({ helpLevel: 3 })]);
-    expect(result.independentCount).toBe(1);
+  it("treats helpLevel 2 as SUPPORTED / assisted, NOT INDEPENDENT", () => {
+    const result = deriveCompetency([
+      correct({ helpLevel: 2, evidenceKind: "assisted" }),
+      correct({ helpLevel: 2, evidenceKind: "assisted" }),
+    ]);
+    expect(result.independentCount).toBe(0);
+    expect(result.assistedCount).toBe(2);
+    expect(result.state).toBe("SUPPORTED");
+    expect(result.state).not.toBe("INDEPENDENT");
+  });
+
+  it("treats helpLevel >= 3 (including partial outcomes) as SUPPORTED / assisted, NOT INDEPENDENT", () => {
+    const result = deriveCompetency([
+      attempt({ outcome: "partial", helpLevel: 3, evidenceKind: "assisted" }),
+      attempt({ outcome: "partial", helpLevel: 4, evidenceKind: "assisted" }),
+    ]);
+    expect(result.independentCount).toBe(0);
+    expect(result.assistedCount).toBe(2);
+    expect(result.state).toBe("SUPPORTED");
+    expect(result.state).not.toBe("INDEPENDENT");
+  });
+
+  it("rejects spoofed helpLevel 0 if evidenceKind was marked assisted due to disclosed hint", () => {
+    const result = deriveCompetency([
+      correct({ helpLevel: 0, evidenceKind: "assisted" }),
+      correct({ helpLevel: 0, evidenceKind: "assisted" }),
+    ]);
+    expect(result.independentCount).toBe(0);
+    expect(result.assistedCount).toBe(2);
+    expect(result.state).toBe("SUPPORTED");
     expect(result.state).not.toBe("INDEPENDENT");
   });
 });

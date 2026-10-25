@@ -114,6 +114,11 @@ export function Router(): React.JSX.Element {
   // a screen that would immediately redirect.
   if (loading || !session.authenticated) return <div className="app" />;
 
+  // If in learner mode and trying to access parent routes directly via URL, redirect to learner home
+  if (session.mode === "learner" && route.name.startsWith("parent-")) {
+    return <LearnerHomeScreen onNavigate={go} />;
+  }
+
   switch (route.name) {
     case "subject":
       return <SubjectScreen subjectId={route.subjectId} onNavigate={go} />;
