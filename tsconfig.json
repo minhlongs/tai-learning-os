@@ -1,0 +1,9 @@
+{
+  // Root config: typecheck the browser app + shared + test code.
+  // The Worker has its own config because it uses Workers runtime types.
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.worker.json" }
+  ]
+}

@@ -1,0 +1,70 @@
+/* Top bar. Mobile-first: brand, then nav, then identity, all wrapping. */
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tlo-space-2) var(--tlo-space-3);
+  padding: var(--tlo-space-3) var(--tlo-space-4);
+  background: var(--tlo-surface);
+  border-bottom: 1px solid var(--tlo-border);
+}
+
+.topbar__brand {
+  font-size: var(--tlo-text-base);
+  font-weight: 800;
+  color: var(--tlo-primary-strong);
+  line-height: 1.3;
+}
+
+.topbar__brand-sub {
+  display: block;
+  font-size: var(--tlo-text-sm);
+  font-weight: 600;
+  color: var(--tlo-text-muted);
+}
+
+.topbar__spacer {
+  display: none;
+}
+
+.topbar__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-1);
+  /* Allow the nav to take its own row rather than overflow at 375px. */
+  flex: 1 1 100%;
+  order: 3;
+}
+
+.topbar__nav .btn {
+  flex: 0 1 auto;
+}
+
+.topbar__who {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+  /* Long display names must not break the row: let them wrap. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.topbar__logout {
+  margin-left: auto;
+}
+
+@media (min-width: 900px) {
+  .topbar__spacer {
+    display: block;
+    flex: 1 1 auto;
+  }
+
+  .topbar__nav {
+    flex: 0 1 auto;
+    order: 0;
+  }
+
+  .topbar__who {
+    margin-left: var(--tlo-space-2);
+  }
+}

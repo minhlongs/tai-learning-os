@@ -1,0 +1,101 @@
+/* Learner home: subject cards, continue panel, and the honest legend. */
+
+.learner-home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-5);
+}
+
+.section-title {
+  font-size: var(--tlo-text-xl);
+  font-weight: 700;
+  color: var(--tlo-text);
+  margin-bottom: var(--tlo-space-3);
+}
+
+/* --- Subject card --------------------------------------------------------- */
+
+.subject-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tlo-space-1);
+  width: 100%;
+  min-height: 96px;
+  padding: var(--tlo-space-4);
+  text-align: left;
+  background: var(--tlo-surface);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius-lg);
+  box-shadow: var(--tlo-shadow-sm);
+  transition: border-color var(--tlo-duration) var(--tlo-ease),
+    transform var(--tlo-duration) var(--tlo-ease);
+}
+
+.subject-card:hover {
+  border-color: var(--tlo-primary-border);
+  transform: translateY(-2px);
+}
+
+.subject-card:disabled {
+  background: var(--tlo-surface-muted);
+  color: var(--tlo-text-muted);
+  transform: none;
+  cursor: not-allowed;
+}
+
+.subject-card__name {
+  font-size: var(--tlo-text-lg);
+  font-weight: 800;
+  color: var(--tlo-text);
+}
+
+.subject-card__name-en {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+.subject-card__count {
+  margin-top: auto;
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-primary-strong);
+}
+
+.subject-card:disabled .subject-card__count {
+  color: var(--tlo-text-muted);
+}
+
+/* --- Continue panel ------------------------------------------------------ */
+
+.card--continue {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tlo-space-2);
+  border-left: 6px solid var(--tlo-primary);
+}
+
+.card--attention {
+  border-left: 6px solid var(--tlo-attention-border);
+}
+
+/* --- Legend -------------------------------------------------------------- */
+
+.legend {
+  display: grid;
+  gap: var(--tlo-space-3);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.legend__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-1);
+}

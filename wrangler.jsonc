@@ -1,0 +1,54 @@
+{
+  // He dieu hanh hoc tap Tai — Worker & D1 configuration.
+  // LOCAL ONLY: this config must never be deployed without founder authorization.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tai-learning-os",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-24",
+
+  // Static SPA assets (React build output). SPA routes do not hit the Worker.
+  "assets": {
+    "not_found_handling": "single-page-application"
+  },
+
+  // Local D1 database. Migrations live in ./migrations.
+  // NOTE: `preview_database_id` is required for local migrations.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tai-learning-os",
+      "database_id": "local-only",
+      "preview_database_id": "local-preview"
+    }
+  ],
+
+  // Native Rate Limiting binding — protects the login endpoint against
+  // brute-force attempts. namespace_id must be a stable integer 1...
+  "ratelimits": [
+    {
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
+    },
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ],
+
+  // Fail closed: no secrets in source. Secrets are supplied at deploy time via
+  // `wrangler secret put`; locally via .dev.vars (gitignored).
+  //
+  // PARENT_PASSWORD_HASH  — scrypt hash of the parent's password (see docs)
+  // SESSION_SECRET        — high-entropy secret used to sign session tokens
+  "vars": {
+    "ENVIRONMENT": "development"
+  }
+}

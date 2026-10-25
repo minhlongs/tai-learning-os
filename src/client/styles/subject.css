@@ -1,0 +1,117 @@
+/*
+ * The subject screen: its header and the grid of lessons.
+ *
+ * Mobile-first: one column of large tiles at 375px, two or three at 768px+.
+ * Every tile is a real button at least 44px tall, because a learner picks
+ * lessons by tapping.
+ */
+
+.subject-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-5);
+  padding: var(--tlo-space-4);
+  max-width: var(--tlo-content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* --- Header --------------------------------------------------------------- */
+
+.subject-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+}
+
+.subject-header__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-2);
+}
+
+.subject-header__title {
+  font-size: var(--tlo-text-2xl);
+}
+
+.subject-header__subtitle {
+  color: var(--tlo-text-muted);
+}
+
+/* --- Section heading ------------------------------------------------------ */
+
+.section-title {
+  font-size: var(--tlo-text-lg);
+  color: var(--tlo-text-muted);
+  margin-bottom: var(--tlo-space-3);
+}
+
+/* --- Lesson grid ---------------------------------------------------------- */
+
+.lesson-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--tlo-space-4);
+}
+
+.lesson-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--tlo-space-4);
+  text-align: start;
+  background: var(--tlo-surface);
+  border: 2px solid var(--tlo-border);
+  border-radius: var(--tlo-radius-lg);
+  box-shadow: var(--tlo-shadow-sm);
+}
+
+.lesson-tile:hover {
+  border-color: var(--tlo-primary-border);
+}
+
+.lesson-tile:focus-visible {
+  border-color: var(--tlo-focus);
+}
+
+.lesson-tile__title {
+  font-size: var(--tlo-text-lg);
+  font-weight: 800;
+  color: var(--tlo-text);
+}
+
+.lesson-tile__objective {
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+  /* Objective text can be long; keep the grid rows the same height. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.lesson-tile__meta {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-primary-strong);
+}
+
+/* --- Wider screens -------------------------------------------------------- */
+
+@media (min-width: 48rem) {
+  .subject-page {
+    padding: var(--tlo-space-5) var(--tlo-space-6);
+  }
+
+  .lesson-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 64rem) {
+  .lesson-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

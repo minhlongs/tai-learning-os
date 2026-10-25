@@ -1,0 +1,441 @@
+/*
+ * Parent lesson manager: approval list + the parent-only inspection panel.
+ *
+ * Mobile-first, single column at 375px. The approval table becomes a stacked
+ * card list below 768px rather than scrolling sideways, because a table the
+ * parent has to pinch to read is a table they will misread.
+ *
+ * All colour here is paired with words: a status is never conveyed by hue
+ * alone, and the "needs re-approval" flag is a text label, not just a tint.
+ */
+
+.lesson-manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-5);
+}
+
+/* Declared here because the sibling stylesheets that also define this class
+   are not guaranteed to load on this route: a heading that depends on another
+   screen's CSS is a heading that can render unstyled. */
+.section-title {
+  font-size: var(--tlo-text-xl);
+  font-weight: 800;
+  color: var(--tlo-text);
+  margin: 0 0 var(--tlo-space-3);
+}
+
+.lesson-manager__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+}
+
+/* The rule this whole screen exists to make visible. */
+.lesson-manager__rule {
+  background: var(--tlo-primary-soft);
+  border: 1px solid var(--tlo-primary-border);
+  border-radius: var(--tlo-radius);
+  padding: var(--tlo-space-4);
+  color: var(--tlo-text);
+  max-width: var(--tlo-measure);
+}
+
+.lesson-manager__rule p {
+  margin: 0;
+}
+
+.lesson-manager__rule p + p {
+  margin-top: var(--tlo-space-2);
+}
+
+/* --- Status line ---------------------------------------------------------- */
+
+.lesson-manager__status {
+  min-height: var(--tlo-space-6);
+  padding: var(--tlo-space-3);
+  background: var(--tlo-correct-soft);
+  border: 1px solid var(--tlo-correct-border);
+  border-radius: var(--tlo-radius);
+  color: var(--tlo-text);
+  font-weight: 700;
+}
+
+/* A failure line. The leading word "Chưa thực hiện được" says it too, so the
+   tint is decoration and never the message. */
+.lesson-manager__status--error {
+  background: var(--tlo-incorrect-soft);
+  border-color: var(--tlo-incorrect-border);
+}
+
+/* The count line restates the row states in words; it is quieter than a
+   decision line and must not look like a green success banner. */
+.lesson-manager__counts {
+  margin: 0;
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface-muted);
+  border: 1px solid var(--tlo-border-strong);
+  border-radius: var(--tlo-radius);
+  color: var(--tlo-text);
+  font-size: var(--tlo-text-sm);
+  align-self: flex-start;
+}
+
+/* --- Approval table ------------------------------------------------------- */
+
+.lesson-manager__table-wrap {
+  overflow-x: auto;
+}
+
+.lesson-manager__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--tlo-surface);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius-lg);
+}
+
+.lesson-manager__table caption {
+  text-align: left;
+  padding: var(--tlo-space-3) var(--tlo-space-4);
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+  border-bottom: 1px solid var(--tlo-border);
+}
+
+.lesson-manager__table th,
+.lesson-manager__table td {
+  padding: var(--tlo-space-3) var(--tlo-space-4);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--tlo-border);
+}
+
+.lesson-manager__table tbody tr:last-child th,
+.lesson-manager__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.lesson-manager__table thead th {
+  background: var(--tlo-surface-muted);
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text);
+  white-space: nowrap;
+}
+
+.lesson-manager__table tbody th {
+  font-weight: 700;
+}
+
+.lesson-cell-title {
+  min-width: 12rem;
+}
+
+.lesson-cell-title__vi {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.lesson-cell-title__en {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.lesson-manager__count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+}
+
+.lesson-manager__version {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+}
+
+.lesson-manager__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-2);
+}
+
+/* --- Status pills (word + colour, never colour alone) --------------------- */
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tlo-space-1);
+  padding: var(--tlo-space-1) var(--tlo-space-3);
+  border-radius: var(--tlo-radius-pill);
+  border: 1px solid var(--tlo-border-strong);
+  background: var(--tlo-surface-muted);
+  color: var(--tlo-text);
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.status-pill--approved {
+  background: var(--tlo-correct-soft);
+  border-color: var(--tlo-correct-border);
+  color: var(--tlo-correct);
+}
+
+/* An approved lesson whose approval no longer describes its content. Amber,
+   and always paired with the words "Cần duyệt lại". */
+.status-pill--attention {
+  background: var(--tlo-attention-soft);
+  border-color: var(--tlo-attention-border);
+  color: var(--tlo-attention);
+}
+
+.status-pill--draft {
+  background: var(--tlo-surface-muted);
+  border-color: var(--tlo-border-strong);
+  color: var(--tlo-text-muted);
+}
+
+.status-pill--rejected {
+  background: var(--tlo-incorrect-soft);
+  border-color: var(--tlo-incorrect-border);
+  color: var(--tlo-incorrect);
+}
+
+/* The re-approval flag is a bordered box of words, not a colour wash. */
+.reapproval-flag {
+  display: block;
+  margin-top: var(--tlo-space-2);
+  padding: var(--tlo-space-2) var(--tlo-space-3);
+  background: var(--tlo-attention-soft);
+  border: 1px solid var(--tlo-attention-border);
+  border-left-width: 4px;
+  border-radius: var(--tlo-radius-sm);
+  color: var(--tlo-text);
+  font-size: var(--tlo-text-sm);
+  max-width: 22rem;
+}
+
+.reapproval-flag__label {
+  display: block;
+  font-weight: 800;
+  color: var(--tlo-attention);
+}
+
+/* --- Inline refusal confirmation ------------------------------------------ */
+
+.confirm {
+  margin-top: var(--tlo-space-3);
+  padding: var(--tlo-space-4);
+  background: var(--tlo-incorrect-soft);
+  border: 1px solid var(--tlo-incorrect-border);
+  border-radius: var(--tlo-radius);
+  max-width: 30rem;
+}
+
+.confirm__title {
+  font-size: var(--tlo-text-base);
+  font-weight: 800;
+  margin: 0 0 var(--tlo-space-2);
+  color: var(--tlo-text);
+}
+
+.confirm__body {
+  margin: 0 0 var(--tlo-space-3);
+  color: var(--tlo-text);
+  font-size: var(--tlo-text-sm);
+  max-width: var(--tlo-measure);
+}
+
+.confirm__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  margin-bottom: var(--tlo-space-3);
+}
+
+.confirm__label {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-text);
+}
+
+.confirm__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-2);
+}
+
+.confirm__error {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-incorrect);
+  margin: 0 0 var(--tlo-space-3);
+}
+
+/* --- Detail panel (parent-only, contains the answer key) ------------------ */
+
+.detail {
+  border: 1px solid var(--tlo-incorrect-border);
+  border-radius: var(--tlo-radius-lg);
+  background: var(--tlo-surface);
+  padding: var(--tlo-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-4);
+}
+
+.detail__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+}
+
+.detail__title {
+  font-size: var(--tlo-text-xl);
+  font-weight: 800;
+  margin: 0;
+  color: var(--tlo-text);
+}
+
+.detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tlo-space-3);
+}
+
+.detail__objective {
+  margin: 0;
+  color: var(--tlo-text);
+  max-width: var(--tlo-measure);
+}
+
+/* The warning that must travel with the answer key. */
+.detail__warning {
+  background: var(--tlo-incorrect-soft);
+  border: 1px solid var(--tlo-incorrect-border);
+  border-left-width: 4px;
+  border-radius: var(--tlo-radius-sm);
+  padding: var(--tlo-space-4);
+}
+
+.detail__warning-title {
+  display: block;
+  font-weight: 800;
+  color: var(--tlo-incorrect);
+  margin-bottom: var(--tlo-space-2);
+}
+
+.detail__warning p {
+  margin: 0;
+  color: var(--tlo-text);
+  font-size: var(--tlo-text-sm);
+  max-width: var(--tlo-measure);
+}
+
+.detail__warning p + p {
+  margin-top: var(--tlo-space-2);
+}
+
+.detail__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-4);
+}
+
+.detail__step {
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+  background: var(--tlo-surface-muted);
+  padding: var(--tlo-space-4);
+}
+
+.detail__step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--tlo-space-2) var(--tlo-space-3);
+  margin-bottom: var(--tlo-space-3);
+}
+
+.detail__step-title {
+  font-size: var(--tlo-text-base);
+  font-weight: 800;
+  margin: 0;
+  color: var(--tlo-text);
+}
+
+.detail__answer-key {
+  margin-top: var(--tlo-space-3);
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface);
+  border: 1px dashed var(--tlo-incorrect-border);
+  border-radius: var(--tlo-radius-sm);
+}
+
+.detail__answer-key-label {
+  display: block;
+  font-size: var(--tlo-text-sm);
+  font-weight: 800;
+  color: var(--tlo-incorrect);
+  margin-bottom: var(--tlo-space-2);
+}
+
+.detail__answer-key pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--tlo-text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--tlo-text);
+}
+
+/* --- Small helper text blocks --------------------------------------------- */
+
+.detail__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-1);
+}
+
+.detail__block-label {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-text-muted);
+}
+
+.detail__explanation {
+  margin: 0;
+  color: var(--tlo-text);
+  max-width: var(--tlo-measure);
+}
+
+.detail__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-2);
+}
+
+/* --- 768px and up: two regions side by side -------------------------------- */
+
+@media (min-width: 768px) {
+  .lesson-manager__status {
+    min-height: var(--tlo-space-6);
+  }
+}
+
+/* --- 1280px: the wide frame keeps the table readable ---------------------- */
+
+@media (min-width: 1280px) {
+  .lesson-manager__table th,
+  .lesson-manager__table td {
+    padding: var(--tlo-space-4) var(--tlo-space-5);
+  }
+}

@@ -1,0 +1,345 @@
+/*
+ * Parent data control: export, import, delete.
+ *
+ * Built entirely from the tokens in `global.css` and the primitives in
+ * `app.css` (`.card`, `.field`, `.btn`, `.input`). This file adds only the
+ * pieces those primitives do not already provide.
+ *
+ * Accessibility notes carried by the design, not by convention:
+ *   - every text/background pair here uses the semantic tokens already
+ *     audited in `global.css` at >= 4.5:1;
+ *   - meaning is never colour alone: notices carry a glyph, the destructive
+ *     panel carries a left border and the word "Cảnh báo";
+ *   - no animation, no transition, no motion of any kind;
+ *   - every interactive element keeps the 44px minimum target, and the
+ *     file input is a real, labelled, keyboard-reachable `<input type="file">`.
+ */
+
+.data-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-5);
+}
+
+/* Each of the three operations reads as one block on its own. */
+.data-control__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-4);
+}
+
+.data-control__section--danger {
+  /* Thick neutral-dark left edge plus the border, so the danger panel is
+     distinguishable without relying on the red hue. */
+  border-left: 8px solid var(--tlo-incorrect-border);
+  border-color: var(--tlo-incorrect-border);
+}
+
+/* Holds the per-operation result regions. Each child owns its own
+   `aria-live`, so this wrapper must not carry one: a polite ancestor would
+   demote the `role="alert"` regions inside it. */
+.data-control__live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+}
+
+/* --- Action rows ----------------------------------------------------------- */
+
+.data-control__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-3);
+}
+
+/* --- Notices --------------------------------------------------------------- */
+
+.data-control__notice {
+  border: 1px solid var(--tlo-border-strong);
+  border-left-width: 6px;
+  border-radius: var(--tlo-radius);
+  padding: var(--tlo-space-3) var(--tlo-space-4);
+  font-size: var(--tlo-text-base);
+  font-weight: 700;
+  max-width: var(--tlo-measure);
+}
+
+.data-control__notice--ok {
+  background: var(--tlo-correct-soft);
+  border-color: var(--tlo-correct-border);
+  color: var(--tlo-correct);
+}
+
+.data-control__notice--error {
+  background: var(--tlo-incorrect-soft);
+  border-color: var(--tlo-incorrect-border);
+  color: var(--tlo-incorrect);
+}
+
+/* --- Results --------------------------------------------------------------- */
+
+.data-control__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+  background: var(--tlo-surface-muted);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+  padding: var(--tlo-space-4);
+}
+
+.data-control__result-title {
+  font-size: var(--tlo-text-lg);
+  font-weight: 800;
+  color: var(--tlo-text);
+}
+
+/* --- Facts (terminology the parent cannot avoid) --------------------------- */
+
+.data-control__facts {
+  display: grid;
+  gap: var(--tlo-space-3);
+  grid-template-columns: 1fr;
+  margin: 0;
+}
+
+@media (min-width: 640px) {
+  .data-control__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.data-control__fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-1);
+}
+
+.data-control__fact dt {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-text-muted);
+}
+
+.data-control__fact dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--tlo-text);
+}
+
+.data-control__value-break {
+  overflow-wrap: anywhere;
+  font-family: var(--tlo-font);
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-text);
+}
+
+/* --- Summaries and counts -------------------------------------------------- */
+
+.data-control__summary-title {
+  font-size: var(--tlo-text-base);
+  font-weight: 800;
+  color: var(--tlo-text);
+}
+
+.data-control__counts {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+  background: var(--tlo-surface);
+  overflow: hidden;
+}
+
+.data-control__count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tlo-space-2) var(--tlo-space-4);
+  padding: var(--tlo-space-2) var(--tlo-space-3);
+  min-height: 44px;
+  border-bottom: 1px solid var(--tlo-border);
+}
+
+.data-control__count:last-child {
+  border-bottom: none;
+}
+
+.data-control__count-label {
+  color: var(--tlo-text);
+}
+
+.data-control__count-value {
+  font-weight: 800;
+  color: var(--tlo-primary-strong);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+/* --- Problem and warning lists -------------------------------------------- */
+
+.data-control__problems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+}
+
+.data-control__problems-title {
+  font-size: var(--tlo-text-base);
+  font-weight: 800;
+  color: var(--tlo-incorrect);
+}
+
+.data-control__problem-list,
+.data-control__warning-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  padding-left: var(--tlo-space-5);
+  /* A real bullet: the list is content, not decoration. */
+  list-style: disc;
+}
+
+.data-control__warning-list {
+  list-style: none;
+  padding-left: 0;
+  color: var(--tlo-attention);
+  font-weight: 700;
+}
+
+.data-control__problem-list > li,
+.data-control__warning-list > li {
+  max-width: var(--tlo-measure);
+}
+
+.data-control__problems-foot {
+  font-weight: 700;
+  color: var(--tlo-incorrect);
+}
+
+/* --- Delete panel ---------------------------------------------------------- */
+
+.data-control__alert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+  background: var(--tlo-incorrect-soft);
+  border: 2px solid var(--tlo-incorrect-border);
+  border-radius: var(--tlo-radius);
+  padding: var(--tlo-space-4);
+  color: var(--tlo-text);
+}
+
+.data-control__alert-title {
+  font-size: var(--tlo-text-lg);
+  font-weight: 800;
+  color: var(--tlo-incorrect);
+}
+
+.data-control__alert p {
+  max-width: var(--tlo-measure);
+}
+
+.data-control__delete-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  padding-left: 0;
+}
+
+.data-control__delete-list > li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tlo-space-2);
+  max-width: var(--tlo-measure);
+}
+
+/* The glyph makes "will be removed" readable without the red. */
+.data-control__delete-glyph {
+  flex: 0 0 auto;
+  font-weight: 800;
+  color: var(--tlo-incorrect);
+}
+
+/* --- Confirmation phrase --------------------------------------------------- */
+
+.data-control__phrase {
+  font-weight: 700;
+  color: var(--tlo-text);
+}
+
+.data-control__phrase-code,
+.data-control__result code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--tlo-text-base);
+  font-weight: 800;
+  padding: var(--tlo-space-1) var(--tlo-space-2);
+  border: 1px dashed var(--tlo-border-strong);
+  border-radius: var(--tlo-radius-sm);
+  background: var(--tlo-surface);
+  color: var(--tlo-text);
+}
+
+/* --- File input ------------------------------------------------------------ */
+
+/* A real file input, styled to match `.input` and to keep its own 44px
+   target. It stays focusable and keyboard operable — only its look changes. */
+.data-control__file-input {
+  min-height: 44px;
+  padding: var(--tlo-space-2);
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.data-control__file-input::file-selector-button {
+  min-height: 36px;
+  padding: var(--tlo-space-2) var(--tlo-space-3);
+  margin-right: var(--tlo-space-3);
+  border: 1px solid var(--tlo-primary-border);
+  border-radius: var(--tlo-radius-sm);
+  background: var(--tlo-surface);
+  color: var(--tlo-primary-strong);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.data-control__file-input:hover {
+  border-color: var(--tlo-primary-border);
+}
+
+/* --- Footer --------------------------------------------------------------- */
+
+.data-control__foot {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+  max-width: var(--tlo-measure);
+}
+
+/* --- Responsive ----------------------------------------------------------- */
+
+/* 375px: single column, tight padding, nothing that can overflow. */
+@media (max-width: 767px) {
+  .data-control__section {
+    padding: var(--tlo-space-4);
+  }
+
+  .data-control__actions .btn {
+    width: 100%;
+  }
+
+  .data-control__count {
+    align-items: center;
+  }
+}
+
+/* 768px and up: the primary buttons keep their natural width so the row does
+   not stretch across a wide screen. */
+@media (min-width: 768px) {
+  .data-control__actions .btn {
+    width: auto;
+  }
+}

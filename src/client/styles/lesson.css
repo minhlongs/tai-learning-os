@@ -1,0 +1,469 @@
+/*
+ * The interactive lesson screen.
+ *
+ * Bright but restrained: one accent colour, generous touch targets (every
+ * control is at least 44px tall), and no animation at all. Motion is the one
+ * thing that can make a learner-facing screen hostile, so this stylesheet adds
+ * none — the global reduced-motion rule has nothing to disable here.
+ */
+
+/* --- Page frame ----------------------------------------------------------- */
+
+.lesson-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-5);
+  padding: var(--tlo-space-4);
+  max-width: var(--tlo-content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+.lesson-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tlo-space-3);
+}
+
+.lesson-header__title {
+  flex: 1 1 auto;
+  font-size: var(--tlo-text-2xl);
+}
+
+/* --- Step progress -------------------------------------------------------- */
+
+.step-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  padding: var(--tlo-space-3) var(--tlo-space-4);
+  background: var(--tlo-surface);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+}
+
+.step-progress__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--tlo-space-2);
+}
+
+.step-progress__text {
+  font-weight: 700;
+}
+
+.step-progress__note {
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+}
+
+.step-progress__track {
+  height: 10px;
+  background: var(--tlo-surface-sunken);
+  border-radius: var(--tlo-radius-pill);
+  overflow: hidden;
+}
+
+.step-progress__fill {
+  height: 100%;
+  background: var(--tlo-primary);
+  border-radius: var(--tlo-radius-pill);
+}
+
+/* --- Step card ------------------------------------------------------------ */
+
+.lesson-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-4);
+  padding: var(--tlo-space-5);
+  background: var(--tlo-surface);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius-lg);
+  box-shadow: var(--tlo-shadow-sm);
+}
+
+.lesson-card__kind {
+  align-self: flex-start;
+  padding: var(--tlo-space-1) var(--tlo-space-3);
+  background: var(--tlo-primary-soft);
+  color: var(--tlo-primary-strong);
+  border: 1px solid var(--tlo-primary-border);
+  border-radius: var(--tlo-radius-pill);
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+}
+
+.lesson-card__question {
+  font-size: var(--tlo-text-xl);
+  max-width: var(--tlo-measure);
+}
+
+/* --- Interaction: choice and reading -------------------------------------- */
+
+.choice-body,
+.vocab-body,
+.fraction-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-4);
+}
+
+.passage {
+  padding: var(--tlo-space-4);
+  background: var(--tlo-surface-muted);
+  border-left: 4px solid var(--tlo-primary-border);
+  border-radius: var(--tlo-radius-sm);
+}
+
+.passage__title {
+  font-size: var(--tlo-text-lg);
+  margin-bottom: var(--tlo-space-2);
+}
+
+.passage__text {
+  max-width: var(--tlo-measure);
+  white-space: pre-line;
+}
+
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+}
+
+legend {
+  font-weight: 700;
+  padding: 0;
+  margin-bottom: var(--tlo-space-2);
+}
+
+/* A real radio/checkbox, sizeable and visibly labelled. */
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tlo-space-3);
+  min-height: 44px;
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+  cursor: pointer;
+}
+
+.choice:hover {
+  border-color: var(--tlo-primary-border);
+}
+
+.choice:has(input:checked) {
+  border-color: var(--tlo-primary);
+  background: var(--tlo-primary-soft);
+}
+
+.choice input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--tlo-primary);
+}
+
+.choice__label {
+  flex: 1 1 auto;
+}
+
+.choice__hint {
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+}
+
+/* --- Interaction: fraction bar -------------------------------------------- */
+
+.fraction-bar {
+  width: 100%;
+  max-width: 560px;
+  height: auto;
+  border-radius: var(--tlo-radius-sm);
+  overflow: hidden;
+}
+
+.fraction-bar__seg {
+  fill: var(--tlo-surface-muted);
+  stroke: var(--tlo-border-strong);
+  stroke-width: 1;
+}
+
+.fraction-bar__seg.is-shaded {
+  fill: var(--tlo-primary-soft);
+  stroke: var(--tlo-primary-border);
+  stroke-width: 2;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-2);
+}
+
+.chip {
+  min-width: 52px;
+  min-height: 52px;
+  padding: var(--tlo-space-2) var(--tlo-space-4);
+  background: var(--tlo-surface);
+  border: 2px solid var(--tlo-border);
+  border-radius: var(--tlo-radius-pill);
+  font-size: var(--tlo-text-lg);
+  font-weight: 700;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--tlo-primary-border);
+}
+
+.chip.is-selected {
+  background: var(--tlo-primary);
+  border-color: var(--tlo-primary-strong);
+  color: var(--tlo-text-inverse);
+}
+
+.chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.fraction-body__value {
+  font-size: var(--tlo-text-lg);
+  font-weight: 700;
+}
+
+/* --- Interaction: vocabulary ---------------------------------------------- */
+
+.vocab-picture {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+}
+
+.vocab-picture__bg {
+  fill: var(--tlo-surface-muted);
+  stroke: var(--tlo-border);
+}
+
+.vocab-picture__ink {
+  fill: var(--tlo-primary);
+  stroke: var(--tlo-primary-strong);
+  stroke-width: 2;
+}
+
+.vocab-picture__paper {
+  fill: var(--tlo-surface);
+  stroke: var(--tlo-border-strong);
+  stroke-width: 2;
+}
+
+.vocab-picture__water,
+.vocab-picture__leaf,
+.vocab-picture__sky {
+  fill: var(--tlo-primary-soft);
+  stroke: var(--tlo-primary-border);
+  stroke-width: 2;
+}
+
+.vocab-picture__line {
+  stroke: var(--tlo-border-strong);
+  stroke-width: 2;
+}
+
+.vocab-picture__caption {
+  fill: var(--tlo-text-muted);
+  font-family: var(--tlo-font);
+  font-size: 12px;
+}
+
+.vocab-body__sentence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+  align-items: flex-start;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  width: 100%;
+}
+
+.field__label {
+  font-weight: 700;
+}
+
+.field__input {
+  width: 100%;
+  min-height: 80px;
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface);
+  border: 2px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+  resize: vertical;
+}
+
+.field__input:focus-visible {
+  border-color: var(--tlo-primary);
+}
+
+/* --- Hint tray ------------------------------------------------------------ */
+
+.hint-tray {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+  padding: var(--tlo-space-4);
+  background: var(--tlo-attention-soft);
+  border: 1px solid var(--tlo-attention-border);
+  border-radius: var(--tlo-radius);
+}
+
+.hint-tray__title {
+  font-size: var(--tlo-text-lg);
+  color: var(--tlo-attention);
+}
+
+.hint-tray__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-2);
+}
+
+.btn--hint {
+  background: var(--tlo-surface);
+  border-color: var(--tlo-attention-border);
+  color: var(--tlo-attention);
+}
+
+.btn--hint:hover:not(:disabled) {
+  background: var(--tlo-attention-soft);
+}
+
+.btn--hint.is-used {
+  background: var(--tlo-surface-muted);
+  border-style: dashed;
+  color: var(--tlo-text-muted);
+}
+
+.hint-tray__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  counter-reset: hint;
+}
+
+.hint-tray__item {
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface);
+  border-left: 4px solid var(--tlo-attention-border);
+  border-radius: var(--tlo-radius-sm);
+  counter-increment: hint;
+}
+
+.hint-tray__item::before {
+  content: "Gợi ý " counter(hint) ": ";
+  font-weight: 700;
+}
+
+.hint-tray__note {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+  font-weight: 600;
+}
+
+/* --- Feedback ------------------------------------------------------------- */
+
+.lesson-feedback {
+  padding: var(--tlo-space-4);
+  border-radius: var(--tlo-radius);
+  border: 2px solid var(--tlo-border);
+  background: var(--tlo-surface);
+}
+
+.lesson-feedback--correct {
+  border-color: var(--tlo-correct-border);
+  background: var(--tlo-correct-soft);
+}
+
+.lesson-feedback--partial {
+  border-color: var(--tlo-attention-border);
+  background: var(--tlo-attention-soft);
+}
+
+.lesson-feedback--incorrect {
+  border-color: var(--tlo-incorrect-border);
+  background: var(--tlo-incorrect-soft);
+}
+
+.lesson-feedback__message {
+  font-size: var(--tlo-text-lg);
+  font-weight: 700;
+}
+
+.lesson-feedback__meta {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+  margin-top: var(--tlo-space-2);
+}
+
+.lesson-explanation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  padding: var(--tlo-space-4);
+  background: var(--tlo-primary-soft);
+  border: 1px solid var(--tlo-primary-border);
+  border-radius: var(--tlo-radius);
+}
+
+/* --- Navigation ----------------------------------------------------------- */
+
+.lesson-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-3);
+  justify-content: space-between;
+}
+
+.lesson-nav__note {
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+  font-style: italic;
+}
+
+/* --- Wider screens -------------------------------------------------------- */
+
+@media (min-width: 48rem) {
+  .lesson-page {
+    padding: var(--tlo-space-5) var(--tlo-space-6);
+  }
+
+  .choice-body__choices,
+  .vocab-body__choices,
+  .fraction-body__controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--tlo-space-3);
+  }
+
+  /* The sentence box and its button sit side by side when there is room. */
+  .vocab-body__sentence {
+    flex-direction: row;
+    align-items: flex-end;
+  }
+
+  .vocab-body__sentence .field {
+    flex: 1 1 auto;
+  }
+}

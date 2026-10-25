@@ -1,0 +1,212 @@
+/*
+ * TAI LEARNING OS — design tokens and base styles.
+ *
+ * Vietnamese-first: the base type stack prefers system fonts already installed
+ * on the machine, so there is no font CDN in the learner's path. Vietnamese
+ * diacritics need generous line-height, so the base leading is not tight.
+ *
+ * Contrast: every text/background pair below is >= 4.5:1 (body) or >= 3:1
+ * (large text and UI boundaries) on the light surface.
+ */
+
+:root {
+  /* --- Surfaces ---------------------------------------------------------- */
+  --tlo-bg: #f4f6fb;
+  --tlo-surface: #ffffff;
+  --tlo-surface-muted: #eef1f8;
+  --tlo-surface-sunken: #e4e9f4;
+  --tlo-border: #c3cbdd;
+  --tlo-border-strong: #8e99b3;
+
+  /* --- Text -------------------------------------------------------------- */
+  --tlo-text: #16203a;
+  --tlo-text-muted: #4c5877;
+  --tlo-text-inverse: #ffffff;
+
+  /* --- Brand / accent ---------------------------------------------------- */
+  --tlo-primary: #1b46b8;
+  --tlo-primary-strong: #12357f;
+  --tlo-primary-soft: #e2e9fb;
+  --tlo-primary-border: #3a63c8;
+
+  /* --- Semantic feedback (never colour alone: every one is paired with a
+   *     glyph or word in the components) ---------------------------------- */
+  --tlo-correct: #10693f;
+  --tlo-correct-soft: #dcf5e7;
+  --tlo-correct-border: #1e8a55;
+  --tlo-incorrect: #96201f;
+  --tlo-incorrect-soft: #fbe4e3;
+  --tlo-incorrect-border: #b43634;
+  --tlo-attention: #7a4b06;
+  --tlo-attention-soft: #fdf0d8;
+  --tlo-attention-border: #b06d0a;
+
+  /* --- Focus ------------------------------------------------------------- */
+  --tlo-focus: #12256e;
+  --tlo-focus-width: 3px;
+
+  /* --- Spacing scale (4px base) ------------------------------------------ */
+  --tlo-space-1: 0.25rem;
+  --tlo-space-2: 0.5rem;
+  --tlo-space-3: 0.75rem;
+  --tlo-space-4: 1rem;
+  --tlo-space-5: 1.5rem;
+  --tlo-space-6: 2rem;
+  --tlo-space-7: 3rem;
+
+  /* --- Radius ------------------------------------------------------------ */
+  --tlo-radius-sm: 6px;
+  --tlo-radius: 10px;
+  --tlo-radius-lg: 16px;
+  --tlo-radius-pill: 999px;
+
+  /* --- Typography -------------------------------------------------------- */
+  --tlo-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    "Noto Sans", "Tahoma", sans-serif;
+  --tlo-text-sm: 0.875rem;
+  --tlo-text-base: 1rem;
+  --tlo-text-lg: 1.125rem;
+  --tlo-text-xl: 1.375rem;
+  --tlo-text-2xl: 1.75rem;
+  --tlo-leading: 1.65;
+
+  /* --- Elevation --------------------------------------------------------- */
+  --tlo-shadow-sm: 0 1px 2px rgb(22 32 58 / 0.08);
+  --tlo-shadow: 0 4px 12px rgb(22 32 58 / 0.1);
+
+  /* --- Motion ------------------------------------------------------------ */
+  --tlo-duration: 140ms;
+  --tlo-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --- Layout ------------------------------------------------------------ */
+  --tlo-content-max: 76rem;
+  --tlo-measure: 62ch;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  /* The document language is Vietnamese. index.html at the repo root must also
+   * carry lang="vi"; this keeps the rule true for any direct render of this
+   * stylesheet. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--tlo-bg);
+  color: var(--tlo-text);
+  font-family: var(--tlo-font);
+  font-size: var(--tlo-text-base);
+  line-height: var(--tlo-leading);
+  /* Vietnamese-first: no layout from a stray horizontal scrollbar. */
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--tlo-text-2xl);
+  line-height: 1.3;
+}
+h2 {
+  font-size: var(--tlo-text-xl);
+  line-height: 1.35;
+}
+h3 {
+  font-size: var(--tlo-text-lg);
+  line-height: 1.4;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* --- Focus: always visible, never removed -------------------------------- */
+
+:focus-visible {
+  outline: var(--tlo-focus-width) solid var(--tlo-focus);
+  outline-offset: 2px;
+  border-radius: var(--tlo-radius-sm);
+}
+
+/* A click on a mouse should not leave a ring, but a keyboard never loses one. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* --- Interactive primitives ---------------------------------------------- */
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--tlo-primary-strong);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+/* Screen-reader-only text: announced, never painted. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Reduced motion: kill every transition and animation ---------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

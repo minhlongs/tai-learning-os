@@ -1,0 +1,70 @@
+/* Login screen: a single centred card that never overflows at 375px. */
+
+.login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tlo-space-4);
+  background: var(--tlo-bg);
+}
+
+.login__card {
+  width: 100%;
+  max-width: 32rem;
+  background: var(--tlo-surface);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius-lg);
+  padding: var(--tlo-space-5);
+  box-shadow: var(--tlo-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-4);
+}
+
+@media (min-width: 768px) {
+  .login__card {
+    padding: var(--tlo-space-6);
+  }
+}
+
+.login__title {
+  font-size: var(--tlo-text-2xl);
+  font-weight: 800;
+  color: var(--tlo-primary-strong);
+}
+
+.login__lede {
+  color: var(--tlo-text-muted);
+}
+
+.login__error {
+  background: var(--tlo-incorrect-soft);
+  border: 1px solid var(--tlo-incorrect-border);
+  border-left-width: 6px;
+  border-radius: var(--tlo-radius);
+  padding: var(--tlo-space-3) var(--tlo-space-4);
+  color: var(--tlo-incorrect);
+  font-weight: 700;
+}
+
+.login__notice {
+  background: var(--tlo-attention-soft);
+  border: 1px solid var(--tlo-attention-border);
+  border-left-width: 6px;
+  border-radius: var(--tlo-radius);
+  padding: var(--tlo-space-3) var(--tlo-space-4);
+  color: var(--tlo-attention);
+  font-weight: 700;
+}
+
+.login__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+}
+
+.login__switch {
+  padding-top: var(--tlo-space-2);
+  border-top: 1px solid var(--tlo-border);
+}

@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.vite/
+
+# Cloudflare local state — CONTAINS LOCAL DATABASE AND CREDENTIAL MATERIAL
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.wrangler.toml
+
+# Local D1 SQLite state (persisted learner data)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+data/*.sqlite*
+
+# Generated sensitive exports — learner records contain personal data
+exports/
+backups/
+*.export.json
+
+# Test artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+coverage/
+
+# Logs — must never contain PII
+*.log
+npm-debug.log*
+logs/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Environment files — never commit secrets
+.env
+.env.*
+!.env.example

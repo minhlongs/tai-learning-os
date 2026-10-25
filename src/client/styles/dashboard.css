@@ -1,0 +1,248 @@
+/*
+ * The parent dashboard.
+ *
+ * This screen is read, not browsed: it should look like a record. No colour is
+ * load-bearing on its own — every state pill pairs its colour with a word and a
+ * glyph — and no number is styled to look like a score.
+ *
+ * Mobile-first: a single column that stays readable at 375px, widening to two
+ * stat columns and a wider table on tablet and desktop.
+ */
+
+.dashboard-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-5);
+  padding: var(--tlo-space-4);
+  max-width: var(--tlo-content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* --- Header --------------------------------------------------------------- */
+
+.dashboard-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+}
+
+.dashboard-header__title {
+  font-size: var(--tlo-text-2xl);
+}
+
+.dashboard-header__lede {
+  color: var(--tlo-text-muted);
+  max-width: 60ch;
+}
+
+.dashboard-header__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-2);
+}
+
+/* --- Stats ---------------------------------------------------------------- */
+
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--tlo-space-3);
+  margin: 0;
+}
+
+.dashboard-stats__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-1);
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface-muted);
+  border-radius: var(--tlo-radius);
+}
+
+.dashboard-stats__item dt {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+.dashboard-stats__item dd {
+  margin: 0;
+  font-size: var(--tlo-text-xl);
+  font-weight: 800;
+  color: var(--tlo-text);
+}
+
+.dashboard-note,
+.dashboard-empty {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+  margin-top: var(--tlo-space-3);
+}
+
+/* --- Review queue --------------------------------------------------------- */
+
+.dashboard-review,
+.dashboard-attention,
+.dashboard-goals,
+.dashboard-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dashboard-review__head,
+.dashboard-sessions__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tlo-space-2);
+}
+
+.dashboard-review__meta,
+.dashboard-sessions__meta {
+  display: block;
+  margin-top: var(--tlo-space-1);
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+.dashboard-review > li,
+.dashboard-sessions > li {
+  padding: var(--tlo-space-3);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+  background: var(--tlo-surface);
+}
+
+/* --- Parent attention ----------------------------------------------------- */
+
+.dashboard-attention > li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-1);
+  padding: var(--tlo-space-3);
+  border: 2px solid var(--tlo-attention-border, var(--tlo-border-strong));
+  border-radius: var(--tlo-radius);
+  background: var(--tlo-surface-muted);
+}
+
+/* The reason is words, not a colour: it is the only part that tells the parent
+ * what decision is being asked of them. */
+.dashboard-attention__reason {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+/* --- Skill table ---------------------------------------------------------- */
+
+.dashboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--tlo-text-sm);
+}
+
+.dashboard-table__caption {
+  caption-side: top;
+  text-align: start;
+  color: var(--tlo-text-muted);
+  margin-bottom: var(--tlo-space-3);
+}
+
+.dashboard-table th,
+.dashboard-table td {
+  padding: var(--tlo-space-2) var(--tlo-space-3);
+  text-align: start;
+  border-bottom: 1px solid var(--tlo-border);
+}
+
+.dashboard-table thead th {
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+}
+
+.dashboard-table__num {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+/* --- Goals ---------------------------------------------------------------- */
+
+.dashboard-goals > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tlo-space-2);
+}
+
+/* --- Pills introduced by this screen --------------------------------------- */
+
+/* "Đến hạn ôn": due dates read as pending, never as a warning or a reward. */
+.pill--due {
+  border-color: var(--tlo-primary-border);
+  background: var(--tlo-primary-soft);
+  color: var(--tlo-primary-strong);
+}
+
+/* Session status. `abandoned` is deliberately the most visually prominent of
+ * the three: a session the learner walked out of must not look like a finished
+ * one on the dashboard. */
+.pill--status--in_progress {
+  border-color: var(--tlo-border-strong);
+  color: var(--tlo-text-muted);
+}
+
+.pill--status--completed {
+  border-color: var(--tlo-correct-border);
+  background: var(--tlo-correct-soft);
+  color: var(--tlo-correct);
+}
+
+.pill--status--abandoned {
+  border-color: var(--tlo-attention-border);
+  background: var(--tlo-attention-soft);
+  color: var(--tlo-attention);
+}
+
+/* Goal status: active/paused/achieved/retired. Achieved is the only one given
+ * a positive tone, and it states the word rather than celebrating it. */
+.pill--goal {
+  border-color: var(--tlo-border-strong);
+  color: var(--tlo-text-muted);
+}
+
+.pill--goal--achieved {
+  border-color: var(--tlo-correct-border);
+  background: var(--tlo-correct-soft);
+  color: var(--tlo-correct);
+}
+
+.pill--goal--retired {
+  border-style: dashed;
+}
+
+/* --- Wider screens -------------------------------------------------------- */
+
+@media (min-width: 48rem) {
+  .dashboard-page {
+    padding: var(--tlo-space-5) var(--tlo-space-6);
+  }
+
+  .dashboard-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-table {
+    font-size: var(--tlo-text-base);
+  }
+}
+
+@media (min-width: 64rem) {
+  .dashboard-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

@@ -1,0 +1,238 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  COMPETENCY_CONFIG,
+  deriveCompetency,
+  isIndependentAttempt,
+  type AttemptEvidence,
+} from "../../src/shared/engine/competency";
+import type { EvidenceKind, SubmissionOutcome } from "../../src/shared/schemas/attempt";
+
+/**
+ * The competency ladder exists to stop a single lucky guess from being reported
+ * to a parent as mastery. Every test here guards one rung of that ladder.
+ */
+
+const SKILL = "math-frac-equiv";
+const OTHER_SKILL = "math-frac-compare";
+
+let sequence = 0;
+
+function attempt(overrides: Partial<AttemptEvidence> = {}): AttemptEvidence {
+  sequence += 1;
+  return {
+    attemptId: `att-${sequence}`,
+    skillId: SKILL,
+    outcome: "correct",
+    helpLevel: 0,
+    evidenceKind: "observed",
+    isTransfer: false,
+    isReview: false,
+    createdAt: 1_700_000_000_000 + sequence * 1000,
+    ...overrides,
+  };
+}
+
+function correct(overrides: Partial<AttemptEvidence> = {}): AttemptEvidence {
+  return attempt({ outcome: "correct" as SubmissionOutcome, ...overrides });
+}
+
+function incorrect(overrides: Partial<AttemptEvidence> = {}): AttemptEvidence {
+  return attempt({ outcome: "incorrect" as SubmissionOutcome, ...overrides });
+}
+
+describe("deriveCompetency — no evidence", () => {
+  it("returns NOT_OBSERVED with an empty history", () => {
+    const result = deriveCompetency([]);
+    expect(result.state).toBe("NOT_OBSERVED");
+    expect(result.correctCount).toBe(0);
+    expect(result.independentCount).toBe(0);
+  });
+
+  it("returns NOT_OBSERVED when every attempt is incorrect", () => {
+    const result = deriveCompetency([incorrect(), incorrect(), incorrect()]);
+    expect(result.state).toBe("NOT_OBSERVED");
+    expect(result.correctCount).toBe(0);
+  });
+
+  it("ignores attempts tagged for a different skill", () => {
+    const foreign = correct({ skillId: OTHER_SKILL, attemptId: "foreign" });
+    expect(deriveCompetency([foreign]).state).toBe("NOT_OBSERVED");
+  });
+
+  it("ignores attempts with an empty skillId", () => {
+    expect(deriveCompetency([correct({ skillId: "" })]).state).toBe("NOT_OBSERVED");
+  });
+});
+
+describe("deriveCompetency — a single correct guess is not mastery", () => {
+  it("keeps ONE unassisted correct attempt below INDEPENDENT", () => {
+    const result = deriveCompetency([correct()]);
+    expect(result.independentCount).toBe(1);
+    // The critical assertion: one attempt can never establish mastery.
+    expect(result.state).not.toBe("INDEPENDENT");
+    expect(["NOT_OBSERVED", "SUPPORTED"]).toContain(result.state);
+  });
+
+  it("does not promote ONE correct attempt with a small hint", () => {
+    const result = deriveCompetency([correct({ helpLevel: 1 })]);
+    expect(result.independentCount).toBe(1);
+    expect(result.state).not.toBe("INDEPENDENT");
+  });
+
+  it("reflects the configured minimum in the reported reason", () => {
+    expect(COMPETENCY_CONFIG.independentMinCorrect).toBe(2);
+  });
+});
+
+describe("deriveCompetency — the independent threshold", () => {
+  it("promotes to INDEPENDENT on two unassisted correct attempts", () => {
+    const result = deriveCompetency([correct(), correct()]);
+    expect(result.independentCount).toBe(2);
+    expect(result.state).toBe("INDEPENDENT");
+  });
+
+  it("still promotes when the two unassisted attempts are separated by a failure", () => {
+    const result = deriveCompetency([correct(), incorrect(), correct()]);
+    expect(result.state).toBe("INDEPENDENT");
+  });
+
+  it("treats help level 2 (small hint) as still independent", () => {
+    const result = deriveCompetency([correct({ helpLevel: 2 }), correct({ helpLevel: 2 })]);
+    expect(result.state).toBe("INDEPENDENT");
+  });
+
+  it("does not promote when help level 3 is involved", () => {
+    const result = deriveCompetency([correct(), correct({ helpLevel: 3 })]);
+    expect(result.independentCount).toBe(1);
+    expect(result.state).not.toBe("INDEPENDENT");
+  });
+});
+
+describe("deriveCompetency — assisted answers are SUPPORTED", () => {
+  it("reports SUPPORTED for two assisted correct attempts", () => {
+    const result = deriveCompetency([
+      correct({ helpLevel: 3 }),
+      correct({ helpLevel: 4 }),
+    ]);
+    expect(result.state).toBe("SUPPORTED");
+    expect(result.state).not.toBe("INDEPENDENT");
+    expect(result.assistedCount).toBe(2);
+    expect(result.independentCount).toBe(0);
+  });
+
+  it("reports SUPPORTED when one attempt is assisted and one independent", () => {
+    const result = deriveCompetency([correct(), correct({ helpLevel: 3 })]);
+    expect(result.state).toBe("SUPPORTED");
+  });
+
+  it("counts only correct attempts as assisted", () => {
+    const result = deriveCompetency([incorrect({ helpLevel: 4 })]);
+    expect(result.assistedCount).toBe(0);
+    expect(result.state).toBe("NOT_OBSERVED");
+  });
+});
+
+describe("deriveCompetency — retention and transfer", () => {
+  it("reports RETAINED when an independent review attempt reaches the threshold", () => {
+    const result = deriveCompetency([
+      correct(),
+      correct(),
+      correct({ isReview: true }),
+    ]);
+    expect(result.state).toBe("RETAINED");
+  });
+
+  it("reports TRANSFERRED for an independent transfer attempt once independent", () => {
+    const result = deriveCompetency([
+      correct(),
+      correct(),
+      correct({ isTransfer: true }),
+    ]);
+    expect(result.state).toBe("TRANSFERRED");
+  });
+
+  it("prefers TRANSFERRED over RETAINED when both are present", () => {
+    const result = deriveCompetency([
+      correct(),
+      correct(),
+      correct({ isReview: true }),
+      correct({ isTransfer: true }),
+    ]);
+    expect(result.state).toBe("TRANSFERRED");
+  });
+
+  it("does not report TRANSFERRED unless there are two independent solves", () => {
+    // One ordinary independent solve plus a transfer answer is only one
+    // independent observation of the original skill: the threshold of two
+    // must be met from the skill's own attempts before a transfer counts.
+    const result = deriveCompetency([correct()]);
+    expect(result.independentCount).toBe(1);
+    expect(result.state).not.toBe("TRANSFERRED");
+  });
+
+  it("does not report TRANSFERRED when the transfer attempt was assisted", () => {
+    const result = deriveCompetency([
+      correct(),
+      correct(),
+      correct({ isTransfer: true, helpLevel: 4 }),
+    ]);
+    expect(result.state).toBe("INDEPENDENT");
+  });
+});
+
+describe("deriveCompetency — parent correction is never independent", () => {
+  it("excludes a parent_correction from the independent count", () => {
+    const kind: EvidenceKind = "parent_correction";
+    const result = deriveCompetency([
+      correct({ evidenceKind: kind }),
+      correct({ evidenceKind: kind }),
+    ]);
+    expect(result.independentCount).toBe(0);
+    expect(result.assistedCount).toBe(0);
+    // A hand-recorded observation is never the learner's own evidence: the
+    // skill stays unobserved rather than being credited as supported.
+    expect(result.state).toBe("NOT_OBSERVED");
+    expect(result.state).not.toBe("INDEPENDENT");
+    expect(result.state).not.toBe("TRANSFERRED");
+  });
+
+  it("does not let a parent_correction satisfy a transfer promotion", () => {
+    const kind: EvidenceKind = "parent_correction";
+    const result = deriveCompetency([
+      correct(),
+      correct({ isTransfer: true, evidenceKind: kind }),
+    ]);
+    expect(result.state).not.toBe("TRANSFERRED");
+  });
+
+  it("marks parent_correction as non-independent directly", () => {
+    expect(isIndependentAttempt(correct({ evidenceKind: "parent_correction" }))).toBe(false);
+  });
+});
+
+describe("deriveCompetency — determinism", () => {
+  it("returns an identical derivation for identical input", () => {
+    const history = [correct(), incorrect(), correct({ helpLevel: 2 }), correct({ isReview: true })];
+    expect(deriveCompetency(history)).toEqual(deriveCompetency(history));
+  });
+
+  it("returns an identical derivation for a re-ordered equivalent history", () => {
+    const a = correct();
+    const b = correct();
+    const shuffled = deriveCompetency([b, a]);
+    const ordered = deriveCompetency([a, b]);
+    expect(shuffled.state).toBe(ordered.state);
+    expect(shuffled.independentCount).toBe(ordered.independentCount);
+  });
+
+  it("reports the last independent timestamp", () => {
+    const older = correct({ createdAt: 1000 });
+    const newer = correct({ createdAt: 5000 });
+    expect(deriveCompetency([older, newer]).lastIndependentAt).toBe(5000);
+  });
+
+  it("reports null lastIndependentAt when nothing is independent", () => {
+    expect(deriveCompetency([incorrect()]).lastIndependentAt).toBeNull();
+  });
+});

@@ -1,0 +1,144 @@
+/*
+ * The end-of-lesson summary screen.
+ *
+ * Bright but restrained, and deliberately without any animation: a summary
+ * that animates is a summary that celebrates, and this screen reports counts
+ * rather than rewarding a learner. Every control is at least 44px tall and the
+ * layout holds at 375px — the facts are a one-column list that only widens into
+ * two columns at 48rem, so a label never wraps into its own number.
+ *
+ * Colour never carries meaning alone: each pill pairs its colour with a glyph
+ * ('✓', '✗', '!') and each row states the count as text.
+ */
+
+.summary-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-5);
+  padding: var(--tlo-space-4);
+  max-width: var(--tlo-content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* --- Header --------------------------------------------------------------- */
+
+.summary-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+}
+
+.summary-header__title {
+  font-size: var(--tlo-text-2xl);
+  font-weight: 800;
+}
+
+.summary-header__lede {
+  color: var(--tlo-text-muted);
+  max-width: var(--tlo-measure);
+}
+
+/* The server's own session status, in words — never a colour-only signal. */
+.summary-header__status {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-text-muted);
+}
+
+/* --- The facts list ------------------------------------------------------- */
+/*
+ * A definition list, so the structure is "term then value" for a screen reader
+ * and for anyone reading the DOM. Two columns from 48rem, one below it.
+ */
+
+.summary-facts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--tlo-space-3);
+  margin: 0;
+}
+
+@media (min-width: 48rem) {
+  .summary-facts {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--tlo-space-4) var(--tlo-space-5);
+  }
+}
+
+.summary-facts__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-1);
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface-muted);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+}
+
+.summary-facts__label {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-text);
+}
+
+.summary-facts__value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tlo-space-2);
+  margin: 0;
+  font-size: var(--tlo-text-2xl);
+  font-weight: 800;
+  color: var(--tlo-primary-strong);
+  font-variant-numeric: tabular-nums;
+  /* Long Vietnamese labels must wrap, never push the row wider. */
+  overflow-wrap: anywhere;
+}
+
+/* The pill inside a fact is large type; keep its text at body size. */
+.summary-facts__value .pill {
+  font-size: var(--tlo-text-lg);
+}
+
+.summary-facts__note {
+  font-size: var(--tlo-text-sm);
+  font-weight: 400;
+  color: var(--tlo-text-muted);
+  max-width: var(--tlo-measure);
+}
+
+/* --- Notes and actions ---------------------------------------------------- */
+
+.summary-note {
+  color: var(--tlo-text-muted);
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface-muted);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+  max-width: var(--tlo-measure);
+}
+
+.summary-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+}
+
+@media (min-width: 30rem) {
+  .summary-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  /* minmax(0, …) rather than a bare basis: a long Vietnamese label must shrink
+     the button instead of pushing the row wider than the viewport. */
+  .summary-actions .btn {
+    flex: 1 1 minmax(0, 12rem);
+  }
+}
+
+/* The honesty note closes the screen: neutral, quiet, never celebratory. */
+.summary-page .card--muted {
+  border-left: 6px solid var(--tlo-primary-border);
+}

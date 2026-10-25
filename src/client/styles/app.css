@@ -1,0 +1,451 @@
+/*
+ * App shell: the top bar, page frame, and shared layout pieces.
+ *
+ * Mobile-first: a single column at 375px that gains a sidebar-free wide frame
+ * at 1280px. Nothing here can cause horizontal overflow — the frame uses
+ * minmax() and every child wraps.
+ */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* --- Top bar -------------------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tlo-space-3);
+  padding: var(--tlo-space-3) var(--tlo-space-4);
+  background: var(--tlo-surface);
+  border-bottom: 1px solid var(--tlo-border);
+}
+
+.topbar__brand {
+  font-size: var(--tlo-text-lg);
+  font-weight: 800;
+  color: var(--tlo-primary-strong);
+  letter-spacing: 0.01em;
+}
+
+.topbar__brand-sub {
+  display: block;
+  font-size: var(--tlo-text-sm);
+  font-weight: 600;
+  color: var(--tlo-text-muted);
+  letter-spacing: normal;
+}
+
+.topbar__spacer {
+  flex: 1 1 auto;
+}
+
+.topbar__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tlo-space-2);
+}
+
+.topbar__who {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+/* --- Page frame ----------------------------------------------------------- */
+
+.page {
+  width: 100%;
+  max-width: var(--tlo-content-max);
+  margin: 0 auto;
+  padding: var(--tlo-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-5);
+  flex: 1 1 auto;
+}
+
+@media (min-width: 768px) {
+  .page {
+    padding: var(--tlo-space-5) var(--tlo-space-6);
+  }
+}
+
+.page__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+}
+
+.page__title {
+  font-size: var(--tlo-text-2xl);
+  font-weight: 800;
+  color: var(--tlo-text);
+}
+
+.page__lede {
+  color: var(--tlo-text-muted);
+  max-width: var(--tlo-measure);
+}
+
+/* --- Cards ---------------------------------------------------------------- */
+
+.card {
+  background: var(--tlo-surface);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius-lg);
+  padding: var(--tlo-space-5);
+  box-shadow: var(--tlo-shadow-sm);
+}
+
+.card--muted {
+  background: var(--tlo-surface-muted);
+}
+
+.card__title {
+  font-size: var(--tlo-text-lg);
+  font-weight: 700;
+  margin-bottom: var(--tlo-space-3);
+}
+
+.card__note {
+  color: var(--tlo-text-muted);
+  font-size: var(--tlo-text-sm);
+  max-width: var(--tlo-measure);
+}
+
+/* --- Grids ---------------------------------------------------------------- */
+
+.grid {
+  display: grid;
+  gap: var(--tlo-space-4);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .grid--2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 960px) {
+  .grid--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .grid--2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tlo-space-2);
+  min-height: 44px; /* WCAG 2.2 target size */
+  padding: var(--tlo-space-3) var(--tlo-space-5);
+  border: 1px solid transparent;
+  border-radius: var(--tlo-radius);
+  font-size: var(--tlo-text-base);
+  font-weight: 700;
+  text-align: center;
+  transition: background-color var(--tlo-duration) var(--tlo-ease),
+    border-color var(--tlo-duration) var(--tlo-ease),
+    color var(--tlo-duration) var(--tlo-ease);
+}
+
+.btn--primary {
+  background: var(--tlo-primary);
+  color: var(--tlo-text-inverse);
+  border-color: var(--tlo-primary-strong);
+}
+
+.btn--primary:hover {
+  background: var(--tlo-primary-strong);
+}
+
+.btn--secondary {
+  background: var(--tlo-surface);
+  color: var(--tlo-primary-strong);
+  border-color: var(--tlo-primary-border);
+}
+
+.btn--secondary:hover {
+  background: var(--tlo-primary-soft);
+}
+
+.btn--danger {
+  background: var(--tlo-surface);
+  color: var(--tlo-incorrect);
+  border-color: var(--tlo-incorrect-border);
+}
+
+.btn--danger:hover {
+  background: var(--tlo-incorrect-soft);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--tlo-primary-strong);
+  border-color: transparent;
+  min-height: 44px;
+  padding: var(--tlo-space-2) var(--tlo-space-3);
+}
+
+.btn--ghost:hover {
+  background: var(--tlo-primary-soft);
+}
+
+.btn--large {
+  min-height: 56px;
+  font-size: var(--tlo-text-lg);
+  padding: var(--tlo-space-4) var(--tlo-space-6);
+}
+
+.btn--block {
+  width: 100%;
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 1;
+  background: var(--tlo-surface-sunken);
+  color: var(--tlo-text-muted);
+  border-color: var(--tlo-border);
+  cursor: not-allowed;
+}
+
+/* --- Pills / tags --------------------------------------------------------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tlo-space-1);
+  padding: var(--tlo-space-1) var(--tlo-space-3);
+  border-radius: var(--tlo-radius-pill);
+  border: 1px solid var(--tlo-border-strong);
+  background: var(--tlo-surface-muted);
+  color: var(--tlo-text);
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  /* The glyph inside the pill carries the meaning with the colour. */
+  line-height: 1.4;
+}
+
+.pill--correct {
+  background: var(--tlo-correct-soft);
+  border-color: var(--tlo-correct-border);
+  color: var(--tlo-correct);
+}
+
+.pill--incorrect {
+  background: var(--tlo-incorrect-soft);
+  border-color: var(--tlo-incorrect-border);
+  color: var(--tlo-incorrect);
+}
+
+.pill--attention {
+  background: var(--tlo-attention-soft);
+  border-color: var(--tlo-attention-border);
+  color: var(--tlo-attention);
+}
+
+.pill--is-strong {
+  background: var(--tlo-correct-soft);
+  border-color: var(--tlo-correct-border);
+  color: var(--tlo-correct);
+}
+
+.pill--is-independent {
+  background: var(--tlo-primary-soft);
+  border-color: var(--tlo-primary-border);
+  color: var(--tlo-primary-strong);
+}
+
+.pill--is-supported {
+  background: var(--tlo-attention-soft);
+  border-color: var(--tlo-attention-border);
+  color: var(--tlo-attention);
+}
+
+.pill--is-unobserved {
+  background: var(--tlo-surface-muted);
+  border-color: var(--tlo-border-strong);
+  color: var(--tlo-text-muted);
+}
+
+/* --- Forms ---------------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-2);
+  margin-bottom: var(--tlo-space-4);
+}
+
+.field__label {
+  font-weight: 700;
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text);
+}
+
+.field__hint {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+.field__error {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-incorrect);
+}
+
+.input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--tlo-space-3);
+  background: var(--tlo-surface);
+  border: 1px solid var(--tlo-border-strong);
+  border-radius: var(--tlo-radius);
+  color: var(--tlo-text);
+}
+
+.input:hover {
+  border-color: var(--tlo-primary-border);
+}
+
+/* A field-level description wired with aria-describedby. */
+.input-note {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+/* --- Definition lists (stats) -------------------------------------------- */
+
+.stats {
+  display: grid;
+  gap: var(--tlo-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+}
+
+.stat {
+  background: var(--tlo-surface-muted);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius);
+  padding: var(--tlo-space-4);
+}
+
+.stat__value {
+  font-size: var(--tlo-text-2xl);
+  font-weight: 800;
+  color: var(--tlo-primary-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.stat__label {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+/* --- Lists -------------------------------------------------------------- */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--tlo-space-2) var(--tlo-space-4);
+  padding: var(--tlo-space-3) 0;
+  border-bottom: 1px solid var(--tlo-border);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row__main {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.row__title {
+  font-weight: 700;
+  /* Long Vietnamese titles must wrap, never push the row wider. */
+  overflow-wrap: anywhere;
+}
+
+.row__meta {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text-muted);
+}
+
+.row__aside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tlo-space-2);
+  margin-left: auto;
+}
+
+/* --- Honest bar: real persisted counts only ----------------------------- */
+
+.bar {
+  display: grid;
+  grid-template-columns: minmax(7rem, 12rem) 1fr auto;
+  align-items: center;
+  gap: var(--tlo-space-3);
+  padding: var(--tlo-space-2) 0;
+}
+
+.bar__label {
+  font-size: var(--tlo-text-sm);
+  color: var(--tlo-text);
+  overflow-wrap: anywhere;
+}
+
+.bar__track {
+  background: var(--tlo-surface-sunken);
+  border: 1px solid var(--tlo-border);
+  border-radius: var(--tlo-radius-pill);
+  height: 12px;
+  overflow: hidden;
+}
+
+.bar__fill {
+  height: 100%;
+  background: var(--tlo-primary);
+  border-radius: var(--tlo-radius-pill) 0 0 var(--tlo-radius-pill);
+}
+
+.bar__fill--assisted {
+  background: var(--tlo-attention-border);
+}
+
+.bar__value {
+  font-size: var(--tlo-text-sm);
+  font-weight: 700;
+  color: var(--tlo-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 519px) {
+  .bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .bar__track {
+    grid-column: 1 / -1;
+  }
+}
