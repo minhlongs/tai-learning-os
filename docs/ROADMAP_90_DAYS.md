@@ -6,15 +6,16 @@
 
 ---
 
-## Phase 1: Days 1–30 — Local MVP Stabilization & Core Curriculum (Current: Gate 01 Complete)
+## Phase 1: Days 1–30 — Local MVP Stabilization & Core Curriculum (Current: Gate 01 & Gate 02 Complete)
 
-### Delivered in Gate 01
-- [x] Deterministic competency derivation (`NOT_OBSERVED` → `SUPPORTED` → `INDEPENDENT` → `RETAINED` → `TRANSFERRED`).
-- [x] Spaced review scheduler (`[1, 3, 7, 14]` days ladder with parent escalation on 3+ failures).
-- [x] Strict client-server boundary: answer keys stripped from learner responses; server-only grading and hint progression.
-- [x] Local D1 SQLite schema (15 tables, FK enforcement, CHECK constraints) and reference catalogue.
-- [x] Parent governance screens: authentication, lesson approval gate, mastery dashboard, and JSON export/import/delete.
-- [x] Full verification suite: 163 unit tests, 67 integration tests, 15 E2E browser tests across Desktop, Tablet, and Mobile.
+### Delivered in Gate 01 & Gate 02
+- [x] Deterministic competency derivation (`NOT_OBSERVED` → `SUPPORTED` → `INDEPENDENT` → `RETAINED` → `TRANSFERRED`) with failed-review demotion (`RETAINED` → `INDEPENDENT`) and first-attempt (`attemptNo === 1`) anti-brute-force rule.
+- [x] Spaced review scheduler (`[1, 3, 7, 14]` days ladder with 1-day reset on review failure and parent escalation on 3+ consecutive failures).
+- [x] Strict client-server boundary: answer keys stripped from learner responses; server-only grading and server-enforced hint provenance (`hint.requested` audit trail prevents `helpLevel` spoofing).
+- [x] Hardened security middleware: per-client rate-limiting buckets (`AUTH_RATE_LIMITER` 5/60s, `API_RATE_LIMITER` 120/60s), `Origin` header validation, `x-tlo-csrf` enforcement, and automatic password hash upgrade (`needsRehash`).
+- [x] Local D1 SQLite schema (15 domain tables, FK enforcement, CHECK constraints) and reference catalogue.
+- [x] Parent governance screens: authentication, lesson approval gate with `pendingReapproval` detection, mastery dashboard, and full JSON export/import/delete (including `reviewApprovals`).
+- [x] Full verification suite: 167 unit tests, 70 integration tests, 15 E2E browser tests across Desktop, Tablet, and Mobile.
 
 ### Remaining in Days 1–30
 - [ ] Expand Grade 4 Mathematics library (fractions comparison, word problems, multi-digit operations).

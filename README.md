@@ -71,10 +71,10 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (163 tests)
+# Chạy toàn bộ Unit Tests (167 tests)
 npm run test
 
-# Chạy toàn bộ Integration Tests với workerd D1 (67 tests)
+# Chạy toàn bộ Integration Tests với workerd D1 (70 tests)
 npm run test:integration
 
 # Chạy Playwright End-to-End Tests (15 tests, Desktop + Tablet + Mobile)
@@ -101,7 +101,7 @@ tai-learning-os/
 │   ├── CHILD_PRIVACY_REVIEW.md# Đánh giá quyền riêng tư dữ liệu trẻ em
 │   ├── PARENT_OPERATIONS.md   # Cẩm nang vận hành dành cho phụ huynh
 │   ├── ROADMAP_90_DAYS.md     # Kế hoạch phát triển và điều kiện triển khai
-│   └── audits/GATE_01_REPORT.md # Báo cáo kiểm định chất lượng Cổng 01
+│   └── audits/                # Báo cáo kiểm định chất lượng Cổng 01 & Cổng 02 (Forensic Audit)
 ├── migrations/                # D1 SQL Migrations (0001 schema, 0002 catalogue)
 ├── scripts/                   # Các script công cụ cục bộ (seed, reset, export, hash)
 ├── src/

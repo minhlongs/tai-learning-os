@@ -162,6 +162,7 @@ export function isIndependentAttempt(evidence: AttemptEvidence): boolean {
   if (evidence.evidenceKind === "parent_correction") return false;
   if (evidence.outcome !== "correct") return false;
   if (evidence.helpLevel > COMPETENCY_CONFIG.smallHint) return false;
+  if (evidence.attemptNo !== undefined && evidence.attemptNo > 1) return false;
   return true;
 }
 ```
@@ -257,18 +258,23 @@ actually catches:**
 `failure_streak` in `review_schedule` is `+1` per failure, *"so scheduling stays
 explainable."* It is **visible to the parent only** — never shown to the child.
 
-`needsParentAttention(attempts)` escalates:
+`needsParentAttention(attempts)` escalates when the trailing consecutive failure streak reaches the threshold:
 
 ```ts
-const failures = attempts.filter((a) => a.outcome === "incorrect").length;
-return failures >= REVIEW_CONFIG.failureEscalation;   // 3
+export function needsParentAttention(attempts: readonly AttemptEvidence[]): boolean {
+  let trailingFailures = 0;
+  for (let i = attempts.length - 1; i >= 0; i -= 1) {
+    const a = attempts[i]!;
+    if (isIndependentAttempt(a)) break;
+    if (a.outcome === "incorrect") {
+      trailingFailures += 1;
+    }
+  }
+  return trailingFailures >= REVIEW_CONFIG.failureEscalation;
+}
 ```
 
-At 3 incorrect attempts the skill is **flagged for a human decision, not another
-automated retry**. The comment is explicit: *"Flag for the parent, not the
-learner."* Note this counts **total** incorrect attempts for the skill, not
-consecutive ones — despite the field name and the comment both saying
-"consecutive". **Another place where the code and its own comment disagree.**
+At 3 consecutive incorrect attempts (unbroken by an independent solve) the skill is **flagged for a human decision, not another automated retry**. Once the learner achieves an independent solve (`helpLevel <= 2`, `attemptNo === 1`), the trailing failure streak is broken and the flag resets automatically.
 
 ### Selection
 

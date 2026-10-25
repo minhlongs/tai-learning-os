@@ -46,8 +46,8 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (7 files, 163 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (4 files, 67 tests)
+npm run test               # Vitest unit tests (7 files, 167 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (4 files, 70 tests)
 npm run test:e2e           # Playwright E2E browser tests (Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + build
 
@@ -69,3 +69,7 @@ npm run db:reset-data
 - [`docs/PARENT_OPERATIONS.md`](docs/PARENT_OPERATIONS.md) — Bilingual parent handbook for approvals, dashboard, and backups
 - [`docs/ROADMAP_90_DAYS.md`](docs/ROADMAP_90_DAYS.md) — 90-day evolution and pre-production blockers
 - [`docs/audits/GATE_01_REPORT.md`](docs/audits/GATE_01_REPORT.md) — Empirical Gate 01 audit report
+- [`docs/audits/GATE_02_FORENSIC_AUDIT.md`](docs/audits/GATE_02_FORENSIC_AUDIT.md) — Empirical Gate 02 forensic audit & hardening report
+- [`docs/audits/GATE_02_SECURITY_MATRIX.md`](docs/audits/GATE_02_SECURITY_MATRIX.md) — Route authorization, CSRF, Origin, and rate-limiter matrix
+- [`docs/audits/GATE_02_LEARNING_INTEGRITY.md`](docs/audits/GATE_02_LEARNING_INTEGRITY.md) — Pedagogical integrity, hint provenance, and retention reset report
+- [`docs/audits/GATE_02_RELEASE_DECISION.md`](docs/audits/GATE_02_RELEASE_DECISION.md) — Gate 02 verification verdict & local-only policy enforcement
