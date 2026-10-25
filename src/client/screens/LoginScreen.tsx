@@ -12,7 +12,8 @@
 
 import { useState } from "react";
 import { api, failureMessage, type ApiResult } from "../lib/api";
-import { adoptSession, forgetSession } from "../lib/useSession";
+import { forgetSession } from "../lib/useSession";
+import { useSessionContext } from "../lib/SessionProvider";
 import type { SessionInfo } from "../../shared/api-contract";
 import { navigate } from "../App";
 import "../styles/login.css";
@@ -20,6 +21,7 @@ import "../styles/login.css";
 type Mode = "login" | "bootstrap";
 
 export function LoginScreen(): React.JSX.Element {
+  const { reload: reloadSession } = useSessionContext();
   const [mode, setMode] = useState<Mode>("login");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -31,11 +33,6 @@ export function LoginScreen(): React.JSX.Element {
     setMode(next);
     setError(null);
     setNotice(null);
-  }
-
-  /** Cache the freshly bound session so mutating calls can carry its CSRF token. */
-  function rememberSession(info: SessionInfo): void {
-    adoptSession(info);
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -69,11 +66,14 @@ export function LoginScreen(): React.JSX.Element {
       return;
     }
 
-    // Bootstrap succeeded: read the session so the CSRF token is available.
+    // The cookie is set, so the server now considers this browser signed in —
+    // but the router renders on the session in React state, which still says
+    // anonymous. Re-reading it is what actually moves the app off /login;
+    // pushing a URL alone changes the address bar and nothing else.
     const session = await api.get<SessionInfo>("/api/session");
-    if (session.ok) {
-      rememberSession(session.value);
-      navigate(session.value.authenticated ? "/" : "/login");
+    if (session.ok && session.value.authenticated) {
+      await reloadSession();
+      navigate("/");
       return;
     }
     navigate("/login");

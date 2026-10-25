@@ -1,0 +1,45 @@
+# Local secrets for the TAI LEARNING OS Worker.
+#
+# Copy this file to `.dev.vars` and fill in the values below. `.dev.vars` is
+# gitignored and must never be committed: these are the credentials that let
+# someone sign in as the parent and sign sessions, so they are exactly what the
+# repository must not carry.
+#
+#   cp .dev.vars.example .dev.vars
+#
+# Nothing in this file accesses a paid service or a remote database. The Worker
+# is LOCAL ONLY in this MVP: it runs under `wrangler dev` against a local D1
+# file, and no line of this configuration creates a Cloudflare resource.
+
+# ── SESSION_SECRET ───────────────────────────────────────────────────────────
+# Signs session tokens and derives the CSRF token. Must be high-entropy.
+#
+# The app refuses to serve ANY protected route when this is missing (see
+# src/worker/http/middleware.ts): a missing secret must fail closed, never fall
+# back to an unsigned or guessable default.
+#
+# Generate one:
+#   node -e 'console.log(require("crypto").randomBytes(32).toString("base64url"))'
+#
+# Changing this value signs every existing parent out, which is the correct
+# consequence of rotating a signing key.
+SESSION_SECRET=
+
+# ── PARENT_PASSWORD_HASH ─────────────────────────────────────────────────────
+# The parent's password, stored only as a PBKDF2-SHA256 hash. The app refuses to
+# serve protected routes when this is missing UNLESS ENVIRONMENT is "development",
+# which is what lets first-run account creation work on a fresh local database.
+#
+# Deliberately NOT a password: this file holds no plaintext credential. To make
+# one from a password you choose:
+#
+#   npm run hash:password -- 'your-password-here'
+#
+# Keep the single quotes: an unquoted password in a shell history is a password
+# in a file. Never reuse a password you use anywhere else — this app has no
+# remote service to reset it for you.
+#
+# On a fresh local database you can leave this empty, create the parent account
+# through the app's own bootstrap route, and then set it so subsequent runs
+# require the password you chose.
+PARENT_PASSWORD_HASH=
