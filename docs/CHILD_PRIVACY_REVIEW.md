@@ -50,13 +50,25 @@ that even if the local database file were copied or inspected, no personally ide
 
 ---
 
-## 4. Pre-Production Legal & Compliance Gate (Blocked Until Satisfied)
+## 4. Vietnamese Personal-Data Law Review & Pre-Production Compliance Gate
 
-TAI LEARNING OS is currently restricted to **local household execution (`LOCAL ONLY / PRODUCTION BLOCKED`)**. Before any hosted or multi-family deployment can be considered, the following requirements must be completed and signed off:
+> **Important Legal Disclaimer**: This checklist distinguishes implemented **engineering controls** from **unresolved legal obligations**. Existence of this checklist does **not** constitute legal compliance or legal sign-off. Production / hosted release remains **BLOCKED** pending formal legal review.
 
-1. **Vietnamese Personal Data Protection Decree (Nghị định 13/2023/NĐ-CP)**:
-   - Formal impact assessment for processing children's data (DPIA) and verifiable parental consent workflows.
-2. **COPPA / GDPR-K Alignment (if accessed internationally)**:
-   - Explicit privacy notice, verifiable parental consent mechanisms, and encrypted cloud storage at rest.
-3. **Independent Security Penetration Test**:
-   - Verification of tenant isolation if multi-parent hosting is ever introduced.
+### Official Regulatory References
+- **Law on Personal Data Protection**: Luật Bảo vệ dữ liệu cá nhân số **91/2025/QH15**
+- **Guiding Decree**: Nghị định số **356/2025/NĐ-CP** (và quy định kế thừa từ Nghị định 13/2023/NĐ-CP)
+- **Official Portals**:
+  - Cổng Thông tin điện tử Chính phủ — Hệ thống văn bản quy phạm pháp luật: [https://vanban.chinhphu.vn/](https://vanban.chinhphu.vn/)
+  - Cổng Thông tin điện tử Bộ Công an: [https://bocongan.gov.vn/](https://bocongan.gov.vn/)
+
+### Engineering Controls vs. Unresolved Legal Obligations (Law 91/2025/QH15 & Decree 356/2025/NĐ-CP)
+
+| Requirement Area | Engineering Control (Implemented in Local MVP) | Unresolved Legal Obligation (Blocks Hosted / Production Release) |
+|---|---|---|
+| **Child Data Protection (Under 13 / Children's Personal Data)** | Zero collection of full legal name, full DOB, school, address, phone, or photo. Only `nickname` (`"Tài"`) and `birth_year` (`2016`) are stored locally. | Formal verification of parent/guardian legal status and recorded written/electronic consent compliant with Law 91/2025/QH15 and Decree 356/2025/NĐ-CP before any hosted processing. |
+| **Parental Consent & Governance** | Fail-closed parent authentication (`tlo_session`), parent lesson approval gate (`review_approvals`), and parent-only data controls. | Legally binding privacy notice, consent withdrawal procedure, and audit retention policy for hosted services. |
+| **Right to Access, Portability & Erasure** | Full JSON export (`tai-learning-os-export@v1`), schema-validated import, and confirmed cascade deletion (`DELETE /api/data/learner` with `XOA <Nickname>`). | Statutory SLA and formal verification workflow for data subject requests if operated as a hosted service. |
+| **Data Processing Impact Assessment (DPIA) & Cross-Border Transfer** | Local-only SQLite (`.wrangler/state/v3/d1`); zero external network calls, zero third-party analytics, zero cloud transfers. | Filing of DPIA (Hồ sơ đánh giá tác động xử lý dữ liệu cá nhân) and Cross-Border Transfer Impact Assessment (nếu dùng hạ tầng đám mây ngoài lãnh thổ Việt Nam) with Bộ Công an (A05). |
+| **AI & Automated Decision-Making** | Zero LLM/generative AI in learner mode; deterministic rule-based grading and spaced review; no IQ or psychological profiling. | Separate legal and child-safety impact review required before enabling any future AI-assisted features. |
+| **Security Penetration & Multi-Tenant Isolation** | PBKDF2-SHA256 (60,000 iterations), HMAC-SHA256 sessions, double-submit CSRF, rate limiting, owner-scoped SQL (`parent_id`). | Independent third-party security audit before any multi-family or public deployment. |
+

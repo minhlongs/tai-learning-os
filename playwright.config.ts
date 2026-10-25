@@ -39,6 +39,11 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } },
     },
     {
+      // An iPad/tablet viewport to verify responsive layout across all three required form factors.
+      name: "tablet",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true },
+    },
+    {
       // An iPhone-sized viewport, because the learner uses this on a phone.
       name: "mobile",
       use: { ...devices["Pixel 7"] },

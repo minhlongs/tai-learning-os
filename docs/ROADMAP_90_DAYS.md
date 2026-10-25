@@ -14,7 +14,7 @@
 - [x] Strict client-server boundary: answer keys stripped from learner responses; server-only grading and hint progression.
 - [x] Local D1 SQLite schema (15 tables, FK enforcement, CHECK constraints) and reference catalogue.
 - [x] Parent governance screens: authentication, lesson approval gate, mastery dashboard, and JSON export/import/delete.
-- [x] Full verification suite: 163 unit tests, 67 integration tests, 10 E2E browser tests across Desktop and Mobile.
+- [x] Full verification suite: 163 unit tests, 67 integration tests, 15 E2E browser tests across Desktop, Tablet, and Mobile.
 
 ### Remaining in Days 1–30
 - [ ] Expand Grade 4 Mathematics library (fractions comparison, word problems, multi-digit operations).

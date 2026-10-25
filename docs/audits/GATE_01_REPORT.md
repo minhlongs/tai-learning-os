@@ -27,7 +27,7 @@ Every metric below was executed and verified empirically against commit `HEAD`:
 | **ESLint Code Quality** | `npm run lint` | 0 errors (clean across all src and test files) | **PASS** |
 | **Vitest Unit Tests** | `npm run test` | **7 test files, 163 tests passed (100%)** | **PASS** |
 | **Vitest Integration Tests** | `npm run test:integration` | **4 test files, 67 tests passed (100%)** (tested on local workerd + D1) | **PASS** |
-| **Playwright E2E Tests** | `npm run test:e2e` | **10 tests passed (100%)** across Desktop Chromium and Mobile Chromium | **PASS** |
+| **Playwright E2E Tests** | `npm run test:e2e` | **15 tests passed (100%)** across Desktop (1280×800), Tablet (820×1180), and Mobile (Pixel 7) | **PASS** |
 | **Vite & Worker Bundle Build**| `npm run build` | Built cleanly into `dist/` with zero warnings | **PASS** |
 | **CLI Learner Data Export** | `npm run export:learner` | Validated `tai-learning-os-export@v1` JSON envelope | **PASS** |
 | **Comprehensive Verification**| `npm run verify` | Full pipeline passed in 10.4s | **PASS** |

@@ -77,7 +77,7 @@ npm run test
 # Chạy toàn bộ Integration Tests với workerd D1 (67 tests)
 npm run test:integration
 
-# Chạy Playwright End-to-End Tests (10 tests, Desktop + Mobile)
+# Chạy Playwright End-to-End Tests (15 tests, Desktop + Tablet + Mobile)
 npm run test:e2e
 
 # Xác thực toàn diện tất cả các cổng (typecheck, lint, test, build)
