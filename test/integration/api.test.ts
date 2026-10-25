@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import { resetData } from "./reset-data";
 
@@ -30,6 +30,7 @@ const TEST_SECRET = "integration-only-not-a-real-secret-value";
 
 let worker: { fetch: typeof fetch };
 let env: { DB: D1Database };
+let proxy: Awaited<ReturnType<typeof getPlatformProxy>>;
 
 /** Drive one request through the Worker, carrying what a browser would carry. */
 async function call(
@@ -91,7 +92,7 @@ async function login(password: string): Promise<Response> {
 }
 
 beforeAll(async () => {
-  const proxy = await getPlatformProxy<{ DB: D1Database }>();
+  proxy = await getPlatformProxy<{ DB: D1Database }>();
   env = proxy.env;
   worker = (await import("../../src/worker/index")).default as unknown as {
     fetch: typeof fetch;
@@ -102,6 +103,14 @@ beforeAll(async () => {
   // proving the route refused, not that it created. Clearing the data (never the
   // schema) makes the suite repeatable on the same local database.
   await resetData(env.DB as unknown as D1Database);
+});
+
+afterAll(async () => {
+  // Releasing the proxy releases its SQLite handle. If this is skipped the file
+  // stays locked, and the next suite in the same process fails with
+  // SQLITE_BUSY on its first `delete` — a locking problem that looks exactly
+  // like a data problem.
+  await proxy.dispose();
 });
 
 beforeEach(() => {

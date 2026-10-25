@@ -29,10 +29,12 @@ import {
 } from "./routes/learner";
 import {
   correctSkillEvidence,
+  createLearnerProfile,
   getLessonDetail,
   getParentDashboard,
   listLessons,
   setLessonApproval,
+  updateLearnerProfile,
   updateLessonContent,
 } from "./routes/parent";
 import { deleteLearner, exportRecord, importRecord } from "./routes/data";
@@ -64,6 +66,8 @@ const ROUTES: readonly Route[] = [
   protectedRoute("POST", /^\/api\/parent\/lessons\/approval$/, setLessonApproval),
   protectedRoute("POST", /^\/api\/parent\/lessons\/content$/, updateLessonContent),
   protectedRoute("POST", /^\/api\/parent\/skills\/correct$/, correctSkillEvidence),
+  protectedRoute("POST", /^\/api\/parent\/learners$/, createLearnerProfile),
+  protectedRoute("PATCH", /^\/api\/parent\/learners\/profile$/, updateLearnerProfile),
 
   protectedRoute("POST", /^\/api\/data\/export$/, exportRecord),
   protectedRoute("POST", /^\/api\/data\/import$/, importRecord),

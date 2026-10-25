@@ -281,6 +281,43 @@ export type ImportResponse = {
 export type DeleteLearnerRequest = { learnerId: string; confirmation: string };
 export type DeleteLearnerResponse = { deleted: true };
 
+// --- Learner enrolment ----------------------------------------------------
+
+/**
+ * What a parent supplies to enrol a learner.
+ *
+ * Deliberately minimal, and deliberately NOT a full legal name or date of
+ * birth: `birthYear` is a year, never a full date, and `nickname` is what the
+ * learner is called in the app. The MVP has no reason to know more, so it does
+ * not ask.
+ */
+export type CreateLearnerRequest = {
+  nickname: string;
+  birthYear: number | null;
+  grade: number | null;
+  timezone: string;
+};
+
+export type UpdateLearnerProfileRequest = {
+  learnerId: string;
+  nickname: string;
+  grade: number | null;
+};
+
+/** The learner record as the app stores it. */
+export type LearnerProfile = {
+  id: string;
+  nickname: string;
+  birthYear: number | null;
+  grade: number | null;
+  timezone: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type CreateLearnerResponse = { learner: LearnerProfile };
+export type LearnerProfileResponse = { learner: LearnerProfile | null };
+
 // --- Errors ---------------------------------------------------------------
 
 export type ApiError = {

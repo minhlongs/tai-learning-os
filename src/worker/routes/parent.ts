@@ -14,6 +14,8 @@
  */
 
 import type {
+  CreateLearnerResponse,
+  LearnerProfile,
   LessonDetailResponse,
   LessonListResponse,
   ParentDashboardResponse,
@@ -29,7 +31,7 @@ import { describeState } from "../../shared/engine/competency";
 import type { AttemptEvidence } from "../../shared/engine/competency";
 import { needsParentAttention } from "../../shared/engine/review";
 import * as repo from "../db/repositories";
-import { badRequest, notFound, ok, readJsonBody, serverError } from "../http/response";
+import { badRequest, conflict, notFound, ok, readJsonBody, serverError } from "../http/response";
 import type { Handler, HandlerContext } from "../http/middleware";
 import { recordParentCorrection } from "../services/session-service";
 
@@ -405,6 +407,158 @@ export const correctSkillEvidence: Handler = async (context) => {
   return ok({ learnerId: learner.id, skillId: skill.id, state: body.state });
 };
 
+/* ── POST /api/parent/learners ────────────────────────────────────────────── */
+
+/**
+ * Enrols a learner under this parent.
+ *
+ * Enrolment is a parent action, not something the learner or an import file can
+ * do for itself — which is why there is no way to reach this except an
+ * authenticated parent session.
+ *
+ * The MVP is a single-learner install, so a second enrolment is refused rather
+ * than silently shadowing the first. That keeps the honest invariant
+ * `findFirstLearnerForParent` actually identifies a record, instead of making
+ * the app guess which child a session belongs to.
+ *
+ * Deliberately not collected: full legal name, full date of birth, school
+ * address, phone, photo, precise location. `birthYear` is a year alone and
+ * `nickname` is what the learner is called in the app; the schema has no column
+ * for anything more, so nothing more can be stored.
+ */
+export const createLearnerProfile: Handler = async (context) => {
+  const parsed = await readJsonBody(context.request, 4_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as {
+    nickname?: unknown;
+    birthYear?: unknown;
+    grade?: unknown;
+    timezone?: unknown;
+  };
+
+  const nickname = typeof body.nickname === "string" ? body.nickname.trim() : "";
+  if (nickname.length === 0 || nickname.length > 40) {
+    return badRequest("Biệt danh cần từ 1 đến 40 ký tự.");
+  }
+
+  // A year, never a full date: this app has no reason to know a birthday, and
+  // the column has no room for one.
+  const birthYear = optionalIntIn(body.birthYear, 2000, 2100);
+  if (birthYear === null && body.birthYear !== null && body.birthYear !== undefined) {
+    return badRequest("Năm sinh không hợp lệ.");
+  }
+
+  const grade = optionalIntIn(body.grade, 1, 12);
+  if (grade === null && body.grade !== null && body.grade !== undefined) {
+    return badRequest("Khối lớp không hợp lệ.");
+  }
+
+  const timezone = typeof body.timezone === "string" && body.timezone.length > 0 ? body.timezone : "Asia/Ho_Chi_Minh";
+  if (timezone.length > 64) return badRequest("Múi giờ không hợp lệ.");
+
+  const existing = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  if (existing) {
+    return conflict(`Máy này đã có hồ sơ người học (${existing.nickname}).`);
+  }
+
+  const now = Date.now();
+  const learner = {
+    id: crypto.randomUUID(),
+    nickname,
+    birthYear,
+    grade,
+    timezone,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await repo.createLearner(context.env.DB, {
+    id: learner.id,
+    parentId: context.parent.parentId,
+    nickname: learner.nickname,
+    birthYear: learner.birthYear,
+    grade: learner.grade,
+    timezone: learner.timezone,
+    now,
+  });
+
+  // The profile field carries the parent's enrolment of a child, so the moment
+  // it comes into existence is worth recording. No answer, score or attempt
+  // exists yet, so there is nothing else to record.
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: "learner.enrolled",
+    subject: learner.id,
+    detail: JSON.stringify({ nickname: learner.nickname, grade: learner.grade }),
+    now,
+  });
+
+  return ok<CreateLearnerResponse>({ learner });
+};
+
+/* ── PATCH /api/parent/learners/profile ──────────────────────────────────── */
+
+/**
+ * Renames or re-grades the learner.
+ *
+ * Editing a grade never rewrites existing evidence: the sessions and attempts
+ * that produced a competency state were produced at whatever grade the learner
+ * was in at the time, and that history is the evidence, not a current setting.
+ */
+export const updateLearnerProfile: Handler = async (context) => {
+  const parsed = await readJsonBody(context.request, 4_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as {
+    learnerId?: unknown;
+    nickname?: unknown;
+    grade?: unknown;
+  };
+
+  if (typeof body.learnerId !== "string") return badRequest("Thiếu thông tin hồ sơ.");
+
+  const nickname = typeof body.nickname === "string" ? body.nickname.trim() : "";
+  if (nickname.length === 0 || nickname.length > 40) {
+    return badRequest("Biệt danh cần từ 1 đến 40 ký tự.");
+  }
+
+  const grade = optionalIntIn(body.grade, 1, 12);
+  if (grade === null && body.grade !== null && body.grade !== undefined) {
+    return badRequest("Khối lớp không hợp lệ.");
+  }
+
+  const learner = await repo.findLearnerOwnedBy(context.env.DB, body.learnerId, context.parent.parentId);
+  if (!learner) return notFound("Không tìm thấy hồ sơ người học.");
+
+  const now = Date.now();
+  await repo.updateLearner(context.env.DB, {
+    learnerId: learner.id,
+    parentId: context.parent.parentId,
+    nickname,
+    grade,
+    now,
+  });
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: "learner.updated",
+    subject: learner.id,
+    detail: JSON.stringify({ from: learner.nickname, to: nickname, grade }),
+    now,
+  });
+
+  return ok<LearnerProfile>({
+    id: learner.id,
+    nickname,
+    birthYear: learner.birth_year,
+    grade,
+    timezone: learner.timezone,
+    createdAt: learner.created_at,
+    updatedAt: now,
+  });
+};
+
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 
 type StepDraft = UpdateContentRequest["steps"] extends infer T
@@ -543,5 +697,13 @@ function isApprovalStatus(value: unknown): value is ApprovalStatus {
 
 function isCompetencyState(value: unknown): value is CompetencyState {
   return typeof value === "string" && COMPETENCY_STATES.includes(value as CompetencyState);
+}
+
+/** An optional whole number within a range, or absent. */
+function optionalIntIn(value: unknown, min: number, max: number): number | null {
+  if (value === null || value === undefined) return null;
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+    ? value
+    : null;
 }
 

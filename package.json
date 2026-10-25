@@ -20,11 +20,10 @@
     "test:e2e": "playwright test",
     "db:migrate": "wrangler d1 migrations apply tai-learning-os --local",
     "db:dump": "wrangler d1 export tai-learning-os --local",
-    "db:reset": "wrangler d1 execute tai-learning-os --local --file=./scripts/reset-database.sql",
-    "seed:demo": "wrangler d1 execute tai-learning-os --local --file=./migrations/seed/0002_demo_learner.sql",
+    "db:reset-data": "node scripts/reset-local-d1.mjs",
+    "seed:demo": "node scripts/seed-lessons.mjs",
     "export:learner": "node scripts/export-learner.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "db:reset-data": "node scripts/reset-local-d1.mjs"
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "react": "19.3.1",

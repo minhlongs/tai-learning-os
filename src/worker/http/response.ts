@@ -60,6 +60,9 @@ export const notFound = (msg = "Không tìm thấy dữ liệu cần thiết."):
 export const badRequest = (msg: string): Response =>
   apiError("bad_request", msg, 400);
 
+/** The request is well-formed but collides with state that already exists. */
+export const conflict = (msg: string): Response => apiError("conflict", msg, 409);
+
 export const rateLimited = (): Response =>
   apiError("rate_limited", "Thử lại quá nhiều lần. Vui lòng chờ một lát.", 429);
 

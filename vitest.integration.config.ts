@@ -25,5 +25,11 @@ export default defineConfig({
     // D1. Neither needs the workers pool, whose service-binding requirement
     // would only add a configuration surface that cannot read the migrations.
     pool: "threads",
+    // One process per test file. wrangler's platform proxy opens the same local
+    // D1 file, and SQLite allows only one writer at a time: two suites in one
+    // process take it in turns to fail with SQLITE_BUSY, which looks exactly
+    // like a data bug. Isolating the files gives each its own handle.
+    fileParallelism: false,
+    isolate: true,
   },
 });
