@@ -110,9 +110,10 @@ export async function recordAttemptWithDerivation(
   let review: { dueAt: number; intervalDays: number; reasonVi: string } | null = null;
 
   if (step.skillId) {
-    const [attempts, reviewRows] = await Promise.all([
+    const [attempts, reviewRows, transferStepIds] = await Promise.all([
       repo.listAttemptsForLearner(db, input.learnerId),
       repo.listReviewScheduleForLearner(db, input.learnerId),
+      repo.listTransferStepIds(db),
     ]);
     // The review row that existed BEFORE this attempt decides whether an
     // attempt counts as a retention check. Reading it once avoids a query per
@@ -127,9 +128,10 @@ export async function recordAttemptWithDerivation(
         outcome: a.outcome,
         helpLevel: a.help_level,
         evidenceKind: a.evidence_kind,
+        attemptNo: a.attempt_no,
         // Only the transfer step exercises transfer; the rest exercise recall.
-        isTransfer: a.step_id === step.stepId && step.kind === "transfer" && a.outcome === "correct",
-        // A retention check: scheduled review was due, then answered correctly.
+        isTransfer: transferStepIds.has(a.step_id) && a.outcome === "correct",
+        // A retention check: scheduled review was due, then answered.
         isReview: priorDue !== null && a.created_at >= priorDue,
         createdAt: a.created_at,
       }));
@@ -204,6 +206,7 @@ export async function recordParentCorrection(
     outcome: a.outcome,
     helpLevel: a.help_level,
     evidenceKind: a.evidence_kind,
+    attemptNo: a.attempt_no,
     isTransfer: false,
     isReview: false,
     createdAt: a.created_at,

@@ -32,13 +32,19 @@ let worker: { fetch: typeof fetch };
 let env: { DB: D1Database };
 let proxy: Awaited<ReturnType<typeof getPlatformProxy>>;
 
+let callSeq = 0;
+
 /** Drive one request through the Worker, carrying what a browser would carry. */
 async function call(
   path: string,
   init: RequestInit & { json?: unknown } = {},
 ): Promise<Response> {
+  callSeq += 1;
   const headers = new Headers(init.headers);
   headers.set("origin", ORIGIN);
+  if (!headers.has("user-agent")) {
+    headers.set("user-agent", `test-client-${callSeq}`);
+  }
 
   const cookie = Object.entries(jar.cookies)
     .map(([name, value]) => `${name}=${value}`)
@@ -193,5 +199,79 @@ describe("authorization — the protected surface is closed", () => {
       json: { lessonId: "does-not-exist", status: "approved" },
     });
     expect(response.status).toBe(403);
+  });
+
+  it("rejects a mutating request from a mismatched Origin header even with valid session and CSRF", async () => {
+    const loginRes = await call("/api/session/login", {
+      method: "POST",
+      headers: { "user-agent": "test-origin-ua" },
+      json: { displayName: DISPLAY_NAME, password: PASSWORD },
+    });
+    expect(loginRes.status).toBe(200);
+    absorbSession(loginRes);
+    const info = (await loginRes.json()) as { csrfToken: string };
+    const cookie = Object.entries(jar.cookies)
+      .map(([name, value]) => `${name}=${value}`)
+      .join("; ");
+    const request = new Request(`${ORIGIN}/api/parent/lessons/approval`, {
+      method: "POST",
+      headers: {
+        origin: "https://evil.example.com",
+        "user-agent": "test-origin-ua",
+        cookie,
+        "x-tlo-csrf": info.csrfToken,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ lessonId: "does-not-exist", status: "approved" }),
+    });
+    const response = await worker.fetch(request, { ...env, SESSION_SECRET: TEST_SECRET });
+    expect(response.status).toBe(403);
+  });
+
+  it("enforces rate limiting per client bucket without random requestId bypass", async () => {
+    let calls = 0;
+    const keys: string[] = [];
+    const mockLimiter = {
+      limit: async ({ key }: { key: string }) => {
+        calls += 1;
+        keys.push(key);
+        return { success: calls <= 2 };
+      },
+    };
+    const makeLoginReq = () =>
+      new Request(`${ORIGIN}/api/session/login`, {
+        method: "POST",
+        headers: {
+          origin: ORIGIN,
+          "user-agent": "rate-limit-test-agent/1.0",
+          "accept-language": "vi-VN",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ displayName: DISPLAY_NAME, password: "wrong" }),
+      });
+
+    const r1 = await worker.fetch(makeLoginReq(), {
+      ...env,
+      SESSION_SECRET: TEST_SECRET,
+      AUTH_RATE_LIMITER: mockLimiter,
+    } as never);
+    const r2 = await worker.fetch(makeLoginReq(), {
+      ...env,
+      SESSION_SECRET: TEST_SECRET,
+      AUTH_RATE_LIMITER: mockLimiter,
+    } as never);
+    const r3 = await worker.fetch(makeLoginReq(), {
+      ...env,
+      SESSION_SECRET: TEST_SECRET,
+      AUTH_RATE_LIMITER: mockLimiter,
+    } as never);
+
+    expect(r1.status).toBe(401);
+    expect(r2.status).toBe(401);
+    expect(r3.status).toBe(429);
+    // Keys must be identical across requests for the same client (no random requestId prefix)
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[1]).toBe(keys[2]);
   });
 });

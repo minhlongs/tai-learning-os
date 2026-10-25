@@ -56,12 +56,25 @@ export async function findParentById(db: Db, id: string): Promise<ParentRow | nu
 export async function createParent(
   db: Db,
   input: { id: string; passwordHash: string; displayName: string; now: number },
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const result = await db
     .prepare(
-      "INSERT INTO parents (id, password_hash, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+      `INSERT INTO parents (id, password_hash, display_name, created_at, updated_at)
+       SELECT ?1, ?2, ?3, ?4, ?4
+       WHERE NOT EXISTS (SELECT 1 FROM parents)`,
     )
     .bind(input.id, input.passwordHash, input.displayName, input.now)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function updateParentPasswordHash(
+  db: Db,
+  input: { id: string; passwordHash: string; now: number },
+): Promise<void> {
+  await db
+    .prepare("UPDATE parents SET password_hash = ?1, updated_at = ?2 WHERE id = ?3")
+    .bind(input.passwordHash, input.now, input.id)
     .run();
 }
 
@@ -304,6 +317,13 @@ export async function findStep(db: Db, stepId: string): Promise<LessonStepRow | 
     .bind(stepId)
     .first<LessonStepRow>();
   return row ?? null;
+}
+
+export async function listTransferStepIds(db: Db): Promise<Set<string>> {
+  const result = await db
+    .prepare("SELECT id FROM lesson_steps WHERE kind = 'transfer'")
+    .all<{ id: string }>();
+  return new Set((result.results ?? []).map((r) => r.id));
 }
 
 export async function getApproval(db: Db, lessonId: string): Promise<ReviewApprovalRow | null> {
@@ -673,4 +693,37 @@ export async function listAudit(db: Db, limit: number): Promise<AuditEventRow[]>
     .bind(limit)
     .all<AuditEventRow>();
   return result.results ?? [];
+}
+
+export async function findMaxDisclosedHintLevel(
+  db: Db,
+  input: { learnerId: string; sessionId: string; stepId: string },
+): Promise<number> {
+  const result = await db
+    .prepare(
+      `SELECT detail FROM audit_events
+       WHERE action = 'hint.requested'
+         AND subject = ?1
+         AND actor = ?2`,
+    )
+    .bind(input.stepId, `learner:${input.learnerId}`)
+    .all<{ detail: string | null }>();
+
+  let maxLevel = 0;
+  for (const row of result.results ?? []) {
+    if (!row.detail) continue;
+    try {
+      const parsed = JSON.parse(row.detail) as { sessionId?: string; level?: number };
+      if (
+        (parsed.sessionId === undefined || parsed.sessionId === input.sessionId) &&
+        typeof parsed.level === "number" &&
+        parsed.level > maxLevel
+      ) {
+        maxLevel = parsed.level;
+      }
+    } catch {
+      // Ignore malformed detail
+    }
+  }
+  return maxLevel;
 }

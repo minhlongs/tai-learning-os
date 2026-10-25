@@ -41,7 +41,13 @@ export default defineConfig({
     {
       // An iPad/tablet viewport to verify responsive layout across all three required form factors.
       name: "tablet",
-      use: { ...devices["Desktop Chrome"], viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true },
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 820, height: 1180 },
+        isMobile: true,
+        hasTouch: true,
+        userAgent: `${devices["Desktop Chrome"].userAgent} Tablet/1.0`,
+      },
     },
     {
       // An iPhone-sized viewport, because the learner uses this on a phone.

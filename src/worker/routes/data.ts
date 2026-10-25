@@ -48,7 +48,7 @@ export const exportRecord: Handler = async (context) => {
     return badRequest("Chưa có hồ sơ người học để xuất dữ liệu.");
   }
 
-  const [schoolYears, subjects, skills, lessons, sessions, attempts, evidence, reviewRows, goals, auditEvents, prerequisites] =
+  const [schoolYears, subjects, skills, lessons, approvals, sessions, attempts, evidence, reviewRows, goals, auditEvents, prerequisites] =
     await Promise.all([
       db
         .prepare(
@@ -60,6 +60,9 @@ export const exportRecord: Handler = async (context) => {
       repo.listSubjects(db),
       repo.listSkills(db),
       repo.listLessons(db),
+      db
+        .prepare("SELECT id, lesson_id, status, decided_by, decided_at, note FROM review_approvals ORDER BY decided_at ASC")
+        .all<Record<string, unknown>>(),
       db
         .prepare(
           `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen
@@ -154,7 +157,14 @@ export const exportRecord: Handler = async (context) => {
       updatedAt: l.updated_at,
     })),
     lessonSteps,
-    reviewApprovals: [],
+    reviewApprovals: (approvals.results ?? []).map((row) => ({
+      id: String(row.id),
+      lessonId: String(row.lesson_id),
+      status: String(row.status) as ExportBody["reviewApprovals"][number]["status"],
+      decidedBy: String(row.decided_by),
+      decidedAt: Number(row.decided_at),
+      note: (row.note as string | null) ?? null,
+    })),
     learningSessions: (sessions.results ?? []).map((row) => ({
       id: String(row.id),
       learnerId: String(row.learner_id),
@@ -558,7 +568,7 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
       .prepare(
         `INSERT OR IGNORE INTO learning_goals
            (id, learner_id, subject_id, title_vi, note, target_date, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
       )
       .bind(
         goal.id,
@@ -569,6 +579,7 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
         goal.targetDate,
         goal.status,
         goal.createdAt,
+        goal.updatedAt,
       )
       .run();
   }

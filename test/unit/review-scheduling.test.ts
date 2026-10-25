@@ -150,6 +150,18 @@ describe("scheduleReview — a failure resets the ladder", () => {
     expect(decision.dueAt).toBe(NOW + 1 * DAY_MS);
     expect(decision.failureStreak).toBeGreaterThanOrEqual(1);
   });
+
+  it("resets interval to 1 day and tracks failureStreak when a scheduled review fails after prior success", () => {
+    const history = [
+      correct(),
+      correct({ isReview: true }),
+      incorrect({ isReview: true }),
+    ];
+    const decision = scheduleReview(history, NOW)!;
+    expect(decision.intervalDays).toBe(1);
+    expect(decision.dueAt).toBe(NOW + 1 * DAY_MS);
+    expect(decision.failureStreak).toBe(1);
+  });
 });
 
 describe("scheduleReview — parent attention flag", () => {
@@ -173,6 +185,17 @@ describe("scheduleReview — parent attention flag", () => {
 
   it("ignores successful attempts when counting failures", () => {
     expect(needsParentAttention([correct(), correct(), correct()])).toBe(false);
+  });
+
+  it("resets parent attention flag once an independent solve breaks the failure streak", () => {
+    expect(
+      needsParentAttention([
+        incorrect(),
+        incorrect(),
+        incorrect(),
+        correct({ helpLevel: 0 }),
+      ]),
+    ).toBe(false);
   });
 });
 

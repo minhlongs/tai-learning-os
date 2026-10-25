@@ -66,6 +66,20 @@ export function scheduleReview(
   const lastCorrect = byTime.filter((a) => a.outcome === "correct").pop();
   if (!lastCorrect) return null;
 
+  // Check if any scheduled review attempt failed after the last correct solve.
+  const trailingFailedReviews = byTime.filter(
+    (a) => a.createdAt > lastCorrect.createdAt && a.isReview && a.outcome !== "correct",
+  );
+  if (trailingFailedReviews.length > 0) {
+    const interval = REVIEW_CONFIG.failureRetryDays;
+    return {
+      dueAt: nowMs + interval * DAY_MS,
+      intervalDays: interval,
+      failureStreak: trailingFailedReviews.length,
+      reasonVi: "Em chưa nhớ kỹ năng ở lần ôn tập gần nhất, cần ôn lại sau 1 ngày.",
+    };
+  }
+
   // Only an independent review success climbs the ladder. An assisted or
   // unsolved attempt is evidence of needing help, not of retention.
   const canClimb = isIndependentAttempt(lastCorrect);
@@ -88,8 +102,13 @@ export function scheduleReview(
   }
 
   // Ladder position: how many independent reviews the learner has already
-  // cleared, counting this one as the rung it earns.
-  const reviewWins = byTime.filter((a) => a.isReview && isIndependentAttempt(a)).length;
+  // cleared since the most recent failed review, counting this one as the rung it earns.
+  const lastFailedReviewAt = byTime
+    .filter((a) => a.isReview && !isIndependentAttempt(a))
+    .reduce((max, a) => (a.createdAt > max ? a.createdAt : max), -Infinity);
+  const reviewWins = byTime.filter(
+    (a) => a.isReview && isIndependentAttempt(a) && a.createdAt > lastFailedReviewAt,
+  ).length;
   const stepIndex = Math.min(reviewWins, REVIEW_CONFIG.intervals.length - 1);
   const intervalDays = REVIEW_CONFIG.intervals[stepIndex] ?? REVIEW_CONFIG.initialIntervalDays;
 
@@ -147,6 +166,14 @@ export function selectDueForReview<T extends { dueAt: number; skillId: string }>
 export function needsParentAttention(
   attempts: readonly AttemptEvidence[],
 ): boolean {
-  const failures = attempts.filter((a) => a.outcome === "incorrect").length;
-  return failures >= REVIEW_CONFIG.failureEscalation;
+  const sorted = [...attempts].sort((a, b) => b.createdAt - a.createdAt);
+  let consecutiveFailures = 0;
+  for (const attempt of sorted) {
+    if (attempt.outcome === "incorrect") {
+      consecutiveFailures += 1;
+    } else if (attempt.outcome === "correct" && isIndependentAttempt(attempt)) {
+      break;
+    }
+  }
+  return consecutiveFailures >= REVIEW_CONFIG.failureEscalation;
 }

@@ -267,6 +267,55 @@ describe("attempts are persisted and stay honest", () => {
       .first<{ n: number }>();
     expect(attempts!.n).toBe(2);
   });
+
+  it("prevents client from spoofing helpLevel 0 after server-side hint level 3 disclosure", async () => {
+    const lessons = await (await call("/api/parent/lessons")).json() as {
+      lessons: { id: string }[];
+    };
+    const lessonId = lessons.lessons[0]!.id;
+
+    await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, status: "approved" },
+    });
+
+    const session = await (await call("/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId },
+    })).json() as StartSessionResponse;
+
+    const stepId = session.steps[0]!.id;
+    const key = await answerKeyFor(stepId);
+
+    // Learner requests hint level 3
+    const hintRes = await call("/api/learner/hints", {
+      method: "POST",
+      json: { stepId, currentLevel: 3, sessionId: session.sessionId },
+    });
+    expect(hintRes.status).toBe(200);
+
+    // Learner submits correct answer claiming helpLevel: 0
+    const submitRes = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: session.sessionId,
+        stepId,
+        submission: { kind: "choice", choiceId: key! },
+        helpLevel: 0,
+      },
+    });
+    expect(submitRes.status).toBe(200);
+
+    // Stored attempt must reflect the disclosed level 3 and assisted evidence_kind
+    const storedAttempt = await env.DB.prepare(
+      "select help_level, evidence_kind from learning_attempts where session_id = ? and step_id = ?",
+    )
+      .bind(session.sessionId, stepId)
+      .first<{ help_level: number; evidence_kind: string }>();
+
+    expect(storedAttempt?.help_level).toBe(3);
+    expect(storedAttempt?.evidence_kind).toBe("assisted");
+  });
 });
 
 describe("restart recovery — data survives the process that wrote it", () => {

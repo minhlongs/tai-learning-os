@@ -179,6 +179,30 @@ describe("deriveCompetency — retention and transfer", () => {
     ]);
     expect(result.state).toBe("INDEPENDENT");
   });
+
+  it("revokes RETAINED back to INDEPENDENT when a subsequent scheduled review fails", () => {
+    const result = deriveCompetency([
+      correct(),
+      correct(),
+      correct({ isReview: true }),
+      incorrect({ isReview: true }),
+    ]);
+    expect(result.state).toBe("INDEPENDENT");
+  });
+
+  it("disqualifies multiple guesses on the same step (attemptNo > 1) from counting as independent", () => {
+    const result = deriveCompetency([
+      incorrect({ attemptNo: 1 }),
+      incorrect({ attemptNo: 2 }),
+      correct({ attemptNo: 3, helpLevel: 0 }),
+      incorrect({ attemptNo: 1 }),
+      correct({ attemptNo: 2, helpLevel: 0 }),
+    ]);
+    expect(result.independentCount).toBe(0);
+    expect(result.assistedCount).toBe(2);
+    expect(result.state).toBe("SUPPORTED");
+    expect(result.state).not.toBe("INDEPENDENT");
+  });
 });
 
 describe("deriveCompetency — parent correction is never independent", () => {

@@ -156,6 +156,7 @@ export function LessonScreen({
         .post<{ level: number; hintVi: string | null }>(endpoints.requestHint, {
           stepId: step.id,
           currentLevel: level,
+          sessionId: start?.sessionId,
         })
         .then((result) => {
           if (!result.ok) {
@@ -171,7 +172,7 @@ export function LessonScreen({
           });
         });
     },
-    [patchStep, state.helpLevel, state.hints, step],
+    [patchStep, start?.sessionId, state.helpLevel, state.hints, step],
   );
 
   const onAnswer = useCallback(

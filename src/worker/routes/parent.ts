@@ -190,10 +190,17 @@ export const getParentDashboard: Handler = async (context) => {
  */
 export const listLessons: Handler = async (context) => {
   const lessons = await repo.listLessons(context.env.DB);
-  const [approvals, steps] = await Promise.all([
-    repo.listApprovalStatuses(context.env.DB),
+  const [approvalsResult, steps] = await Promise.all([
+    context.env.DB
+      .prepare("SELECT lesson_id, status, decided_at FROM review_approvals")
+      .all<{ lesson_id: string; status: ApprovalStatus; decided_at: number }>(),
     repo.findStepsForLessons(context.env.DB, lessons.map((l) => l.id)),
   ]);
+
+  const approvalByLesson = new Map<string, { status: ApprovalStatus; decidedAt: number }>();
+  for (const row of approvalsResult.results ?? []) {
+    approvalByLesson.set(row.lesson_id, { status: row.status, decidedAt: row.decided_at });
+  }
 
   const stepCountByLesson = new Map<string, number>();
   for (const step of steps) {
@@ -201,21 +208,27 @@ export const listLessons: Handler = async (context) => {
   }
 
   return ok<LessonListResponse>({
-    lessons: lessons.map((lesson) => ({
-      id: lesson.id,
-      subjectId: lesson.subject_id,
-      titleVi: lesson.title_vi,
-      titleEn: lesson.title_en,
-      objectiveVi: lesson.objective_vi,
-      gradeFrom: lesson.grade_from,
-      gradeTo: lesson.grade_to,
-      version: lesson.version,
-      approvalStatus: approvals[lesson.id] ?? "draft",
-      stepCount: stepCountByLesson.get(lesson.id) ?? 0,
-      // Content edits bump the version; an approval decided before the current
-      // version is stale. Reported rather than hidden.
-      pendingReapproval: false,
-    })),
+    lessons: lessons.map((lesson) => {
+      const approval = approvalByLesson.get(lesson.id);
+      const status = approval?.status ?? "draft";
+      const pendingReapproval =
+        status === "approved" && approval !== undefined && lesson.updated_at > approval.decidedAt;
+      return {
+        id: lesson.id,
+        subjectId: lesson.subject_id,
+        titleVi: lesson.title_vi,
+        titleEn: lesson.title_en,
+        objectiveVi: lesson.objective_vi,
+        gradeFrom: lesson.grade_from,
+        gradeTo: lesson.grade_to,
+        version: lesson.version,
+        approvalStatus: status,
+        stepCount: stepCountByLesson.get(lesson.id) ?? 0,
+        // Content edits bump the version and updated_at; an approval decided
+        // before the current update is stale. Reported rather than hidden.
+        pendingReapproval,
+      };
+    }),
   });
 };
 

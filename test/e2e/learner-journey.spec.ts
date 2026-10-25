@@ -126,12 +126,10 @@ async function gradedOutcome(page: Page): Promise<string | null> {
  * the one header the client normally supplies from memory rather than a cookie.
  */
 async function apiSignIn(page: Page): Promise<string> {
-  const signedIn = await page.request.post("/api/session/login", {
-    data: { displayName: PARENT_NAME, password: PARENT_PASSWORD },
-  });
-  expect(signedIn.status(), "sign in over the API").toBe(200);
+  const session = await page.request.get("/api/session");
+  expect(session.status(), "read active session over the API").toBe(200);
 
-  const info = (await signedIn.json()) as { csrfToken: string | null };
+  const info = (await session.json()) as { csrfToken: string | null };
   expect(info.csrfToken, "the session must issue a CSRF token").toBeTruthy();
   return info.csrfToken as string;
 }

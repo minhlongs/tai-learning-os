@@ -15,6 +15,7 @@
 import {
   MIN_PASSWORD_LENGTH,
   hashPassword,
+  needsRehash,
   validatePasswordShape,
   verifyPassword,
 } from "../../shared/crypto/password";
@@ -109,6 +110,18 @@ export async function login(context: { request: Request; env: AppEnv }): Promise
   if (!valid) return unauthorized();
 
   const now = Date.now();
+  if (needsRehash(parent.password_hash)) {
+    const shape = validatePasswordShape(body.password);
+    if (shape.ok) {
+      const upgradedHash = await hashPassword(body.password);
+      await repo.updateParentPasswordHash(env.DB, {
+        id: parent.id,
+        passwordHash: upgradedHash,
+        now,
+      });
+    }
+  }
+
   const learner = await repo.findFirstLearnerForParent(env.DB, parent.id);
   const token = await createSessionToken(secret, parent.id, parent.display_name, now);
   // Derive the CSRF token from the freshly issued session's own token id, so
@@ -194,12 +207,17 @@ export async function bootstrapParent(context: { request: Request; env: AppEnv }
   const now = Date.now();
   const passwordHash = await hashPassword(body.password);
 
-  await repo.createParent(env.DB, {
+  const created = await repo.createParent(env.DB, {
     id: parentId,
     passwordHash,
     displayName: body.displayName.trim().slice(0, 60),
     now,
   });
+  if (!created) {
+    return forbidden(
+      "Tài khoản phụ huynh đã được tạo. Vui lòng đăng nhập bằng mật khẩu của bạn.",
+    );
+  }
 
   await repo.recordAudit(env.DB, {
     id: crypto.randomUUID(),

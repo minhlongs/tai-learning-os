@@ -34,6 +34,7 @@ export type AttemptEvidence = {
   outcome: SubmissionOutcome;
   helpLevel: number;
   evidenceKind: EvidenceKind;
+  attemptNo?: number;
   /** True when this attempt answered a transfer question. */
   isTransfer: boolean;
   /** True when this attempt answered a scheduled review. */
@@ -56,6 +57,8 @@ export function isIndependentAttempt(evidence: AttemptEvidence): boolean {
   if (evidence.evidenceKind === "parent_correction") return false;
   if (evidence.outcome !== "correct") return false;
   if (evidence.helpLevel > COMPETENCY_CONFIG.smallHint) return false;
+  // Multiple guesses on the same step disqualify independent solve
+  if (evidence.attemptNo !== undefined && evidence.attemptNo > 1) return false;
   return true;
 }
 
@@ -70,7 +73,10 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
   const correct = relevant.filter((a) => a.outcome === "correct");
   const independent = relevant.filter(isIndependentAttempt);
   const assisted = relevant.filter(
-    (a) => a.outcome === "correct" && a.helpLevel > COMPETENCY_CONFIG.smallHint,
+    (a) =>
+      a.outcome === "correct" &&
+      a.evidenceKind !== "parent_correction" &&
+      !isIndependentAttempt(a),
   );
 
   const correctCount = correct.length;
@@ -109,10 +115,20 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
     };
   }
 
-  // RETAINED: an independent correct answer on a scheduled review.
-  const reviewSolved = relevant.some(
-    (a) => a.isReview && isIndependentAttempt(a) && independentCount >= COMPETENCY_CONFIG.independentMinCorrect,
+  // RETAINED: an independent correct answer on a scheduled review, with no
+  // failed review attempt after the latest independent review solve.
+  const reviewIndependentWins = relevant.filter((a) => a.isReview && isIndependentAttempt(a));
+  const lastReviewWinAt = reviewIndependentWins.reduce(
+    (max, a) => (a.createdAt > max ? a.createdAt : max),
+    -Infinity,
   );
+  const hasLaterFailedReview = relevant.some(
+    (a) => a.isReview && !isIndependentAttempt(a) && a.createdAt > lastReviewWinAt,
+  );
+  const reviewSolved =
+    reviewIndependentWins.length > 0 &&
+    !hasLaterFailedReview &&
+    independentCount >= COMPETENCY_CONFIG.independentMinCorrect;
   if (reviewSolved) {
     return {
       ...base,

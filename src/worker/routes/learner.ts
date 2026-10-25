@@ -284,9 +284,13 @@ export const startSession: Handler = async (context) => {
  * of the method; the answer is never returned as a copyable string.
  */
 export const requestHint: Handler = async (context) => {
+  const resolved = await currentLearner(context);
+  if ("response" in resolved) return resolved.response;
+  const learner = resolved.learner;
+
   const parsed = await readJsonBody(context.request, 4_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as { stepId?: unknown; currentLevel?: unknown };
+  const body = parsed.body as { stepId?: unknown; currentLevel?: unknown; sessionId?: unknown };
   if (typeof body.stepId !== "string") return badRequest("Thiếu mã bước học.");
 
   const step = await repo.findStep(context.env.DB, body.stepId);
@@ -297,6 +301,17 @@ export const requestHint: Handler = async (context) => {
 
   const level = clampHelp(typeof body.currentLevel === "number" ? body.currentLevel : 0);
   const hintVi = hintFor(exercise, level);
+
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `learner:${learner.id}`,
+    action: "hint.requested",
+    subject: step.id,
+    detail: JSON.stringify({ level, sessionId }),
+    now: Date.now(),
+  });
+
   return ok<RequestHintResponse>({ level, hintVi });
 };
 
@@ -334,13 +349,20 @@ export const submitAttempt: Handler = async (context) => {
   if (!stepContext) return notFound("Bước học không thuộc về bài học này.");
 
   try {
+    const disclosedHintLevel = await repo.findMaxDisclosedHintLevel(context.env.DB, {
+      learnerId: learner.id,
+      sessionId: session.id,
+      stepId: stepContext.stepId,
+    });
+    const effectiveHelpLevel = Math.max(clampHelp(body.helpLevel), disclosedHintLevel);
+
     const result = await recordAttemptWithDerivation(context.env.DB, {
       sessionId: session.id,
       learnerId: learner.id,
       lessonId: session.lesson_id,
       step: stepContext,
       submission: body.submission,
-      helpLevel: clampHelp(body.helpLevel),
+      helpLevel: effectiveHelpLevel,
       now: Date.now(),
     });
 

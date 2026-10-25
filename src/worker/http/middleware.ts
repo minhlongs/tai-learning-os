@@ -131,7 +131,7 @@ export async function dispatch(
   // Rate limiting, per actor bucket.
   const limiter = pickLimiter(env, path);
   if (limiter) {
-    const key = `${requestId.slice(0, 8)}:${clientKey(request)}`;
+    const key = clientKey(request);
     const { success } = await limiter.limit({ key });
     if (!success) {
       return rateLimited();
@@ -148,6 +148,19 @@ export async function dispatch(
   }
 
   if (!SAFE_METHODS.has(method)) {
+    // Validate Origin header when present on mutating requests
+    const originHeader = request.headers.get("origin");
+    if (originHeader) {
+      try {
+        const originUrl = new URL(originHeader);
+        if (originUrl.host !== url.host) {
+          return forbidden("Yêu cầu không hợp lệ (sai nguồn gốc gửi tới). Vui lòng tải lại trang.");
+        }
+      } catch {
+        return forbidden("Yêu cầu không hợp lệ (nguồn gốc không hợp lệ).");
+      }
+    }
+
     const supplied = request.headers.get(CSRF_HEADER_NAME);
     if (!csrfOk(supplied, parent.parent.csrfToken)) {
       return forbidden("Yêu cầu không hợp lệ (thiếu mã bảo mật). Vui lòng tải lại trang.");
