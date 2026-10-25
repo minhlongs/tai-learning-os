@@ -1,10 +1,9 @@
 /**
  * Browser entry. Kept thin: it mounts the app and nothing else.
  *
- * NOTE: `index.html` at the repository root is NOT owned by the client code and
- * does not exist yet. It must be created with `<html lang="vi">`, a
- * `<div id="root">`, and `<script type="module" src="/src/client/main.tsx">`.
- * See the delivery report.
+ * The shell document that loads this file is `index.html` at the repository
+ * root: `<html lang="vi">`, a `<div id="root">`, and
+ * `<script type="module" src="/src/client/main.tsx">`.
  */
 
 import { StrictMode } from "react";

@@ -22,7 +22,15 @@ import { useState } from "react";
 import type { ExerciseSpec } from "../../../../shared/schemas/exercise";
 import type { Submission } from "../../../../shared/schemas/answer";
 import { VocabPicture } from "./VocabPicture";
-import "./exercise-body.css";
+
+/*
+ * Every rule this component's class names need (.fraction-body, .chip,
+ * .choice, .choice__hint, .passage, .field, .vocab-picture, .btn) is defined
+ * in styles/lesson.css, which the only consumer of this component,
+ * LessonScreen, already imports. A second stylesheet beside this one would
+ * define the same selectors twice and let the two copies drift, so the import
+ * is deliberately absent rather than pointing at a near-duplicate file.
+ */
 
 export function ExerciseBody({
   exercise,

@@ -1,0 +1,50 @@
+<!doctype html>
+<!--
+  Shell document for the TAI LEARNING OS client.
+
+  Deliberately plain: the only thing that ships in this file is the mount point
+  and the module script. All styling lives in src/client/styles/, all markup is
+  rendered by React. There is no inline script, no external font, no analytics
+  tag, and no CDN asset — the learner's browser makes no third-party request.
+
+  `lang="vi"` is the whole interface language for Vietnamese-first use, and it
+  is set on the document root so a screen reader pronounces Vietnamese diacritics
+  with Vietnamese phonetics rather than falling back to an unset language.
+-->
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      No zoom disabling and no user-scalable=no. Enlarging text is an
+      accessibility requirement, not a bug to suppress.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Local only. This Worker has no deployment target, so there is nothing to
+      index and nothing to leak; the directive simply states the intent.
+    -->
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <!-- The app is same-origin and has no third-party origin to load from. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'"
+    />
+    <title>Hệ điều hành học tập — Tài</title>
+    <meta
+      name="description"
+      content="Ứng dụng học tập dành cho phụ huynh và học sinh. Chạy cục bộ trên máy gia đình."
+    />
+    <!--
+      Theme colour matches --tlo-bg so the mobile browser chrome does not flash
+      white against a #f4f6fb page.
+    -->
+    <meta name="theme-color" content="#f4f6fb" />
+  </head>
+  <body>
+    <!-- React mounts here. src/client/main.tsx throws if this node is missing,
+         which is the intended failure: a blank page with no error is worse. -->
+    <div id="root"></div>
+    <script type="module" src="/src/client/main.tsx"></script>
+  </body>
+</html>
