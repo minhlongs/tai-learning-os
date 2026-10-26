@@ -19,6 +19,12 @@ export const readingMainIdea: LessonDefinition = {
     "Read a short paragraph and state its main idea, separating it from the small details.",
   gradeFrom: 4,
   gradeTo: 4,
+  objectiveId: "obj-vie-read-main",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Tiếng Việt Lớp 4",
+  expectedDurationMinutes: 20,
+  reviewRecommendationVi: "Ôn lại sau 1 ngày và 3 ngày với đoạn văn ngắn 5–6 câu.",
+  isBaseline: false,
   steps: [
     {
       position: 1,

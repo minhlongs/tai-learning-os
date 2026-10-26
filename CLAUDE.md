@@ -20,7 +20,8 @@
    - Spaced review uses a deterministic `[1, 3, 7, 14]` day ladder (`src/shared/engine/review.ts`).
 4. **Parent Governance & Security**:
    - Stateless HMAC-SHA256 session cookie (`tlo_session`, `HttpOnly`, `SameSite=Strict`, 8h TTL) with explicit `mode` claim (`parent` vs `learner`) + double-submit CSRF header (`x-tlo-csrf`).
-   - Passwords hashed with PBKDF2-SHA256 (100,000 iterations, 16-byte random salt).
+   - Passwords hashed with PBKDF2-SHA256 (600,000 iterations, 16-byte random salt, transparent `needsRehash` migration from 100,000 iterations).
+   - Persistent D1 failed-login throttling (`auth_throttles` dual-scope by IP and account, 15-minute lockout, CLI unlock via `npm run unlock:parent`).
    - Owner-scoped SQL in `src/worker/db/repositories.ts`: every learner query filters by `parent_id`.
    - Server-enforced privilege boundary: all `/api/parent/*` and `/api/data/*` routes use `parentRoute` and return `403 Forbidden` when in child mode (`mode: "learner"`). Re-entering parent mode requires server-side password verification via `POST /api/session/mode`.
    - Lessons require explicit `review_approvals.status = 'approved'` before appearing to the learner.
@@ -47,13 +48,14 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (7 files, 167 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (4 files, 70 tests)
-npm run test:e2e           # Playwright E2E browser tests (Desktop, Tablet, Mobile)
+npm run test               # Vitest unit tests (8 files, 175 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (4 files, 77 tests)
+npm run test:e2e           # Playwright E2E browser tests (18 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + build
 
-# Data operations (local only)
+# Data & Security operations (local only)
 npm run export:learner -- ./backup-tai.json
+npm run unlock:parent      # Clear auth_throttles after accidental lockout
 npm run db:reset-data
 ```
 
@@ -63,9 +65,13 @@ npm run db:reset-data
 
 - [`README.md`](README.md) — Quick-start and bilingual project overview
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Component map, authority boundaries, and data flows
-- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — 15 D1 tables, evidence/provenance split, and absent PII matrix
+- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — 21 D1 tables, evidence/provenance split, and absent PII matrix
 - [`docs/LEARNING_ENGINE.md`](docs/LEARNING_ENGINE.md) — Teaching sequence, hint policy, mastery states, and review ladder
-- [`docs/SECURITY.md`](docs/SECURITY.md) — Threat model, PBKDF2-SHA256, CSRF, rate limiting, and owner-scoped SQL
+- [`docs/CURRICULUM_ARCHITECTURE.md`](docs/CURRICULUM_ARCHITECTURE.md) — GDPT 2018 objective registry, content versioning, and competency derivation
+- [`docs/BASELINE_ASSESSMENT.md`](docs/BASELINE_ASSESSMENT.md) — Parent-supervised diagnostic baseline architecture
+- [`docs/FOUR_WEEK_LEARNING_PLAN.md`](docs/FOUR_WEEK_LEARNING_PLAN.md) — Priority-based 4-week planner and schedule states
+- [`docs/PARENT_PILOT_GUIDE.md`](docs/PARENT_PILOT_GUIDE.md) — Step-by-step parent pilot and operational guide
+- [`docs/SECURITY.md`](docs/SECURITY.md) — Threat model, PBKDF2-SHA256 (600,000 iterations), D1 auth throttling, CSRF, and owner-scoped SQL
 - [`docs/CHILD_PRIVACY_REVIEW.md`](docs/CHILD_PRIVACY_REVIEW.md) — Vietnamese Law 91/2025/QH15 & Decree 356/2025/ND-CP review checklist
 - [`docs/PARENT_OPERATIONS.md`](docs/PARENT_OPERATIONS.md) — Bilingual parent handbook for approvals, dashboard, and backups
 - [`docs/ROADMAP_90_DAYS.md`](docs/ROADMAP_90_DAYS.md) — 90-day evolution and pre-production blockers
@@ -74,3 +80,5 @@ npm run db:reset-data
 - [`docs/audits/GATE_02_SECURITY_MATRIX.md`](docs/audits/GATE_02_SECURITY_MATRIX.md) — Route authorization, CSRF, Origin, and rate-limiter matrix
 - [`docs/audits/GATE_02_LEARNING_INTEGRITY.md`](docs/audits/GATE_02_LEARNING_INTEGRITY.md) — Pedagogical integrity, hint provenance, and retention reset report
 - [`docs/audits/GATE_02_RELEASE_DECISION.md`](docs/audits/GATE_02_RELEASE_DECISION.md) — Gate 02 verification verdict & local-only policy enforcement
+- [`docs/audits/GATE_03_REPORT.md`](docs/audits/GATE_03_REPORT.md) — Comprehensive Gate 03 execution and verification report
+- [`docs/audits/GATE_03_SECURITY_CLOSURE.md`](docs/audits/GATE_03_SECURITY_CLOSURE.md) — Gate 03 security closure, PBKDF2 600k upgrade, and D1 throttling audit

@@ -242,6 +242,12 @@ export type LessonListResponse = {
     stepCount: number;
     /** True when the parent has edited content since approval. */
     pendingReapproval: boolean;
+    objectiveId?: string | null;
+    provenance?: ProvenanceType;
+    sourceRef?: string | null;
+    expectedDurationMinutes?: number;
+    reviewRecommendationVi?: string | null;
+    isBaseline?: boolean;
   }[];
 };
 
@@ -330,6 +336,176 @@ export type LearnerProfile = {
 
 export type CreateLearnerResponse = { learner: LearnerProfile };
 export type LearnerProfileResponse = { learner: LearnerProfile | null };
+
+// --- Curriculum intake & metadata -----------------------------------------
+
+export type ProvenanceType =
+  | "gdpt_2018_objective"
+  | "parent_textbook"
+  | "original_supplemental"
+  | "unverified_assumption";
+
+export type CurriculumObjectiveDto = {
+  id: string;
+  subjectId: string;
+  grade: number;
+  code: string;
+  titleVi: string;
+  descriptionVi: string;
+  skillId: string | null;
+  provenance: ProvenanceType;
+  sourceRef: string | null;
+};
+
+export type CurriculumIntakeDto = {
+  id: string;
+  learnerId: string;
+  schoolYearLabel: string;
+  grade: number;
+  subjectId: string;
+  textbookSeries: string;
+  currentUnit: string;
+  currentLesson: string;
+  weeklySessions: number;
+  sessionDurationMinutes: number;
+  materialReference: string | null;
+  learningGoalsVi: string | null;
+  provenance: ProvenanceType;
+  updatedAt: number;
+};
+
+export type CurriculumGetResponse = {
+  learnerId: string | null;
+  schoolYearLabel: string;
+  grade: number;
+  intakes: CurriculumIntakeDto[];
+  objectives: CurriculumObjectiveDto[];
+};
+
+export type UpsertCurriculumIntakeRequest = {
+  schoolYearLabel: string;
+  grade: number;
+  subjectId: string;
+  textbookSeries?: string;
+  currentUnit?: string;
+  currentLesson?: string;
+  weeklySessions?: number;
+  sessionDurationMinutes?: number;
+  materialReference?: string | null;
+  learningGoalsVi?: string | null;
+  provenance?: ProvenanceType;
+};
+
+export type UpsertCurriculumIntakeResponse = {
+  intake: CurriculumIntakeDto;
+};
+
+// --- Baseline assessment --------------------------------------------------
+
+export type BaselineAssessmentDto = {
+  id: string;
+  learnerId: string;
+  subjectId: string;
+  sessionId: string | null;
+  status: "pending" | "completed" | "reviewed";
+  observedSummaryVi: string | null;
+  supportedSummaryVi: string | null;
+  needsObservation: string[];
+  suggestedLessons: string[];
+  parentReviewRequired: boolean;
+  createdAt: number;
+  completedAt: number | null;
+};
+
+export type BaselineGetResponse = {
+  learnerId: string | null;
+  baselineLessons: {
+    lessonId: string;
+    subjectId: string;
+    titleVi: string;
+    objectiveVi: string;
+    expectedDurationMinutes: number;
+    approvalStatus: ApprovalStatus;
+  }[];
+  assessments: BaselineAssessmentDto[];
+};
+
+export type EvaluateBaselineRequest = {
+  subjectId: string;
+  sessionId?: string | null;
+  markReviewed?: boolean;
+};
+
+export type EvaluateBaselineResponse = {
+  assessment: BaselineAssessmentDto;
+};
+
+// --- Four-Week Learning Planner -------------------------------------------
+
+export type LearningPlanItemDto = {
+  id: string;
+  learnerId: string;
+  schoolYearLabel: string;
+  weekIndex: number;
+  dayOfWeek: number;
+  scheduledDate: string | null;
+  subjectId: string;
+  skillId: string | null;
+  skillNameVi: string | null;
+  lessonId: string | null;
+  lessonTitleVi: string | null;
+  itemKind: "lesson" | "review" | "baseline";
+  status: "scheduled" | "completed" | "skipped" | "rescheduled";
+  durationMinutes: number;
+  parentNote: string | null;
+  reasonVi: string;
+  updatedAt: number;
+};
+
+export type PlannerGetResponse = {
+  learnerId: string | null;
+  schoolYearLabel: string;
+  items: LearningPlanItemDto[];
+  summary: {
+    todayCount: number;
+    upcomingCount: number;
+    reviewDueCount: number;
+    completedCount: number;
+    needsParentReviewCount: number;
+  };
+};
+
+export type GeneratePlanRequest = {
+  schoolYearLabel?: string;
+  sessionsPerWeek?: number;
+  sessionDurationMinutes?: number;
+};
+
+export type UpdatePlanItemRequest = {
+  itemId: string;
+  status: "scheduled" | "completed" | "skipped" | "rescheduled";
+  weekIndex?: number;
+  dayOfWeek?: number;
+  scheduledDate?: string | null;
+  parentNote?: string | null;
+};
+
+// --- Session reflection ---------------------------------------------------
+
+export type SessionFeeling = "confident" | "good" | "neutral" | "confused" | "tired";
+
+export type SubmitReflectionRequest = {
+  sessionId: string;
+  feeling: SessionFeeling;
+  noteVi?: string | null;
+};
+
+export type SubmitReflectionResponse = {
+  id: string;
+  sessionId: string;
+  feeling: SessionFeeling;
+  noteVi: string | null;
+};
 
 // --- Errors ---------------------------------------------------------------
 

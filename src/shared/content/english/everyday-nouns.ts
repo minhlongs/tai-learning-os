@@ -17,5 +17,11 @@ export const everydayNouns: LessonDefinition = {
   objectiveEn: "Recognise and use the common nouns around you.",
   gradeFrom: 3,
   gradeTo: 4,
+  objectiveId: "obj-eng-voc-noun",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Tiếng Anh Lớp 4",
+  expectedDurationMinutes: 15,
+  reviewRecommendationVi: "Ôn lại sau 1 ngày bằng hình ảnh đồ vật xung quanh.",
+  isBaseline: false,
   steps: everydayNounsSteps,
 };

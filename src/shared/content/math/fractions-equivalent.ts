@@ -16,6 +16,12 @@ export const fractionsEquivalent: LessonDefinition = {
   objectiveEn: "Recognise two fractions that look different but name the same amount.",
   gradeFrom: 3,
   gradeTo: 4,
+  objectiveId: "obj-math-frac-intro",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Toán Lớp 4",
+  expectedDurationMinutes: 20,
+  reviewRecommendationVi: "Ôn lại sau 1 ngày và 3 ngày bằng thanh phân số trực quan.",
+  isBaseline: false,
   steps: [
     {
       position: 1,

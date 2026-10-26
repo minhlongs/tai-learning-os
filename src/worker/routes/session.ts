@@ -2,10 +2,13 @@
  * Authentication and session routes.
  *
  * SECURITY POSTURE, stated plainly:
- *   - Passwords are hashed with PBKDF2-SHA256 (60000 iterations, per-password
- *     salt). Nothing reversible is stored.
- *   - The login path is wrapped in the native Rate Limiting binding, so brute
- *     force is throttled at the edge, not after the fact.
+ *   - Passwords are hashed with PBKDF2-SHA256 (600,000 iterations, per-password
+ *     salt). Nothing reversible is stored. Legacy 100,000-iteration hashes are
+ *     transparently upgraded on login or parent-mode unlock.
+ *   - The login, bootstrap, and parent-unlock paths enforce persistent D1
+ *     account-scoped and IP-scoped throttling (`auth_throttles`) in addition to
+ *     the Cloudflare Rate Limiting binding, so brute force cannot bypass limits
+ *     by rotating headers or restarting the Worker.
  *   - There is NO authentication bypass anywhere in the code. The only
  *     development affordance is first-run parent creation, which becomes
  *     unavailable once a parent row exists.
@@ -121,13 +124,35 @@ export async function switchSessionMode(context: {
     if (typeof body.password !== "string" || body.password.length === 0) {
       return badRequest("Cần nhập mật khẩu để chuyển sang chế độ phụ huynh.");
     }
+    const ipKey = authClientKey(request);
+    const accountKey = `account:id:${parent.id}`;
+    const ipThrottle = await repo.checkAuthThrottle(env.DB, ipKey, now);
+    if (ipThrottle.blocked) return rateLimited(ipThrottle.retryAfterSec);
+    const acctThrottle = await repo.checkAuthThrottle(env.DB, accountKey, now);
+    if (acctThrottle.blocked) return rateLimited(acctThrottle.retryAfterSec);
+
     const valid = await verifyPassword(body.password, parent.password_hash);
     if (!valid) {
-      if (env.AUTH_RATE_LIMITER) {
-        const { success } = await env.AUTH_RATE_LIMITER.limit({ key: authClientKey(request) });
-        if (!success) return rateLimited();
-      }
+      const ipRec = await repo.recordAuthFailure(env.DB, { key: ipKey, scope: "ip", now });
+      const acctRec = await repo.recordAuthFailure(env.DB, { key: accountKey, scope: "account", now });
+      if (ipRec.blocked) return rateLimited(ipRec.retryAfterSec);
+      if (acctRec.blocked) return rateLimited(acctRec.retryAfterSec);
       return forbidden("Mật khẩu phụ huynh không chính xác.");
+    }
+
+    await repo.clearAuthThrottle(env.DB, ipKey);
+    await repo.clearAuthThrottle(env.DB, accountKey);
+
+    if (needsRehash(parent.password_hash)) {
+      const shape = validatePasswordShape(body.password);
+      if (shape.ok) {
+        const upgradedHash = await hashPassword(body.password);
+        await repo.updateParentPasswordHash(env.DB, {
+          id: parent.id,
+          passwordHash: upgradedHash,
+          now,
+        });
+      }
     }
   }
 
@@ -182,27 +207,50 @@ export async function login(context: { request: Request; env: AppEnv }): Promise
   const secret = env.SESSION_SECRET;
   if (!secret) return serverError();
 
-  const parent = await repo.findParentByDisplayName(env.DB, body.displayName.trim());
+  const now = Date.now();
+  const normalizedName = body.displayName.trim();
+  const ipKey = authClientKey(request);
+  const nameAccountKey = `account:${normalizedName.toLowerCase()}`;
+
+  const ipThrottle = await repo.checkAuthThrottle(env.DB, ipKey, now);
+  if (ipThrottle.blocked) return rateLimited(ipThrottle.retryAfterSec);
+  const nameThrottle = await repo.checkAuthThrottle(env.DB, nameAccountKey, now);
+  if (nameThrottle.blocked) return rateLimited(nameThrottle.retryAfterSec);
+
+  const parent = await repo.findParentByDisplayName(env.DB, normalizedName);
   // Uniform failure: a wrong name and a wrong password are indistinguishable,
   // so this endpoint cannot be used to enumerate parent accounts.
   if (!parent) {
-    if (env.AUTH_RATE_LIMITER) {
-      const { success } = await env.AUTH_RATE_LIMITER.limit({ key: authClientKey(request) });
-      if (!success) return rateLimited();
-    }
+    const ipRec = await repo.recordAuthFailure(env.DB, { key: ipKey, scope: "ip", now });
+    const nameRec = await repo.recordAuthFailure(env.DB, { key: nameAccountKey, scope: "account", now });
+    if (ipRec.blocked) return rateLimited(ipRec.retryAfterSec);
+    if (nameRec.blocked) return rateLimited(nameRec.retryAfterSec);
     return unauthorized();
   }
+
+  const parentAccountKey = `account:id:${parent.id}`;
+  const parentThrottle = await repo.checkAuthThrottle(env.DB, parentAccountKey, now);
+  if (parentThrottle.blocked) return rateLimited(parentThrottle.retryAfterSec);
 
   const valid = await verifyPassword(body.password, parent.password_hash);
   if (!valid) {
+    const ipRec = await repo.recordAuthFailure(env.DB, { key: ipKey, scope: "ip", now });
+    const nameRec = await repo.recordAuthFailure(env.DB, { key: nameAccountKey, scope: "account", now });
+    const parentRec = await repo.recordAuthFailure(env.DB, { key: parentAccountKey, scope: "account", now });
     if (env.AUTH_RATE_LIMITER) {
-      const { success } = await env.AUTH_RATE_LIMITER.limit({ key: authClientKey(request) });
+      const { success } = await env.AUTH_RATE_LIMITER.limit({ key: ipKey });
       if (!success) return rateLimited();
     }
+    if (ipRec.blocked) return rateLimited(ipRec.retryAfterSec);
+    if (nameRec.blocked) return rateLimited(nameRec.retryAfterSec);
+    if (parentRec.blocked) return rateLimited(parentRec.retryAfterSec);
     return unauthorized();
   }
 
-  const now = Date.now();
+  await repo.clearAuthThrottle(env.DB, ipKey);
+  await repo.clearAuthThrottle(env.DB, nameAccountKey);
+  await repo.clearAuthThrottle(env.DB, parentAccountKey);
+
   if (needsRehash(parent.password_hash)) {
     const shape = validatePasswordShape(body.password);
     if (shape.ok) {
@@ -278,12 +326,15 @@ export async function bootstrapParent(context: { request: Request; env: AppEnv }
 
   // A parent account must already exist for the app to be usable in production;
   // its hash is supplied as a deployment secret rather than chosen in a form.
+  const now = Date.now();
+  const ipKey = authClientKey(request);
+  const ipThrottle = await repo.checkAuthThrottle(env.DB, ipKey, now);
+  if (ipThrottle.blocked) return rateLimited(ipThrottle.retryAfterSec);
+
   const existing = await repo.countParents(env.DB);
   if (existing > 0) {
-    if (env.AUTH_RATE_LIMITER) {
-      const { success } = await env.AUTH_RATE_LIMITER.limit({ key: authClientKey(request) });
-      if (!success) return rateLimited();
-    }
+    const ipRec = await repo.recordAuthFailure(env.DB, { key: ipKey, scope: "ip", now });
+    if (ipRec.blocked) return rateLimited(ipRec.retryAfterSec);
     return forbidden(
       "Tài khoản phụ huynh đã được tạo. Vui lòng đăng nhập bằng mật khẩu của bạn.",
     );
@@ -302,7 +353,6 @@ export async function bootstrapParent(context: { request: Request; env: AppEnv }
   if (!shape.ok) return badRequest(shape.reason);
 
   const parentId = crypto.randomUUID();
-  const now = Date.now();
   const passwordHash = await hashPassword(body.password);
 
   const created = await repo.createParent(env.DB, {

@@ -63,8 +63,17 @@ export const badRequest = (msg: string): Response =>
 /** The request is well-formed but collides with state that already exists. */
 export const conflict = (msg: string): Response => apiError("conflict", msg, 409);
 
-export const rateLimited = (): Response =>
-  apiError("rate_limited", "Thử lại quá nhiều lần. Vui lòng chờ một lát.", 429);
+export const rateLimited = (retryAfterSec?: number): Response => {
+  const msg = retryAfterSec
+    ? `Thử lại quá nhiều lần. Vui lòng chờ khoảng ${Math.max(1, Math.ceil(retryAfterSec / 60))} phút rồi thử lại.`
+    : "Thử lại quá nhiều lần. Vui lòng chờ một lát.";
+  const body: ApiError = { error: "rate_limited", messageVi: msg, code: "rate_limited" };
+  return json(
+    body,
+    429,
+    retryAfterSec ? { "retry-after": String(retryAfterSec) } : {},
+  );
+};
 
 export const serverError = (): Response =>
   apiError("server_error", "Đã có lỗi hệ thống. Vui lòng thử lại.", 500);

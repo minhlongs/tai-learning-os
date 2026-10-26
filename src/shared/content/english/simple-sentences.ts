@@ -16,6 +16,12 @@ export const simpleSentences: LessonDefinition = {
   objectiveEn: "Build a simple sentence in the right order: subject – verb – object.",
   gradeFrom: 3,
   gradeTo: 4,
+  objectiveId: "obj-eng-sent-basic",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Tiếng Anh Lớp 4",
+  expectedDurationMinutes: 15,
+  reviewRecommendationVi: "Ôn lại sau 1 ngày và 3 ngày bằng cách đặt câu đơn S–V–O.",
+  isBaseline: false,
   steps: [
     {
       position: 1,

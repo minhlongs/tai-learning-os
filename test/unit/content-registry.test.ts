@@ -18,16 +18,16 @@ import type { LessonDefinition } from "../../src/shared/content/types";
  */
 
 describe("lesson registry — shape", () => {
-  it("covers three subjects with three lessons each", () => {
-    expect(LESSONS).toHaveLength(9);
+  it("covers three subjects with four lessons each (three core lessons plus one baseline check)", () => {
+    expect(LESSONS).toHaveLength(12);
 
     const bySubject = new Map<string, number>();
     for (const lesson of LESSONS) {
       bySubject.set(lesson.subjectId, (bySubject.get(lesson.subjectId) ?? 0) + 1);
     }
-    expect(bySubject.get("math")).toBe(3);
-    expect(bySubject.get("english")).toBe(3);
-    expect(bySubject.get("vietnamese")).toBe(3);
+    expect(bySubject.get("math")).toBe(4);
+    expect(bySubject.get("english")).toBe(4);
+    expect(bySubject.get("vietnamese")).toBe(4);
   });
 
   it("uses unique lesson ids", () => {
@@ -35,8 +35,10 @@ describe("lesson registry — shape", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("uses unique skill ids, so a lesson cannot shadow another's evidence", () => {
-    const skillIds = LESSONS.map((lesson) => lesson.skillId);
+  it("uses unique skill ids across core (non-baseline) lessons, so a core lesson cannot shadow another's evidence", () => {
+    const coreLessons = LESSONS.filter((lesson) => !lesson.isBaseline);
+    expect(coreLessons).toHaveLength(9);
+    const skillIds = coreLessons.map((lesson) => lesson.skillId);
     expect(new Set(skillIds).size).toBe(skillIds.length);
   });
 

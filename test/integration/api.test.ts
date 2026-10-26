@@ -327,6 +327,25 @@ describe("privilege boundary — child mode (mode: 'learner') vs parent mode (mo
         method: "PATCH",
         json: { learnerId: "any", nickname: "Bé 2", grade: 4 },
       }),
+      await call("/api/parent/curriculum"),
+      await call("/api/parent/curriculum", {
+        method: "POST",
+        json: { subjectId: "math" },
+      }),
+      await call("/api/parent/baseline"),
+      await call("/api/parent/baseline", {
+        method: "POST",
+        json: { subjectId: "math" },
+      }),
+      await call("/api/parent/planner"),
+      await call("/api/parent/planner/generate", {
+        method: "POST",
+        json: {},
+      }),
+      await call("/api/parent/planner/item", {
+        method: "PATCH",
+        json: { itemId: "any", status: "completed" },
+      }),
       await call("/api/data/export", { method: "POST", json: {} }),
       await call("/api/data/import", { method: "POST", json: {} }),
       await call("/api/data/learner", {
@@ -370,5 +389,168 @@ describe("privilege boundary — child mode (mode: 'learner') vs parent mode (mo
     // Parent routes now succeed again
     expect((await call("/api/parent/dashboard")).status).toBe(200);
     expect((await call("/api/parent/lessons")).status).toBe(200);
+    expect((await call("/api/parent/curriculum")).status).toBe(200);
+    expect((await call("/api/parent/baseline")).status).toBe(200);
+    expect((await call("/api/parent/planner")).status).toBe(200);
   });
 });
+
+describe("curriculum, baseline and 4-week planner API contracts", () => {
+  it("persists curriculum intake with UNKNOWN defaults, provenance labels and loads registered GDPT 2018 objectives", async () => {
+    await login(PASSWORD);
+    // Enroll learner
+    await call("/api/parent/learners", {
+      method: "POST",
+      json: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+    });
+
+    const getRes = await call("/api/parent/curriculum");
+    expect(getRes.status).toBe(200);
+    const initial = (await getRes.json()) as { objectives: { id: string }[]; intakes: unknown[] };
+    expect(initial.objectives.length).toBeGreaterThan(0);
+
+    const postRes = await call("/api/parent/curriculum", {
+      method: "POST",
+      json: {
+        subjectId: "math",
+        schoolYearLabel: "2026-2027",
+        grade: 4,
+        textbookSeries: "UNKNOWN",
+        currentUnit: "UNKNOWN",
+        currentLesson: "UNKNOWN",
+        weeklySessions: 3,
+        sessionDurationMinutes: 20,
+        provenance: "unverified_assumption",
+        learningGoalsVi: "Nắm vững phân số",
+      },
+    });
+    expect(postRes.status).toBe(200);
+
+    const verifyRes = await call("/api/parent/curriculum");
+    expect(verifyRes.status).toBe(200);
+    const updated = (await verifyRes.json()) as {
+      intakes: {
+        subjectId: string;
+        textbookSeries: string;
+        currentUnit: string;
+        currentLesson: string;
+        provenance: string;
+      }[];
+    };
+    const mathIntake = updated.intakes.find((i) => i.subjectId === "math");
+    expect(mathIntake).toBeDefined();
+    expect(mathIntake?.textbookSeries).toBe("UNKNOWN");
+    expect(mathIntake?.currentUnit).toBe("UNKNOWN");
+    expect(mathIntake?.currentLesson).toBe("UNKNOWN");
+    expect(mathIntake?.provenance).toBe("unverified_assumption");
+  });
+
+  it("evaluates baseline diagnostic assessment and generates/edits 4-week planner items", async () => {
+    await login(PASSWORD);
+
+    // Baseline evaluate
+    const evalRes = await call("/api/parent/baseline", {
+      method: "POST",
+      json: { subjectId: "math" },
+    });
+    expect(evalRes.status).toBe(200);
+    const evalData = (await evalRes.json()) as {
+      assessment: { subjectId: string; parentReviewRequired: boolean };
+    };
+    expect(evalData.assessment.subjectId).toBe("math");
+    expect(evalData.assessment.parentReviewRequired).toBe(true);
+
+    // Plan generate
+    const planGenRes = await call("/api/parent/planner/generate", {
+      method: "POST",
+      json: { schoolYearLabel: "2026-2027", sessionsPerWeek: 3, sessionDurationMinutes: 20 },
+    });
+    expect(planGenRes.status).toBe(200);
+    const plan = (await planGenRes.json()) as {
+      items: { id: string; status: string; weekIndex: number }[];
+    };
+    expect(plan.items.length).toBeGreaterThan(0);
+
+    // Plan edit
+    const firstItem = plan.items[0]!;
+    const patchRes = await call("/api/parent/planner/item", {
+      method: "PATCH",
+      json: { itemId: firstItem.id, status: "completed", parentNote: "Hoàn thành tốt" },
+    });
+    expect(patchRes.status).toBe(200);
+    const updatedPlan = (await patchRes.json()) as {
+      items: { id: string; status: string; parentNote: string | null }[];
+    };
+    const updatedItem = updatedPlan.items.find((i) => i.id === firstItem.id);
+    expect(updatedItem?.status).toBe("completed");
+    expect(updatedItem?.parentNote).toBe("Hoàn thành tốt");
+  });
+});
+
+describe("persistent auth throttling across headers and restarts", () => {
+  it("locks out an IP and account after 5 consecutive failed attempts, returning 429 and retry-after header", async () => {
+    // Reset data first
+    await resetData(env.DB);
+    // Bootstrap parent
+    await call("/api/session/bootstrap", {
+      method: "POST",
+      json: { displayName: DISPLAY_NAME, password: PASSWORD },
+    });
+
+    // Make 4 failed attempts from different User-Agents using a dedicated client IP
+    for (let i = 1; i <= 4; i++) {
+      const res = await call("/api/session/login", {
+        method: "POST",
+        headers: {
+          "user-agent": `rotator-ua-${i}`,
+          "cf-connecting-ip": "198.51.100.77",
+        },
+        json: { displayName: DISPLAY_NAME, password: "SaiMatKhau" },
+      });
+      expect(res.status).toBe(401);
+    }
+
+    // 5th failed attempt triggers the lockout
+    const fifthRes = await call("/api/session/login", {
+      method: "POST",
+      headers: {
+        "user-agent": "rotator-ua-5",
+        "cf-connecting-ip": "198.51.100.77",
+      },
+      json: { displayName: DISPLAY_NAME, password: "SaiMatKhau" },
+    });
+    expect(fifthRes.status).toBe(429);
+    expect(fifthRes.headers.get("retry-after")).toBeTruthy();
+
+    // 6th attempt (even with CORRECT password and a DIFFERENT IP) is locked out by account scope in D1
+    const lockedRes = await call("/api/session/login", {
+      method: "POST",
+      headers: {
+        "user-agent": "brand-new-ua",
+        "cf-connecting-ip": "198.51.100.99",
+      },
+      json: { displayName: DISPLAY_NAME, password: PASSWORD },
+    });
+    expect(lockedRes.status).toBe(429);
+    expect(lockedRes.headers.get("retry-after")).toBeTruthy();
+
+    // Verify records exist in auth_throttles in D1
+    const throttleRows = await env.DB.prepare("SELECT COUNT(*) as n FROM auth_throttles").first<{ n: number }>();
+    expect(throttleRows?.n).toBeGreaterThan(0);
+
+    // Operator CLI unlock (simulate scripts/unlock-parent.mjs)
+    await env.DB.prepare("DELETE FROM auth_throttles").run();
+
+    // After clearing auth_throttles, login with correct password succeeds immediately!
+    const recoveredRes = await call("/api/session/login", {
+      method: "POST",
+      headers: {
+        "user-agent": "recovered-ua",
+        "cf-connecting-ip": "198.51.100.99",
+      },
+      json: { displayName: DISPLAY_NAME, password: PASSWORD },
+    });
+    expect(recoveredRes.status).toBe(200);
+  });
+});
+

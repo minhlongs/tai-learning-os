@@ -18,9 +18,12 @@ import type {
   LearnerHomeResponse,
   LessonStepPayload,
   RequestHintResponse,
+  SessionFeeling,
   StartSessionResponse,
   SubmitAttemptRequest,
   SubmitAttemptResponse,
+  SubmitReflectionRequest,
+  SubmitReflectionResponse,
 } from "../../shared/api-contract";
 import type { Submission } from "../../shared/schemas/answer";
 import { clampHelp, hintFor } from "../../shared/schemas/answer";
@@ -477,6 +480,63 @@ export const finalizeSession: Handler = async (context) => {
       skillsPracticed,
       nextReview,
     },
+  });
+};
+
+/* ── POST /api/learner/sessions/reflect ───────────────────────────────────── */
+
+const VALID_FEELINGS: readonly SessionFeeling[] = ["confident", "good", "neutral", "confused", "tired"];
+
+export const submitSessionReflection: Handler = async (context) => {
+  const resolved = await currentLearner(context);
+  if ("response" in resolved) return resolved.response;
+  const learner = resolved.learner;
+
+  const parsed = await readJsonBody(context.request, 4_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<SubmitReflectionRequest>;
+
+  if (typeof body.sessionId !== "string" || body.sessionId.length === 0) {
+    return badRequest("Thiếu mã phiên học.");
+  }
+  if (!body.feeling || !VALID_FEELINGS.includes(body.feeling)) {
+    return badRequest("Cảm nhận sau buổi học không hợp lệ.");
+  }
+
+  const session = await repo.findSession(context.env.DB, body.sessionId, context.parent.parentId);
+  if (!session) return notFound("Phiên học không tồn tại.");
+  if (session.learner_id !== learner.id) return forbidden("Phiên học không thuộc về người học này.");
+
+  const now = Date.now();
+  const id = crypto.randomUUID();
+  const noteVi =
+    typeof body.noteVi === "string" && body.noteVi.trim().length > 0
+      ? body.noteVi.trim().slice(0, 500)
+      : null;
+
+  await repo.insertSessionReflection(context.env.DB, {
+    id,
+    sessionId: session.id,
+    learnerId: learner.id,
+    feeling: body.feeling,
+    noteVi,
+    now,
+  });
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `learner:${learner.id}`,
+    action: "session.reflected",
+    subject: session.id,
+    detail: JSON.stringify({ feeling: body.feeling }),
+    now,
+  });
+
+  return ok<SubmitReflectionResponse>({
+    id,
+    sessionId: session.id,
+    feeling: body.feeling,
+    noteVi,
   });
 };
 

@@ -76,6 +76,28 @@ export function SessionSummaryScreen({
   });
   /** Captured once, so the relative review phrase cannot change mid-view. */
   const [nowMs] = useState(() => Date.now());
+  const [feeling, setFeeling] = useState<
+    "confident" | "good" | "neutral" | "confused" | "tired"
+  >("good");
+  const [reflectionNote, setReflectionNote] = useState("");
+  const [savingReflection, setSavingReflection] = useState(false);
+  const [reflected, setReflected] = useState(false);
+
+  const submitReflection = useCallback(() => {
+    setSavingReflection(true);
+    void api
+      .post<{ ok: true; reflectionId: string }>(endpoints.reflectSession, {
+        sessionId,
+        feeling,
+        noteVi: reflectionNote.trim() || null,
+      })
+      .then((result) => {
+        setSavingReflection(false);
+        if (result.ok) {
+          setReflected(true);
+        }
+      });
+  }, [feeling, reflectionNote, sessionId]);
 
   /**
    * Send the one finalize request this screen can make.
@@ -278,6 +300,68 @@ export function SessionSummaryScreen({
                   Chưa có kỹ năng nào được xếp lịch ôn lại sau bài học này.
                 </p>
               )}
+            </section>
+
+            <section className="card" aria-labelledby="reflection-title">
+              <h2 className="card__title" id="reflection-title">
+                Cảm xúc của em sau buổi học này
+              </h2>
+              {reflected ? (
+                <p className="pill pill--correct">Cảm ơn em! Hệ thống đã ghi nhận cảm nhận của em.</p>
+              ) : (
+                <div style={{ display: "grid", gap: "0.5rem" }}>
+                  <p className="card__note">Em cảm thấy thế nào sau khi làm xong bài học này?</p>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {[
+                      { key: "confident", label: "Tự tin" },
+                      { key: "good", label: "Hài lòng" },
+                      { key: "neutral", label: "Bình thường" },
+                      { key: "confused", label: "Hơi bối rối" },
+                      { key: "tired", label: "Hơi mệt" },
+                    ].map((f) => (
+                      <button
+                        key={f.key}
+                        type="button"
+                        className={
+                          feeling === f.key ? "btn btn--primary" : "btn btn--secondary"
+                        }
+                        onClick={() => setFeeling(f.key as "confident" | "good" | "neutral" | "confused" | "tired")}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div>
+                    <input
+                      type="text"
+                      className="input"
+                      value={reflectionNote}
+                      onChange={(e) => setReflectionNote(e.target.value)}
+                      placeholder="Em có điều gì muốn chia sẻ thêm không? (không bắt buộc)"
+                      maxLength={200}
+                    />
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      disabled={savingReflection}
+                      onClick={submitReflection}
+                    >
+                      {savingReflection ? "Đang gửi…" : "Gửi cảm nhận"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="card card--muted" aria-labelledby="stopping-title">
+              <h3 className="card__title" id="stopping-title">
+                Điểm dừng tự nhiên cho ngày hôm nay
+              </h3>
+              <p className="card__note">
+                Em đã hoàn thành bài học hôm nay rất tập trung. Não bộ cần thời gian nghỉ ngơi và ngủ ngon để củng cố các liên kết kiến thức vừa học. Giờ là lúc thích hợp để đứng dậy vận động hoặc nghỉ ngơi nhé!
+              </p>
             </section>
 
             <nav className="summary-actions" aria-label="Sau khi xem kết quả">

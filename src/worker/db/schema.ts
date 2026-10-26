@@ -167,3 +167,98 @@ export type AuditEventRow = {
   detail: string | null;
   created_at: number;
 };
+
+export type AuthThrottleRow = {
+  key: string;
+  scope: "account" | "ip";
+  failed_count: number;
+  window_started_at: number;
+  locked_until: number | null;
+  updated_at: number;
+};
+
+export type CurriculumObjectiveRow = {
+  id: string;
+  subject_id: string;
+  grade: number;
+  code: string;
+  title_vi: string;
+  description_vi: string;
+  skill_id: string | null;
+  provenance: "gdpt_2018_objective" | "parent_textbook" | "original_supplemental" | "unverified_assumption";
+  source_ref: string | null;
+  created_at: number;
+};
+
+export type CurriculumIntakeRow = {
+  id: string;
+  learner_id: string;
+  school_year_label: string;
+  grade: number;
+  subject_id: string;
+  textbook_series: string;
+  current_unit: string;
+  current_lesson: string;
+  weekly_sessions: number;
+  session_duration_minutes: number;
+  material_reference: string | null;
+  learning_goals_vi: string | null;
+  provenance: "gdpt_2018_objective" | "parent_textbook" | "original_supplemental" | "unverified_assumption";
+  created_at: number;
+  updated_at: number;
+};
+
+export type LessonMetadataRow = {
+  lesson_id: string;
+  objective_id: string | null;
+  provenance: "gdpt_2018_objective" | "parent_textbook" | "original_supplemental" | "unverified_assumption";
+  source_ref: string | null;
+  expected_duration_minutes: number;
+  review_recommendation_vi: string | null;
+  is_baseline: number;
+  updated_at: number;
+};
+
+export type BaselineAssessmentRow = {
+  id: string;
+  learner_id: string;
+  subject_id: string;
+  session_id: string | null;
+  status: "pending" | "completed" | "reviewed";
+  observed_summary_vi: string | null;
+  supported_summary_vi: string | null;
+  needs_observation_json: string;
+  suggested_lessons_json: string;
+  parent_review_required: number;
+  created_at: number;
+  completed_at: number | null;
+};
+
+export type LearningPlanItemRow = {
+  id: string;
+  learner_id: string;
+  school_year_label: string;
+  week_index: number;
+  day_of_week: number;
+  scheduled_date: string | null;
+  subject_id: string;
+  skill_id: string | null;
+  lesson_id: string | null;
+  item_kind: "lesson" | "review" | "baseline";
+  status: "scheduled" | "completed" | "skipped" | "rescheduled";
+  duration_minutes: number;
+  parent_note: string | null;
+  reason_vi: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type SessionReflectionRow = {
+  id: string;
+  session_id: string;
+  learner_id: string;
+  feeling: "confident" | "good" | "neutral" | "confused" | "tired";
+  note_vi: string | null;
+  created_at: number;
+};
+

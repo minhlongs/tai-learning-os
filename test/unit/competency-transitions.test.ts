@@ -229,6 +229,16 @@ describe("deriveCompetency — retention and transfer", () => {
     expect(result.state).toBe("INDEPENDENT");
   });
 
+  it("downgrades TRANSFERRED back to INDEPENDENT when a subsequent scheduled review fails", () => {
+    const result = deriveCompetency([
+      correct(),
+      correct(),
+      correct({ isTransfer: true }),
+      incorrect({ isReview: true }),
+    ]);
+    expect(result.state).toBe("INDEPENDENT");
+  });
+
   it("disqualifies multiple guesses on the same step (attemptNo > 1) from counting as independent", () => {
     const result = deriveCompetency([
       incorrect({ attemptNo: 1 }),

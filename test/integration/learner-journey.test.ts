@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getPlatformProxy } from "wrangler";
+import { deriveForTest, PBKDF2_ITERATIONS } from "../../src/shared/crypto/password";
 import { leaksAnswer } from "../../src/shared/schemas/exercise";
 import { resetData } from "./reset-data";
 
@@ -423,6 +424,115 @@ describe("restart recovery — data survives the process that wrote it", () => {
 
     expect(rows?.id).toBe(started.sessionId);
     expect(rows?.status).toBe("in_progress");
+  });
+});
+
+describe("lesson version bump, session reflections, and transparent password rehash", () => {
+  it("bumps lesson version on content update, marks pendingReapproval, and preserves historical attempts", async () => {
+    const lessonIds = await approveEveryLesson();
+    const lessonId = lessonIds[0]!;
+
+    const sessionRes = await call("/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId },
+    });
+    expect(sessionRes.status).toBe(200);
+    const session = (await sessionRes.json()) as StartSessionResponse;
+    const step = session.steps[0]!;
+    const correct = await answerKeyFor(step.id);
+
+    const attemptRes = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: session.sessionId,
+        stepId: step.id,
+        submission: { kind: "choice", choiceId: correct! },
+        helpLevel: 0,
+      },
+    });
+    expect(attemptRes.status).toBe(200);
+
+    // Record end-of-session learner reflection
+    const reflectRes = await call("/api/learner/sessions/reflect", {
+      method: "POST",
+      json: {
+        sessionId: session.sessionId,
+        feeling: "confident",
+        noteVi: "Con hiểu phần phân số bằng nhau rồi!",
+      },
+    });
+    expect(reflectRes.status).toBe(200);
+    const reflectBody = (await reflectRes.json()) as {
+      id: string;
+      sessionId: string;
+      feeling: string;
+      noteVi: string | null;
+    };
+    expect(reflectBody.feeling).toBe("confident");
+    expect(reflectBody.noteVi).toContain("phân số bằng nhau");
+
+    // Edit lesson content to bump version
+    const updateRes = await call("/api/parent/lessons/content", {
+      method: "POST",
+      json: {
+        lessonId,
+        titleVi: "Phân số bằng nhau (Bản cập nhật v2)",
+      },
+    });
+    expect(updateRes.status).toBe(200);
+    const updated = (await updateRes.json()) as { lessonId: string; version: number };
+    expect(updated.version).toBe(2);
+
+    // Check that pendingReapproval is flagged and historical attempts survive with content_version = 1
+    const listRes = await call("/api/parent/lessons");
+    const listBody = (await listRes.json()) as {
+      lessons: { id: string; version: number; pendingReapproval: boolean }[];
+    };
+    const editedLesson = listBody.lessons.find((l) => l.id === lessonId);
+    expect(editedLesson?.version).toBe(2);
+    expect(editedLesson?.pendingReapproval).toBe(true);
+
+    const storedAttempt = await env.DB.prepare(
+      "SELECT outcome, step_version FROM learning_attempts WHERE session_id = ?",
+    )
+      .bind(session.sessionId)
+      .first<{ outcome: string; step_version: number }>();
+    expect(storedAttempt?.outcome).toBe("correct");
+    expect(storedAttempt?.step_version).toBe(1);
+  });
+
+  it("transparently upgrades a legacy 100,000-iteration PBKDF2 password hash to 600,000 iterations upon login", async () => {
+    const salt = new Uint8Array(16).fill(11);
+    const saltB64 = btoa(String.fromCharCode(...salt))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const legacyHashB64 = await deriveForTest(PASSWORD, salt, 100_000);
+    const legacyRecord = `pbkdf2-sha256:100000$${saltB64}$${legacyHashB64}`;
+
+    await env.DB.prepare("UPDATE parents SET password_hash = ? WHERE display_name = ?")
+      .bind(legacyRecord, DISPLAY_NAME)
+      .run();
+
+    const beforeRow = await env.DB.prepare(
+      "SELECT password_hash FROM parents WHERE display_name = ?",
+    )
+      .bind(DISPLAY_NAME)
+      .first<{ password_hash: string }>();
+    expect(beforeRow?.password_hash.startsWith("pbkdf2-sha256:100000$")).toBe(true);
+
+    const loginRes = await call("/api/session/login", {
+      method: "POST",
+      json: { displayName: DISPLAY_NAME, password: PASSWORD },
+    });
+    expect(loginRes.status).toBe(200);
+
+    const afterRow = await env.DB.prepare(
+      "SELECT password_hash FROM parents WHERE display_name = ?",
+    )
+      .bind(DISPLAY_NAME)
+      .first<{ password_hash: string }>();
+    expect(afterRow?.password_hash.startsWith(`pbkdf2-sha256:${PBKDF2_ITERATIONS}$`)).toBe(true);
   });
 });
 

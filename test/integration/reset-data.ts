@@ -34,6 +34,7 @@ const CATALOGUE_TABLES = [
   "subjects",
   "skills",
   "skill_prerequisites",
+  "curriculum_objectives",
   "schema_versions",
 ] as const;
 

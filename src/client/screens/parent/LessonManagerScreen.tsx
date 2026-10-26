@@ -325,6 +325,17 @@ export function LessonManagerScreen({
                           <td className="lesson-cell-title">
                             <span className="lesson-cell-title__vi">{lesson.titleVi}</span>
                             <span className="lesson-cell-title__en">{lesson.titleEn}</span>
+                            {lesson.provenance ? (
+                              <span className="row__meta">
+                                Nguồn: {lesson.provenance}
+                                {lesson.expectedDurationMinutes
+                                  ? ` · ~${lesson.expectedDurationMinutes} phút`
+                                  : ""}
+                              </span>
+                            ) : null}
+                            {lesson.reviewRecommendationVi ? (
+                              <span className="row__meta">{lesson.reviewRecommendationVi}</span>
+                            ) : null}
                           </td>
                           <td>
                             <span className={`status-pill ${statusCell(lesson).tone}`}>

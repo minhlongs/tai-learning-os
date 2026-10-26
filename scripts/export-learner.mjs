@@ -21,7 +21,13 @@ const proxy = await getPlatformProxy();
 
 try {
   const parentRow = await proxy.env.DB
-    .prepare("SELECT id, display_name FROM parents ORDER BY created_at ASC LIMIT 1")
+    .prepare(
+      `SELECT p.id, p.display_name
+       FROM parents p
+       LEFT JOIN learners l ON l.parent_id = p.id
+       ORDER BY (l.id IS NOT NULL) DESC, p.created_at ASC
+       LIMIT 1`,
+    )
     .first();
 
   if (!parentRow) {

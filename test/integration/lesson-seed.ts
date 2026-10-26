@@ -227,6 +227,32 @@ export async function seedLessons(
       .all<StepRow>();
 
     if (canonical(lesson.id) === storedCanonical(existing, stepRows.results ?? [])) {
+      const now = Date.now();
+      await db
+        .prepare(
+          `insert into lesson_metadata
+             (lesson_id, objective_id, provenance, source_ref, expected_duration_minutes, review_recommendation_vi, is_baseline, updated_at)
+           values (?, ?, ?, ?, ?, ?, ?, ?)
+           on conflict(lesson_id) do update set
+             objective_id = excluded.objective_id,
+             provenance = excluded.provenance,
+             source_ref = excluded.source_ref,
+             expected_duration_minutes = excluded.expected_duration_minutes,
+             review_recommendation_vi = excluded.review_recommendation_vi,
+             is_baseline = excluded.is_baseline,
+             updated_at = excluded.updated_at`,
+        )
+        .bind(
+          lesson.id,
+          lesson.objectiveId ?? null,
+          lesson.provenance ?? "original_supplemental",
+          lesson.sourceRef ?? null,
+          lesson.expectedDurationMinutes ?? 20,
+          lesson.reviewRecommendationVi ?? null,
+          lesson.isBaseline ? 1 : 0,
+          now,
+        )
+        .run();
       unchanged += 1;
       continue;
     }
@@ -285,13 +311,20 @@ async function writeLesson(db: D1Database, lessonId: string, version: number): P
         now,
         now,
       ),
-    db.prepare("delete from lesson_steps where lesson_id = ?").bind(lesson.id),
     ...lesson.steps.map((step) =>
       db
         .prepare(
           `insert into lesson_steps
              (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
-           values (?, ?, ?, ?, ?, ?, ?, ?)`,
+           values (?, ?, ?, ?, ?, ?, ?, ?)
+           on conflict(id) do update set
+             lesson_id = excluded.lesson_id,
+             position = excluded.position,
+             kind = excluded.kind,
+             content = excluded.content,
+             answer_key = excluded.answer_key,
+             explanation_vi = excluded.explanation_vi,
+             content_version = excluded.content_version`,
         )
         .bind(
           stepId(lesson.id, step.position),
@@ -304,5 +337,29 @@ async function writeLesson(db: D1Database, lessonId: string, version: number): P
           version,
         ),
     ),
+    db
+      .prepare(
+        `insert into lesson_metadata
+           (lesson_id, objective_id, provenance, source_ref, expected_duration_minutes, review_recommendation_vi, is_baseline, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?)
+         on conflict(lesson_id) do update set
+           objective_id = excluded.objective_id,
+           provenance = excluded.provenance,
+           source_ref = excluded.source_ref,
+           expected_duration_minutes = excluded.expected_duration_minutes,
+           review_recommendation_vi = excluded.review_recommendation_vi,
+           is_baseline = excluded.is_baseline,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        lesson.id,
+        lesson.objectiveId ?? null,
+        lesson.provenance ?? "original_supplemental",
+        lesson.sourceRef ?? null,
+        lesson.expectedDurationMinutes ?? 20,
+        lesson.reviewRecommendationVi ?? null,
+        lesson.isBaseline ? 1 : 0,
+        now,
+      ),
   ]);
 }

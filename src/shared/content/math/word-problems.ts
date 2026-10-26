@@ -16,6 +16,12 @@ export const wordProblems: LessonDefinition = {
   objectiveEn: "Read a problem carefully, find the numbers that matter, and write the right calculation.",
   gradeFrom: 3,
   gradeTo: 4,
+  objectiveId: "obj-math-word-prob",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Toán Lớp 4",
+  expectedDurationMinutes: 20,
+  reviewRecommendationVi: "Ôn lại sau 3 ngày với bài toán có lời văn hai bước tính.",
+  isBaseline: false,
   steps: [
     {
       position: 1,

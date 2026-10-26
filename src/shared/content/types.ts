@@ -23,6 +23,12 @@ export type LessonStep = {
 
 export type SubjectId = "math" | "english" | "vietnamese";
 
+export type CurriculumProvenance =
+  | "gdpt_2018_objective"
+  | "parent_textbook"
+  | "original_supplemental"
+  | "unverified_assumption";
+
 export type LessonDefinition = {
   id: string;
   subjectId: SubjectId;
@@ -34,5 +40,17 @@ export type LessonDefinition = {
   objectiveEn: string;
   gradeFrom: number;
   gradeTo: number;
+  /** Linked GDPT 2018 or supplemental objective ID from `curriculum_objectives`. */
+  objectiveId?: string;
+  /** Content provenance classification. */
+  provenance?: CurriculumProvenance;
+  /** Citation or textbook source note. */
+  sourceRef?: string;
+  /** Expected duration in minutes (default 20). */
+  expectedDurationMinutes?: number;
+  /** Parent/learner spaced-review recommendation in Vietnamese. */
+  reviewRecommendationVi?: string;
+  /** True when this lesson is a parent-supervised baseline assessment. */
+  isBaseline?: boolean;
   steps: LessonStep[];
 };

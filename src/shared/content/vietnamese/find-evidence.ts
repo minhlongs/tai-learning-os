@@ -19,6 +19,12 @@ export const findEvidence: LessonDefinition = {
     "Point to the sentence in the text that supports your answer.",
   gradeFrom: 4,
   gradeTo: 4,
+  objectiveId: "obj-vie-read-evid",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Tiếng Việt Lớp 4",
+  expectedDurationMinutes: 20,
+  reviewRecommendationVi: "Ôn lại sau 3 ngày bằng cách gạch chân câu dẫn chứng trong bài đọc.",
+  isBaseline: false,
   steps: [
     {
       position: 1,

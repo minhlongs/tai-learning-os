@@ -32,6 +32,9 @@ import { SessionSummaryScreen } from "./screens/learner/SessionSummaryScreen";
 import { DashboardScreen } from "./screens/parent/DashboardScreen";
 import { LessonManagerScreen } from "./screens/parent/LessonManagerScreen";
 import { DataControlScreen } from "./screens/parent/DataControlScreen";
+import { CurriculumSetupScreen } from "./screens/parent/CurriculumSetupScreen";
+import { BaselineAssessmentScreen } from "./screens/parent/BaselineAssessmentScreen";
+import { FourWeekPlannerScreen } from "./screens/parent/FourWeekPlannerScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
 import { SessionProvider, useSessionContext } from "./lib/SessionProvider";
 import { clearCsrfToken } from "./lib/csrf-store";
@@ -44,6 +47,9 @@ export type Route =
   | { name: "lesson"; lessonId: string }
   | { name: "session-summary"; sessionId: string }
   | { name: "parent-dashboard" }
+  | { name: "parent-curriculum" }
+  | { name: "parent-baseline" }
+  | { name: "parent-planner" }
   | { name: "parent-lessons" }
   | { name: "parent-data" }
   | { name: "not-found" };
@@ -57,6 +63,9 @@ export function matchRoute(pathname: string): Route {
 
   if (parts[0] === "parent") {
     if (parts.length === 1) return { name: "parent-dashboard" };
+    if (parts[1] === "curriculum") return { name: "parent-curriculum" };
+    if (parts[1] === "baseline") return { name: "parent-baseline" };
+    if (parts[1] === "planner") return { name: "parent-planner" };
     if (parts[1] === "lessons") return { name: "parent-lessons" };
     if (parts[1] === "data") return { name: "parent-data" };
     return { name: "not-found" };
@@ -128,6 +137,12 @@ export function Router(): React.JSX.Element {
       return <SessionSummaryScreen sessionId={route.sessionId} onNavigate={go} />;
     case "parent-dashboard":
       return <DashboardScreen onNavigate={go} />;
+    case "parent-curriculum":
+      return <CurriculumSetupScreen onNavigate={go} />;
+    case "parent-baseline":
+      return <BaselineAssessmentScreen onNavigate={go} />;
+    case "parent-planner":
+      return <FourWeekPlannerScreen onNavigate={go} />;
     case "parent-lessons":
       return <LessonManagerScreen onNavigate={go} />;
     case "parent-data":

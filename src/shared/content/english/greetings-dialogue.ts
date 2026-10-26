@@ -16,6 +16,12 @@ export const greetingsDialogue: LessonDefinition = {
   objectiveEn: "Greet and answer politely in everyday situations.",
   gradeFrom: 3,
   gradeTo: 4,
+  objectiveId: "obj-eng-dial-greet",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Tiếng Anh Lớp 4",
+  expectedDurationMinutes: 15,
+  reviewRecommendationVi: "Ôn lại sau 3 ngày qua các tình huống giao tiếp lịch sự.",
+  isBaseline: false,
   steps: [
     {
       position: 1,

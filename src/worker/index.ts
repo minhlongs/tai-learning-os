@@ -27,16 +27,24 @@ import {
   requestHint,
   startSession,
   submitAttempt,
+  submitSessionReflection,
 } from "./routes/learner";
 import {
   correctSkillEvidence,
   createLearnerProfile,
+  evaluateBaselineAssessment,
+  generateFourWeekPlanRoute,
+  getBaselineAssessments,
+  getCurriculumSetup,
+  getFourWeekPlan,
   getLessonDetail,
   getParentDashboard,
   listLessons,
   setLessonApproval,
   updateLearnerProfile,
   updateLessonContent,
+  updatePlanItemRoute,
+  upsertCurriculumSetup,
 } from "./routes/parent";
 import { deleteLearner, exportRecord, importRecord } from "./routes/data";
 
@@ -61,8 +69,16 @@ const ROUTES: readonly Route[] = [
   protectedRoute("POST", /^\/api\/learner\/hints$/, requestHint),
   protectedRoute("POST", /^\/api\/learner\/attempts$/, submitAttempt),
   protectedRoute("POST", /^\/api\/learner\/sessions\/finalize$/, finalizeSession),
+  protectedRoute("POST", /^\/api\/learner\/sessions\/reflect$/, submitSessionReflection),
 
   parentRoute("GET", /^\/api\/parent\/dashboard$/, getParentDashboard),
+  parentRoute("GET", /^\/api\/parent\/curriculum$/, getCurriculumSetup),
+  parentRoute("POST", /^\/api\/parent\/curriculum$/, upsertCurriculumSetup),
+  parentRoute("GET", /^\/api\/parent\/baseline$/, getBaselineAssessments),
+  parentRoute("POST", /^\/api\/parent\/baseline$/, evaluateBaselineAssessment),
+  parentRoute("GET", /^\/api\/parent\/planner$/, getFourWeekPlan),
+  parentRoute("POST", /^\/api\/parent\/planner\/generate$/, generateFourWeekPlanRoute),
+  parentRoute("PATCH", /^\/api\/parent\/planner\/item$/, updatePlanItemRoute),
   parentRoute("GET", /^\/api\/parent\/lessons$/, listLessons),
   parentRoute("GET", /^\/api\/parent\/lessons\/[^/]+$/, getLessonDetail),
   parentRoute("POST", /^\/api\/parent\/lessons\/approval$/, setLessonApproval),

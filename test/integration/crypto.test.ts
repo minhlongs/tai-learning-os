@@ -81,6 +81,7 @@ describe("hashPassword / verifyPassword", () => {
   });
 
   it("stores algorithm, iteration count, salt and hash, but never the password", async () => {
+    expect(PBKDF2_ITERATIONS).toBe(600_000);
     const record = await hashPassword(PASSWORD);
     expect(record.startsWith(`pbkdf2-sha256:${PBKDF2_ITERATIONS}$`)).toBe(true);
     expect(record.split("$")).toHaveLength(3);

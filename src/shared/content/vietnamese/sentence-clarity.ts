@@ -19,6 +19,12 @@ export const sentenceClarity: LessonDefinition = {
     "Write a complete sentence with a subject and a predicate, a capital letter at the start and a full stop at the end.",
   gradeFrom: 4,
   gradeTo: 4,
+  objectiveId: "obj-vie-write-sent",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Tiếng Việt Lớp 4",
+  expectedDurationMinutes: 20,
+  reviewRecommendationVi: "Ôn lại sau 3 ngày bằng bài tập nhận diện chủ ngữ và vị ngữ.",
+  isBaseline: false,
   steps: [
     {
       position: 1,

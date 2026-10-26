@@ -48,7 +48,26 @@ export const exportRecord: Handler = async (context) => {
     return badRequest("Chưa có hồ sơ người học để xuất dữ liệu.");
   }
 
-  const [schoolYears, subjects, skills, lessons, approvals, sessions, attempts, evidence, reviewRows, goals, auditEvents, prerequisites] =
+  const [
+    schoolYears,
+    subjects,
+    skills,
+    lessons,
+    approvals,
+    sessions,
+    attempts,
+    evidence,
+    reviewRows,
+    goals,
+    auditEvents,
+    prerequisites,
+    curriculumObjectives,
+    curriculumIntakes,
+    lessonMetadata,
+    baselineAssessments,
+    learningPlanItems,
+    sessionReflections,
+  ] =
     await Promise.all([
       db
         .prepare(
@@ -78,6 +97,12 @@ export const exportRecord: Handler = async (context) => {
         .prepare("SELECT id, actor, action, subject, detail, created_at FROM audit_events ORDER BY created_at ASC")
         .all<Record<string, unknown>>(),
       db.prepare("SELECT skill_id, prerequisite_id FROM skill_prerequisites").all<Record<string, unknown>>(),
+      repo.listCurriculumObjectives(db),
+      repo.listCurriculumIntakesForLearner(db, learner.id),
+      repo.listLessonMetadata(db),
+      repo.listBaselineAssessmentsForLearner(db, learner.id),
+      repo.listLearningPlanItemsForLearner(db, learner.id),
+      repo.listSessionReflectionsForLearner(db, learner.id),
     ]);
 
   const lessonIds = lessons.map((l) => l.id);
@@ -228,6 +253,85 @@ export const exportRecord: Handler = async (context) => {
       createdAt: g.created_at,
       updatedAt: g.updated_at,
     })),
+    curriculumObjectives: curriculumObjectives.map((o) => ({
+      id: o.id,
+      subjectId: o.subject_id,
+      grade: o.grade,
+      code: o.code,
+      titleVi: o.title_vi,
+      descriptionVi: o.description_vi,
+      skillId: o.skill_id,
+      provenance: o.provenance,
+      sourceRef: o.source_ref,
+      createdAt: o.created_at,
+    })),
+    curriculumIntakes: curriculumIntakes.map((i) => ({
+      id: i.id,
+      learnerId: i.learner_id,
+      schoolYearLabel: i.school_year_label,
+      grade: i.grade,
+      subjectId: i.subject_id,
+      textbookSeries: i.textbook_series,
+      currentUnit: i.current_unit,
+      currentLesson: i.current_lesson,
+      weeklySessions: i.weekly_sessions,
+      sessionDurationMinutes: i.session_duration_minutes,
+      materialReference: i.material_reference,
+      learningGoalsVi: i.learning_goals_vi,
+      provenance: i.provenance,
+      createdAt: i.created_at,
+      updatedAt: i.updated_at,
+    })),
+    lessonMetadata: lessonMetadata.map((m) => ({
+      lessonId: m.lesson_id,
+      objectiveId: m.objective_id,
+      provenance: m.provenance,
+      sourceRef: m.source_ref,
+      expectedDurationMinutes: m.expected_duration_minutes,
+      reviewRecommendationVi: m.review_recommendation_vi,
+      isBaseline: m.is_baseline as 0 | 1,
+      updatedAt: m.updated_at,
+    })),
+    baselineAssessments: baselineAssessments.map((b) => ({
+      id: b.id,
+      learnerId: b.learner_id,
+      subjectId: b.subject_id,
+      sessionId: b.session_id,
+      status: b.status,
+      observedSummaryVi: b.observed_summary_vi,
+      supportedSummaryVi: b.supported_summary_vi,
+      needsObservationJson: b.needs_observation_json,
+      suggestedLessonsJson: b.suggested_lessons_json,
+      parentReviewRequired: b.parent_review_required as 0 | 1,
+      createdAt: b.created_at,
+      completedAt: b.completed_at,
+    })),
+    learningPlanItems: learningPlanItems.map((p) => ({
+      id: p.id,
+      learnerId: p.learner_id,
+      schoolYearLabel: p.school_year_label,
+      weekIndex: p.week_index,
+      dayOfWeek: p.day_of_week,
+      scheduledDate: p.scheduled_date,
+      subjectId: p.subject_id,
+      skillId: p.skill_id,
+      lessonId: p.lesson_id,
+      itemKind: p.item_kind,
+      status: p.status,
+      durationMinutes: p.duration_minutes,
+      parentNote: p.parent_note,
+      reasonVi: p.reason_vi,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+    })),
+    sessionReflections: sessionReflections.map((r) => ({
+      id: r.id,
+      sessionId: r.session_id,
+      learnerId: r.learner_id,
+      feeling: r.feeling,
+      noteVi: r.note_vi,
+      createdAt: r.created_at,
+    })),
     auditEvents: (auditEvents.results ?? []).map((row) => ({
       id: String(row.id),
       actor: String(row.actor),
@@ -236,7 +340,10 @@ export const exportRecord: Handler = async (context) => {
       detail: safeJson(row.detail as string | null),
       createdAt: Number(row.created_at),
     })),
-    schemaVersions: [{ version: 1, description: "Initial schema" }],
+    schemaVersions: [
+      { version: 1, description: "Initial schema" },
+      { version: 3, description: "Curriculum foundation, persistent auth throttles, baseline assessments, 4-week planner, reflections" },
+    ],
   };
 
   const now = Date.now();
@@ -288,7 +395,7 @@ export const importRecord: Handler = async (context) => {
 
   const db = context.env.DB;
   const data = validation.envelope.data;
-  const countOf = (key: (typeof COLLECTIONS)[number]) => data[key].length;
+  const countOf = (key: (typeof COLLECTIONS)[number]) => (data[key] ?? []).length;
 
   try {
     // Remap the exported learner id to a fresh one owned by this parent, so
@@ -315,6 +422,10 @@ export const importRecord: Handler = async (context) => {
         id: learnerIds.get(learner.id) ?? learner.id,
       })),
       schoolYears: data.schoolYears.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
+      curriculumIntakes: (data.curriculumIntakes ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
       learningSessions: data.learningSessions.map((row) => ({
         ...row,
         learnerId: retarget(learnerIds, row.learnerId),
@@ -325,6 +436,18 @@ export const importRecord: Handler = async (context) => {
       })),
       skillEvidence: data.skillEvidence.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
       reviewSchedule: data.reviewSchedule.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
+      baselineAssessments: (data.baselineAssessments ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      learningPlanItems: (data.learningPlanItems ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      sessionReflections: (data.sessionReflections ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
       learningGoals: data.learningGoals.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
     });
 
@@ -582,6 +705,114 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
         goal.updatedAt,
       )
       .run();
+  }
+
+  for (const obj of data.curriculumObjectives ?? []) {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO curriculum_objectives
+           (id, subject_id, grade, code, title_vi, description_vi, skill_id, provenance, source_ref, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+      )
+      .bind(
+        obj.id,
+        obj.subjectId,
+        obj.grade,
+        obj.code,
+        obj.titleVi,
+        obj.descriptionVi,
+        obj.skillId,
+        obj.provenance,
+        obj.sourceRef,
+        obj.createdAt,
+      )
+      .run();
+  }
+
+  for (const intake of data.curriculumIntakes ?? []) {
+    await repo.upsertCurriculumIntake(db, {
+      intake: {
+        id: intake.id,
+        learner_id: intake.learnerId,
+        school_year_label: intake.schoolYearLabel,
+        grade: intake.grade,
+        subject_id: intake.subjectId,
+        textbook_series: intake.textbookSeries,
+        current_unit: intake.currentUnit,
+        current_lesson: intake.currentLesson,
+        weekly_sessions: intake.weeklySessions,
+        session_duration_minutes: intake.sessionDurationMinutes,
+        material_reference: intake.materialReference,
+        learning_goals_vi: intake.learningGoalsVi,
+        provenance: intake.provenance,
+        created_at: intake.createdAt,
+        updated_at: intake.updatedAt,
+      },
+    });
+  }
+
+  for (const meta of data.lessonMetadata ?? []) {
+    await repo.upsertLessonMetadata(db, {
+      lessonId: meta.lessonId,
+      objectiveId: meta.objectiveId,
+      provenance: meta.provenance,
+      sourceRef: meta.sourceRef,
+      expectedDurationMinutes: meta.expectedDurationMinutes,
+      reviewRecommendationVi: meta.reviewRecommendationVi,
+      isBaseline: meta.isBaseline === 1,
+      now: meta.updatedAt,
+    });
+  }
+
+  for (const b of data.baselineAssessments ?? []) {
+    await repo.upsertBaselineAssessment(db, {
+      id: b.id,
+      learnerId: b.learnerId,
+      subjectId: b.subjectId,
+      sessionId: b.sessionId,
+      status: b.status,
+      observedSummaryVi: b.observedSummaryVi,
+      supportedSummaryVi: b.supportedSummaryVi,
+      needsObservationJson: b.needsObservationJson,
+      suggestedLessonsJson: b.suggestedLessonsJson,
+      parentReviewRequired: b.parentReviewRequired === 1,
+      now: b.createdAt,
+      completedAt: b.completedAt,
+    });
+  }
+
+  for (const item of data.learningPlanItems ?? []) {
+    await repo.insertPlanItem(db, {
+      item: {
+        id: item.id,
+        learner_id: item.learnerId,
+        school_year_label: item.schoolYearLabel,
+        week_index: item.weekIndex,
+        day_of_week: item.dayOfWeek,
+        scheduled_date: item.scheduledDate,
+        subject_id: item.subjectId,
+        skill_id: item.skillId,
+        lesson_id: item.lessonId,
+        item_kind: item.itemKind,
+        status: item.status,
+        duration_minutes: item.durationMinutes,
+        parent_note: item.parentNote,
+        reason_vi: item.reasonVi,
+        created_at: item.createdAt,
+        updated_at: item.updatedAt,
+      },
+    });
+  }
+
+  for (const refl of data.sessionReflections ?? []) {
+    await repo.insertSessionReflection(db, {
+      id: refl.id,
+      sessionId: refl.sessionId,
+      learnerId: refl.learnerId,
+      feeling: refl.feeling,
+      noteVi: refl.noteVi,
+      now: refl.createdAt,
+    });
   }
 }
 

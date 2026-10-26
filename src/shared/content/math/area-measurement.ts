@@ -16,6 +16,12 @@ export const areaMeasurement: LessonDefinition = {
   objectiveEn: "Find the two side lengths of a rectangle and measure its surface.",
   gradeFrom: 4,
   gradeTo: 5,
+  objectiveId: "obj-math-geo-area",
+  provenance: "original_supplemental",
+  sourceRef: "Biên soạn riêng cho TAI Learning OS bám sát yêu cầu cần đạt GDPT 2018 Toán Lớp 4",
+  expectedDurationMinutes: 20,
+  reviewRecommendationVi: "Ôn lại sau 3 ngày bằng bài toán đo diện tích thực tế.",
+  isBaseline: false,
   steps: [
     {
       position: 1,

@@ -103,10 +103,26 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
   }
 
   // TRANSFERRED: an independent correct answer to a transfer question, after the
-  // skill has already been demonstrated independently at least once.
-  const transferSolved = relevant.some(
-    (a) => a.isTransfer && isIndependentAttempt(a) && independentCount >= COMPETENCY_CONFIG.independentMinCorrect,
+  // skill has already been demonstrated independently at least once, and with no
+  // failed scheduled review after the latest independent transfer/review solve.
+  const transferIndependentWins = relevant.filter((a) => a.isTransfer && isIndependentAttempt(a));
+  const lastTransferWinAt = transferIndependentWins.reduce(
+    (max, a) => (a.createdAt > max ? a.createdAt : max),
+    -Infinity,
   );
+  const reviewIndependentWins = relevant.filter((a) => a.isReview && isIndependentAttempt(a));
+  const lastReviewWinAt = reviewIndependentWins.reduce(
+    (max, a) => (a.createdAt > max ? a.createdAt : max),
+    -Infinity,
+  );
+  const lastHighRungWinAt = Math.max(lastTransferWinAt, lastReviewWinAt);
+  const hasLaterFailedReview = relevant.some(
+    (a) => a.isReview && !isIndependentAttempt(a) && a.createdAt > lastHighRungWinAt,
+  );
+  const transferSolved =
+    transferIndependentWins.length > 0 &&
+    !hasLaterFailedReview &&
+    independentCount >= COMPETENCY_CONFIG.independentMinCorrect;
   if (transferSolved) {
     return {
       ...base,
@@ -117,14 +133,6 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
 
   // RETAINED: an independent correct answer on a scheduled review, with no
   // failed review attempt after the latest independent review solve.
-  const reviewIndependentWins = relevant.filter((a) => a.isReview && isIndependentAttempt(a));
-  const lastReviewWinAt = reviewIndependentWins.reduce(
-    (max, a) => (a.createdAt > max ? a.createdAt : max),
-    -Infinity,
-  );
-  const hasLaterFailedReview = relevant.some(
-    (a) => a.isReview && !isIndependentAttempt(a) && a.createdAt > lastReviewWinAt,
-  );
   const reviewSolved =
     reviewIndependentWins.length > 0 &&
     !hasLaterFailedReview &&

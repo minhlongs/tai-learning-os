@@ -14,15 +14,25 @@
  */
 
 import type {
+  BaselineGetResponse,
   CreateLearnerResponse,
+  CurriculumGetResponse,
+  EvaluateBaselineRequest,
+  EvaluateBaselineResponse,
+  GeneratePlanRequest,
   LearnerProfile,
   LessonDetailResponse,
   LessonListResponse,
   ParentDashboardResponse,
+  PlannerGetResponse,
+  ProvenanceType,
   SetApprovalRequest,
   SetApprovalResponse,
   UpdateContentRequest,
   UpdateContentResponse,
+  UpdatePlanItemRequest,
+  UpsertCurriculumIntakeRequest,
+  UpsertCurriculumIntakeResponse,
 } from "../../shared/api-contract";
 import { APPROVAL_STATUSES, COMPETENCY_STATES, LESSON_STEP_KINDS } from "../../shared/schemas/attempt";
 import type { ApprovalStatus, CompetencyState, LessonStepKind } from "../../shared/schemas/attempt";
@@ -30,6 +40,12 @@ import { validateExercise } from "../../shared/schemas/exercise";
 import { describeState } from "../../shared/engine/competency";
 import type { AttemptEvidence } from "../../shared/engine/competency";
 import { needsParentAttention } from "../../shared/engine/review";
+import {
+  DEFAULT_PLANNER_CONFIG,
+  evaluateBaselineDiagnostic,
+  generateFourWeekPlan,
+  type SkillCandidate,
+} from "../../shared/engine/planner";
 import * as repo from "../db/repositories";
 import { badRequest, conflict, notFound, ok, readJsonBody, serverError } from "../http/response";
 import type { Handler, HandlerContext } from "../http/middleware";
@@ -190,11 +206,12 @@ export const getParentDashboard: Handler = async (context) => {
  */
 export const listLessons: Handler = async (context) => {
   const lessons = await repo.listLessons(context.env.DB);
-  const [approvalsResult, steps] = await Promise.all([
+  const [approvalsResult, steps, metadataRows] = await Promise.all([
     context.env.DB
       .prepare("SELECT lesson_id, status, decided_at FROM review_approvals")
       .all<{ lesson_id: string; status: ApprovalStatus; decided_at: number }>(),
     repo.findStepsForLessons(context.env.DB, lessons.map((l) => l.id)),
+    repo.listLessonMetadata(context.env.DB),
   ]);
 
   const approvalByLesson = new Map<string, { status: ApprovalStatus; decidedAt: number }>();
@@ -207,12 +224,15 @@ export const listLessons: Handler = async (context) => {
     stepCountByLesson.set(step.lesson_id, (stepCountByLesson.get(step.lesson_id) ?? 0) + 1);
   }
 
+  const metadataByLesson = new Map(metadataRows.map((m) => [m.lesson_id, m]));
+
   return ok<LessonListResponse>({
     lessons: lessons.map((lesson) => {
       const approval = approvalByLesson.get(lesson.id);
       const status = approval?.status ?? "draft";
       const pendingReapproval =
         status === "approved" && approval !== undefined && lesson.updated_at > approval.decidedAt;
+      const meta = metadataByLesson.get(lesson.id);
       return {
         id: lesson.id,
         subjectId: lesson.subject_id,
@@ -227,6 +247,12 @@ export const listLessons: Handler = async (context) => {
         // Content edits bump the version and updated_at; an approval decided
         // before the current update is stale. Reported rather than hidden.
         pendingReapproval,
+        objectiveId: meta?.objective_id ?? null,
+        provenance: meta?.provenance ?? "original_supplemental",
+        sourceRef: meta?.source_ref ?? null,
+        expectedDurationMinutes: meta?.expected_duration_minutes ?? 20,
+        reviewRecommendationVi: meta?.review_recommendation_vi ?? null,
+        isBaseline: meta ? meta.is_baseline === 1 : false,
       };
     }),
   });
@@ -571,6 +597,620 @@ export const updateLearnerProfile: Handler = async (context) => {
     updatedAt: now,
   });
 };
+
+/* ── GET /api/parent/curriculum ───────────────────────────────────────────── */
+
+const PROVENANCE_TYPES: readonly ProvenanceType[] = [
+  "gdpt_2018_objective",
+  "parent_textbook",
+  "original_supplemental",
+  "unverified_assumption",
+];
+
+function isProvenanceType(val: unknown): val is ProvenanceType {
+  return typeof val === "string" && PROVENANCE_TYPES.includes(val as ProvenanceType);
+}
+
+export const getCurriculumSetup: Handler = async (context) => {
+  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const objectives = await repo.listCurriculumObjectives(context.env.DB);
+  const schoolYearLabel = "2026-2027";
+  const grade = learner?.grade ?? 4;
+
+  if (!learner) {
+    return ok<CurriculumGetResponse>({
+      learnerId: null,
+      schoolYearLabel,
+      grade,
+      intakes: [],
+      objectives: objectives.map((o) => ({
+        id: o.id,
+        subjectId: o.subject_id,
+        grade: o.grade,
+        code: o.code,
+        titleVi: o.title_vi,
+        descriptionVi: o.description_vi,
+        skillId: o.skill_id,
+        provenance: o.provenance,
+        sourceRef: o.source_ref,
+      })),
+    });
+  }
+
+  const intakes = await repo.listCurriculumIntakesForLearner(context.env.DB, learner.id);
+  const activeSchoolYear = await repo.findActiveSchoolYear(
+    context.env.DB,
+    learner.id,
+    new Date().toISOString().slice(0, 10),
+  );
+
+  return ok<CurriculumGetResponse>({
+    learnerId: learner.id,
+    schoolYearLabel: intakes[0]?.school_year_label ?? activeSchoolYear?.label ?? schoolYearLabel,
+    grade: intakes[0]?.grade ?? grade,
+    intakes: intakes.map((i) => ({
+      id: i.id,
+      learnerId: i.learner_id,
+      schoolYearLabel: i.school_year_label,
+      grade: i.grade,
+      subjectId: i.subject_id,
+      textbookSeries: i.textbook_series,
+      currentUnit: i.current_unit,
+      currentLesson: i.current_lesson,
+      weeklySessions: i.weekly_sessions,
+      sessionDurationMinutes: i.session_duration_minutes,
+      materialReference: i.material_reference,
+      learningGoalsVi: i.learning_goals_vi,
+      provenance: i.provenance,
+      updatedAt: i.updated_at,
+    })),
+    objectives: objectives.map((o) => ({
+      id: o.id,
+      subjectId: o.subject_id,
+      grade: o.grade,
+      code: o.code,
+      titleVi: o.title_vi,
+      descriptionVi: o.description_vi,
+      skillId: o.skill_id,
+      provenance: o.provenance,
+      sourceRef: o.source_ref,
+    })),
+  });
+};
+
+/* ── POST /api/parent/curriculum ──────────────────────────────────────────── */
+
+export const upsertCurriculumSetup: Handler = async (context) => {
+  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  if (!learner) {
+    return badRequest("Vui lòng tạo hồ sơ người học trước khi thiết lập chương trình học.");
+  }
+
+  const parsed = await readJsonBody(context.request, 8_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<UpsertCurriculumIntakeRequest>;
+
+  if (typeof body.subjectId !== "string" || body.subjectId.trim().length === 0) {
+    return badRequest("Thiếu mã môn học.");
+  }
+  const schoolYearLabel =
+    typeof body.schoolYearLabel === "string" && body.schoolYearLabel.trim().length > 0
+      ? body.schoolYearLabel.trim().slice(0, 32)
+      : "2026-2027";
+  const grade = optionalIntIn(body.grade ?? learner.grade ?? 4, 1, 12) ?? 4;
+  const textbookSeries =
+    typeof body.textbookSeries === "string" && body.textbookSeries.trim().length > 0
+      ? body.textbookSeries.trim().slice(0, 120)
+      : "UNKNOWN";
+  const currentUnit =
+    typeof body.currentUnit === "string" && body.currentUnit.trim().length > 0
+      ? body.currentUnit.trim().slice(0, 120)
+      : "UNKNOWN";
+  const currentLesson =
+    typeof body.currentLesson === "string" && body.currentLesson.trim().length > 0
+      ? body.currentLesson.trim().slice(0, 120)
+      : "UNKNOWN";
+  const weeklySessions = optionalIntIn(body.weeklySessions ?? 3, 1, 14) ?? 3;
+  const sessionDurationMinutes = optionalIntIn(body.sessionDurationMinutes ?? 20, 5, 120) ?? 20;
+  const materialReference =
+    typeof body.materialReference === "string" && body.materialReference.trim().length > 0
+      ? body.materialReference.trim().slice(0, 500)
+      : null;
+  const learningGoalsVi =
+    typeof body.learningGoalsVi === "string" && body.learningGoalsVi.trim().length > 0
+      ? body.learningGoalsVi.trim().slice(0, 1000)
+      : null;
+  const provenance: ProvenanceType = isProvenanceType(body.provenance)
+    ? body.provenance
+    : textbookSeries === "UNKNOWN"
+      ? "gdpt_2018_objective"
+      : "parent_textbook";
+
+  const now = Date.now();
+  const id = crypto.randomUUID();
+  await repo.upsertCurriculumIntake(context.env.DB, {
+    intake: {
+      id,
+      learner_id: learner.id,
+      school_year_label: schoolYearLabel,
+      grade,
+      subject_id: body.subjectId.trim(),
+      textbook_series: textbookSeries,
+      current_unit: currentUnit,
+      current_lesson: currentLesson,
+      weekly_sessions: weeklySessions,
+      session_duration_minutes: sessionDurationMinutes,
+      material_reference: materialReference,
+      learning_goals_vi: learningGoalsVi,
+      provenance,
+      created_at: now,
+      updated_at: now,
+    },
+  });
+
+  // Ensure school_years row also exists for longitudinal continuity
+  const existingYears = await repo.listSchoolYearsForLearner(context.env.DB, learner.id);
+  if (!existingYears.some((y) => y.label === schoolYearLabel)) {
+    const startYear = Number.parseInt(schoolYearLabel.slice(0, 4), 10) || 2026;
+    await repo.createSchoolYear(context.env.DB, {
+      id: crypto.randomUUID(),
+      learnerId: learner.id,
+      label: schoolYearLabel,
+      startsOn: `${startYear}-09-01`,
+      endsOn: `${startYear + 1}-06-30`,
+      grade,
+      now,
+    });
+  }
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: "curriculum.intake_updated",
+    subject: learner.id,
+    detail: JSON.stringify({
+      subjectId: body.subjectId,
+      schoolYearLabel,
+      grade,
+      textbookSeries,
+      provenance,
+    }),
+    now,
+  });
+
+  const intakes = await repo.listCurriculumIntakesForLearner(context.env.DB, learner.id);
+  const saved = intakes.find(
+    (i) => i.subject_id === body.subjectId && i.school_year_label === schoolYearLabel,
+  );
+
+  return ok<UpsertCurriculumIntakeResponse>({
+    intake: {
+      id: saved?.id ?? id,
+      learnerId: learner.id,
+      schoolYearLabel,
+      grade,
+      subjectId: body.subjectId.trim(),
+      textbookSeries,
+      currentUnit,
+      currentLesson,
+      weeklySessions,
+      sessionDurationMinutes,
+      materialReference,
+      learningGoalsVi,
+      provenance,
+      updatedAt: now,
+    },
+  });
+};
+
+/* ── GET /api/parent/baseline ─────────────────────────────────────────────── */
+
+export const getBaselineAssessments: Handler = async (context) => {
+  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const [lessons, metadataRows, approvals] = await Promise.all([
+    repo.listLessons(context.env.DB),
+    repo.listLessonMetadata(context.env.DB),
+    repo.listApprovalStatuses(context.env.DB),
+  ]);
+
+  const baselineMeta = new Map(
+    metadataRows.filter((m) => m.is_baseline === 1).map((m) => [m.lesson_id, m]),
+  );
+
+  const baselineLessons = lessons
+    .filter((l) => baselineMeta.has(l.id))
+    .map((l) => ({
+      lessonId: l.id,
+      subjectId: l.subject_id,
+      titleVi: l.title_vi,
+      objectiveVi: l.objective_vi,
+      expectedDurationMinutes: baselineMeta.get(l.id)?.expected_duration_minutes ?? 15,
+      approvalStatus: approvals[l.id] ?? "draft",
+    }));
+
+  if (!learner) {
+    return ok<BaselineGetResponse>({
+      learnerId: null,
+      baselineLessons,
+      assessments: [],
+    });
+  }
+
+  const rows = await repo.listBaselineAssessmentsForLearner(context.env.DB, learner.id);
+  return ok<BaselineGetResponse>({
+    learnerId: learner.id,
+    baselineLessons,
+    assessments: rows.map((r) => ({
+      id: r.id,
+      learnerId: r.learner_id,
+      subjectId: r.subject_id,
+      sessionId: r.session_id,
+      status: r.status,
+      observedSummaryVi: r.observed_summary_vi,
+      supportedSummaryVi: r.supported_summary_vi,
+      needsObservation: parseStringArray(r.needs_observation_json),
+      suggestedLessons: parseStringArray(r.suggested_lessons_json),
+      parentReviewRequired: r.parent_review_required === 1,
+      createdAt: r.created_at,
+      completedAt: r.completed_at,
+    })),
+  });
+};
+
+/* ── POST /api/parent/baseline ────────────────────────────────────────────── */
+
+export const evaluateBaselineAssessment: Handler = async (context) => {
+  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  if (!learner) {
+    return badRequest("Chưa có hồ sơ người học.");
+  }
+
+  const parsed = await readJsonBody(context.request, 8_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<EvaluateBaselineRequest>;
+
+  if (typeof body.subjectId !== "string" || body.subjectId.trim().length === 0) {
+    return badRequest("Thiếu mã môn học.");
+  }
+
+  const subjectId = body.subjectId.trim();
+  const [lessons, attempts] = await Promise.all([
+    repo.listLessonsBySubject(context.env.DB, subjectId),
+    repo.listAttemptsForLearner(context.env.DB, learner.id),
+  ]);
+
+  const subjectLessonIds = new Set(lessons.map((l) => l.id));
+  const relevantAttempts = attempts
+    .filter((a) => subjectLessonIds.has(a.lesson_id))
+    .map((a) => ({
+      stepId: a.step_id,
+      stepPosition: 1,
+      kind: "concept",
+      outcome: a.outcome,
+      helpLevel: a.help_level,
+      attemptNo: a.attempt_no,
+      skillId: a.skill_id,
+    }));
+
+  const evalResult = evaluateBaselineDiagnostic({
+    learnerId: learner.id,
+    subjectId,
+    attempts: relevantAttempts,
+  });
+
+  // Map needsObservation skill IDs to suggested non-baseline lesson IDs
+  const suggestedLessons = lessons
+    .filter((l) => !l.id.includes("baseline") && (!l.skill_id || evalResult.needsObservation.includes(l.skill_id)))
+    .map((l) => l.id);
+
+  const now = Date.now();
+  const status = body.markReviewed
+    ? "reviewed"
+    : relevantAttempts.length > 0
+      ? "completed"
+      : "pending";
+  const parentReviewRequired = body.markReviewed ? false : evalResult.parentReviewRequired;
+
+  const existing = await repo.listBaselineAssessmentsForLearner(context.env.DB, learner.id);
+  const existingForSubj = existing.find((e) => e.subject_id === subjectId);
+  const id = existingForSubj?.id ?? crypto.randomUUID();
+
+  await repo.upsertBaselineAssessment(context.env.DB, {
+    id,
+    learnerId: learner.id,
+    subjectId,
+    sessionId: body.sessionId ?? existingForSubj?.session_id ?? null,
+    status,
+    observedSummaryVi: evalResult.observedSummaryVi,
+    supportedSummaryVi: evalResult.supportedSummaryVi,
+    needsObservationJson: JSON.stringify(evalResult.needsObservation),
+    suggestedLessonsJson: JSON.stringify(suggestedLessons),
+    parentReviewRequired,
+    now,
+    completedAt: status === "completed" || status === "reviewed" ? now : null,
+  });
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: `baseline.${status}`,
+    subject: id,
+    detail: JSON.stringify({ subjectId, needsObservationCount: evalResult.needsObservation.length }),
+    now,
+  });
+
+  return ok<EvaluateBaselineResponse>({
+    assessment: {
+      id,
+      learnerId: learner.id,
+      subjectId,
+      sessionId: body.sessionId ?? existingForSubj?.session_id ?? null,
+      status,
+      observedSummaryVi: evalResult.observedSummaryVi,
+      supportedSummaryVi: evalResult.supportedSummaryVi,
+      needsObservation: evalResult.needsObservation,
+      suggestedLessons,
+      parentReviewRequired,
+      createdAt: existingForSubj?.created_at ?? now,
+      completedAt: status === "completed" || status === "reviewed" ? now : null,
+    },
+  });
+};
+
+/* ── GET /api/parent/planner ──────────────────────────────────────────────── */
+
+export const getFourWeekPlan: Handler = async (context) => {
+  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const schoolYearLabel = "2026-2027";
+  if (!learner) {
+    return ok<PlannerGetResponse>({
+      learnerId: null,
+      schoolYearLabel,
+      items: [],
+      summary: {
+        todayCount: 0,
+        upcomingCount: 0,
+        reviewDueCount: 0,
+        completedCount: 0,
+        needsParentReviewCount: 0,
+      },
+    });
+  }
+
+  const [items, skills, lessons, reviewRows, baselines] = await Promise.all([
+    repo.listLearningPlanItemsForLearner(context.env.DB, learner.id),
+    repo.listSkills(context.env.DB),
+    repo.listLessons(context.env.DB),
+    repo.listReviewScheduleForLearner(context.env.DB, learner.id),
+    repo.listBaselineAssessmentsForLearner(context.env.DB, learner.id),
+  ]);
+
+  const skillById = new Map(skills.map((s) => [s.id, s]));
+  const lessonById = new Map(lessons.map((l) => [l.id, l]));
+  const now = Date.now();
+  const reviewDueCount = reviewRows.filter((r) => r.due_at <= now).length;
+  const needsParentReviewCount = baselines.filter((b) => b.parent_review_required === 1).length;
+
+  const dtos = items.map((item) => ({
+    id: item.id,
+    learnerId: item.learner_id,
+    schoolYearLabel: item.school_year_label,
+    weekIndex: item.week_index,
+    dayOfWeek: item.day_of_week,
+    scheduledDate: item.scheduled_date,
+    subjectId: item.subject_id,
+    skillId: item.skill_id,
+    skillNameVi: item.skill_id ? (skillById.get(item.skill_id)?.name_vi ?? null) : null,
+    lessonId: item.lesson_id,
+    lessonTitleVi: item.lesson_id ? (lessonById.get(item.lesson_id)?.title_vi ?? null) : null,
+    itemKind: item.item_kind,
+    status: item.status,
+    durationMinutes: item.duration_minutes,
+    parentNote: item.parent_note,
+    reasonVi: item.reason_vi,
+    updatedAt: item.updated_at,
+  }));
+
+  const scheduled = dtos.filter((d) => d.status === "scheduled" || d.status === "rescheduled");
+  const todayCount = scheduled.filter((d) => d.weekIndex === 1).slice(0, 1).length;
+  const upcomingCount = Math.max(0, scheduled.length - todayCount);
+  const completedCount = dtos.filter((d) => d.status === "completed").length;
+
+  return ok<PlannerGetResponse>({
+    learnerId: learner.id,
+    schoolYearLabel: items[0]?.school_year_label ?? schoolYearLabel,
+    items: dtos,
+    summary: {
+      todayCount,
+      upcomingCount,
+      reviewDueCount,
+      completedCount,
+      needsParentReviewCount,
+    },
+  });
+};
+
+/* ── POST /api/parent/planner/generate ────────────────────────────────────── */
+
+export const generateFourWeekPlanRoute: Handler = async (context) => {
+  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  if (!learner) {
+    return badRequest("Vui lòng tạo hồ sơ người học trước khi lập kế hoạch 4 tuần.");
+  }
+
+  const parsed = await readJsonBody(context.request, 8_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<GeneratePlanRequest>;
+
+  const [skills, prereqs, lessons, metaRows, evidenceRows, reviewRows, baselines, intakes] =
+    await Promise.all([
+      repo.listSkills(context.env.DB),
+      repo.listSkillPrerequisites(context.env.DB),
+      repo.listLessons(context.env.DB),
+      repo.listLessonMetadata(context.env.DB),
+      repo.listSkillEvidenceForLearner(context.env.DB, learner.id),
+      repo.listReviewScheduleForLearner(context.env.DB, learner.id),
+      repo.listBaselineAssessmentsForLearner(context.env.DB, learner.id),
+      repo.listCurriculumIntakesForLearner(context.env.DB, learner.id),
+    ]);
+
+  const schoolYearLabel =
+    typeof body.schoolYearLabel === "string" && body.schoolYearLabel.trim().length > 0
+      ? body.schoolYearLabel.trim()
+      : intakes[0]?.school_year_label ?? "2026-2027";
+  const sessionsPerWeek =
+    optionalIntIn(body.sessionsPerWeek ?? intakes[0]?.weekly_sessions ?? 3, 1, 7) ??
+    DEFAULT_PLANNER_CONFIG.sessionsPerWeek;
+  const sessionDurationMinutes =
+    optionalIntIn(body.sessionDurationMinutes ?? intakes[0]?.session_duration_minutes ?? 20, 10, 60) ??
+    DEFAULT_PLANNER_CONFIG.sessionDurationMinutes;
+
+  const evidenceBySkill = new Map(evidenceRows.map((e) => [e.skill_id, e]));
+  const metaByLesson = new Map(metaRows.map((m) => [m.lesson_id, m]));
+  const now = Date.now();
+  const dueSkillIds = new Set(reviewRows.filter((r) => r.due_at <= now).map((r) => r.skill_id));
+  const baselineNeedsObs = new Set<string>();
+  for (const b of baselines) {
+    for (const s of parseStringArray(b.needs_observation_json)) {
+      baselineNeedsObs.add(s);
+    }
+  }
+
+  const candidates: SkillCandidate[] = skills.map((skill) => {
+    const ev = evidenceBySkill.get(skill.id);
+    const skillPrereqs = prereqs
+      .filter((p) => p.skill_id === skill.id)
+      .map((p) => p.prerequisite_id);
+    const matchingLesson =
+      lessons.find((l) => l.skill_id === skill.id && !l.id.includes("baseline")) ??
+      lessons.find((l) => l.skill_id === skill.id) ??
+      null;
+    const meta = matchingLesson ? metaByLesson.get(matchingLesson.id) : null;
+
+    return {
+      id: skill.id,
+      subjectId: skill.subject_id,
+      code: skill.code,
+      nameVi: skill.name_vi,
+      competencyState: ev?.state ?? "NOT_OBSERVED",
+      prerequisiteSkillIds: skillPrereqs,
+      dueForReview: dueSkillIds.has(skill.id),
+      needsObservation: baselineNeedsObs.has(skill.id) || !ev || ev.state === "NOT_OBSERVED",
+      suggestedLessonId: matchingLesson?.id ?? null,
+      lessonTitleVi: matchingLesson?.title_vi ?? null,
+      expectedDurationMinutes: meta?.expected_duration_minutes ?? sessionDurationMinutes,
+      provenance: meta?.provenance ?? "gdpt_2018_objective",
+    };
+  });
+
+  const generatedSlots = generateFourWeekPlan(candidates, {
+    sessionsPerWeek,
+    sessionDurationMinutes,
+    totalWeeks: 4,
+  });
+
+  await repo.deleteScheduledPlanItemsForLearner(context.env.DB, learner.id, schoolYearLabel);
+
+  for (const slot of generatedSlots) {
+    await repo.insertPlanItem(context.env.DB, {
+      item: {
+        id: crypto.randomUUID(),
+        learner_id: learner.id,
+        school_year_label: schoolYearLabel,
+        week_index: slot.weekIndex,
+        day_of_week: slot.dayOfWeek,
+        scheduled_date: null,
+        subject_id: slot.subjectId,
+        skill_id: slot.skillId,
+        lesson_id: slot.lessonId,
+        item_kind: slot.itemKind,
+        status: "scheduled",
+        duration_minutes: slot.durationMinutes,
+        parent_note: null,
+        reason_vi: slot.reasonVi,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+  }
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: "planner.generated",
+    subject: learner.id,
+    detail: JSON.stringify({
+      schoolYearLabel,
+      sessionsPerWeek,
+      sessionDurationMinutes,
+      slotCount: generatedSlots.length,
+    }),
+    now,
+  });
+
+  return getFourWeekPlan(context);
+};
+
+/* ── PATCH /api/parent/planner/item ───────────────────────────────────────── */
+
+export const updatePlanItemRoute: Handler = async (context) => {
+  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  if (!learner) return badRequest("Chưa có hồ sơ người học.");
+
+  const parsed = await readJsonBody(context.request, 8_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<UpdatePlanItemRequest>;
+
+  if (typeof body.itemId !== "string" || body.itemId.length === 0) {
+    return badRequest("Thiếu mã mục kế hoạch.");
+  }
+  const validStatuses = ["scheduled", "completed", "skipped", "rescheduled"] as const;
+  if (!body.status || !validStatuses.includes(body.status)) {
+    return badRequest("Trạng thái mục kế hoạch không hợp lệ.");
+  }
+
+  const items = await repo.listLearningPlanItemsForLearner(context.env.DB, learner.id);
+  const current = items.find((i) => i.id === body.itemId);
+  if (!current) return notFound("Không tìm thấy mục kế hoạch.");
+
+  const now = Date.now();
+  await repo.updateLearningPlanItem(context.env.DB, {
+    id: current.id,
+    learnerId: learner.id,
+    status: body.status,
+    weekIndex: optionalIntIn(body.weekIndex, 1, 4) ?? current.week_index,
+    dayOfWeek: optionalIntIn(body.dayOfWeek, 1, 7) ?? current.day_of_week,
+    scheduledDate:
+      body.scheduledDate !== undefined ? body.scheduledDate : current.scheduled_date,
+    parentNote:
+      typeof body.parentNote === "string"
+        ? body.parentNote.slice(0, 500)
+        : body.parentNote === null
+          ? null
+          : current.parent_note,
+    now,
+  });
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: `planner.item_${body.status}`,
+    subject: current.id,
+    detail: JSON.stringify({ weekIndex: body.weekIndex, dayOfWeek: body.dayOfWeek }),
+    now,
+  });
+
+  return getFourWeekPlan(context);
+};
+
+function parseStringArray(json: string): string[] {
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 

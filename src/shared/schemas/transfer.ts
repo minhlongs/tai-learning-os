@@ -32,13 +32,19 @@ export type ExportBody = {
   subjects: SubjectExport[];
   skills: SkillExport[];
   skillPrerequisites: PrerequisiteExport[];
+  curriculumObjectives?: CurriculumObjectiveExport[];
+  curriculumIntakes?: CurriculumIntakeExport[];
   lessons: LessonExport[];
   lessonSteps: LessonStepExport[];
+  lessonMetadata?: LessonMetadataExport[];
   reviewApprovals: ReviewApprovalExport[];
   learningSessions: LearningSessionExport[];
   learningAttempts: LearningAttemptExport[];
   skillEvidence: SkillEvidenceExport[];
   reviewSchedule: ReviewScheduleExport[];
+  baselineAssessments?: BaselineAssessmentExport[];
+  learningPlanItems?: LearningPlanItemExport[];
+  sessionReflections?: SessionReflectionExport[];
   learningGoals: LearningGoalExport[];
   auditEvents: AuditEventExport[];
   schemaVersions: { version: number; description: string }[];
@@ -186,6 +192,86 @@ export type AuditEventExport = WithId & {
   createdAt: number;
 };
 
+export type CurriculumObjectiveExport = WithId & {
+  subjectId: string;
+  grade: number;
+  code: string;
+  titleVi: string;
+  descriptionVi: string;
+  skillId: string | null;
+  provenance: "gdpt_2018_objective" | "parent_textbook" | "original_supplemental" | "unverified_assumption";
+  sourceRef: string | null;
+  createdAt: number;
+};
+
+export type CurriculumIntakeExport = WithId & {
+  learnerId: string;
+  schoolYearLabel: string;
+  grade: number;
+  subjectId: string;
+  textbookSeries: string;
+  currentUnit: string;
+  currentLesson: string;
+  weeklySessions: number;
+  sessionDurationMinutes: number;
+  materialReference: string | null;
+  learningGoalsVi: string | null;
+  provenance: "gdpt_2018_objective" | "parent_textbook" | "original_supplemental" | "unverified_assumption";
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type LessonMetadataExport = {
+  lessonId: string;
+  objectiveId: string | null;
+  provenance: "gdpt_2018_objective" | "parent_textbook" | "original_supplemental" | "unverified_assumption";
+  sourceRef: string | null;
+  expectedDurationMinutes: number;
+  reviewRecommendationVi: string | null;
+  isBaseline: 0 | 1;
+  updatedAt: number;
+};
+
+export type BaselineAssessmentExport = WithId & {
+  learnerId: string;
+  subjectId: string;
+  sessionId: string | null;
+  status: "pending" | "completed" | "reviewed";
+  observedSummaryVi: string | null;
+  supportedSummaryVi: string | null;
+  needsObservationJson: string;
+  suggestedLessonsJson: string;
+  parentReviewRequired: 0 | 1;
+  createdAt: number;
+  completedAt: number | null;
+};
+
+export type LearningPlanItemExport = WithId & {
+  learnerId: string;
+  schoolYearLabel: string;
+  weekIndex: number;
+  dayOfWeek: number;
+  scheduledDate: string | null;
+  subjectId: string;
+  skillId: string | null;
+  lessonId: string | null;
+  itemKind: "lesson" | "review" | "baseline";
+  status: "scheduled" | "completed" | "skipped" | "rescheduled";
+  durationMinutes: number;
+  parentNote: string | null;
+  reasonVi: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type SessionReflectionExport = WithId & {
+  sessionId: string;
+  learnerId: string;
+  feeling: "confident" | "good" | "neutral" | "confused" | "tired";
+  noteVi: string | null;
+  createdAt: number;
+};
+
 /** A rejection the parent can read and act on, not a stack trace. */
 export type ImportReport = {
   ok: boolean;
@@ -218,13 +304,19 @@ export const EXPORT_COLLECTIONS = [
   "subjects",
   "skills",
   "skillPrerequisites",
+  "curriculumObjectives",
+  "curriculumIntakes",
   "lessons",
   "lessonSteps",
+  "lessonMetadata",
   "reviewApprovals",
   "learningSessions",
   "learningAttempts",
   "skillEvidence",
   "reviewSchedule",
+  "baselineAssessments",
+  "learningPlanItems",
+  "sessionReflections",
   "learningGoals",
   "auditEvents",
 ] as const satisfies readonly (keyof ExportBody)[];
@@ -280,8 +372,20 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
 
   const data = candidate.data as ExportBody;
 
+  const OPTIONAL_NEW_COLLECTIONS = new Set<string>([
+    "curriculumObjectives",
+    "curriculumIntakes",
+    "lessonMetadata",
+    "baselineAssessments",
+    "learningPlanItems",
+    "sessionReflections",
+  ]);
+
   for (const key of EXPORT_COLLECTIONS) {
     const rows = data[key];
+    if (rows === undefined && OPTIONAL_NEW_COLLECTIONS.has(key)) {
+      continue;
+    }
     if (!Array.isArray(rows)) {
       errors.push(`Danh sách ${key} không hợp lệ.`);
       continue;
@@ -294,10 +398,12 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       // A row's identity is whatever its table's primary key is. Most tables
       // have a single `id` column; `skill_prerequisites` does not, and its row
       // is identified by the pair of skills it joins — so it is checked on that
-      // pair rather than on an `id` it never had.
+      // pair rather than on an `id` it never had. `lessonMetadata` is keyed by `lessonId`.
       const identity = key === "skillPrerequisites"
         ? (["skillId", "prerequisiteId"] as const).map((field) => (row as Record<string, unknown>)[field])
-        : [(row as { id?: unknown }).id];
+        : key === "lessonMetadata"
+          ? [(row as { lessonId?: unknown }).lessonId]
+          : [(row as { id?: unknown }).id];
       if (identity.some((value) => typeof value !== "string" || value.length === 0)) {
         errors.push(`Một dòng trong ${key} thiếu mã định danh.`);
       }

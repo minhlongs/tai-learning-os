@@ -20,11 +20,11 @@
 
 - **Frontend**: React 19, TypeScript strict mode, CSS thuần theo Design Tokens trực quan và thân thiện.
 - **Backend / Edge Runtime**: Cloudflare Workers (`workerd`), REST API được kiểm soát qua `x-tlo-csrf` và Session Cookie (`HttpOnly`, `SameSite=Strict`).
-- **Database**: Cloudflare D1 (SQLite) với 15 bảng quan hệ, ràng buộc khóa ngoại `PRAGMA foreign_keys = ON` và các ràng buộc `CHECK` nghiêm ngặt.
+- **Database**: Cloudflare D1 (SQLite) với 21 bảng quan hệ, ràng buộc khóa ngoại `PRAGMA foreign_keys = ON`, bảng bóp nghẹt đăng nhập thất bại `auth_throttles`, siêu dữ liệu chương trình GDPT 2018 và kế hoạch học tập 4 tuần.
 - **Testing & Verification**:
-  - `Vitest` (Unit test cho engine sư phạm, crypto, schema).
+  - `Vitest` (Unit test cho engine sư phạm, planner, crypto, schema).
   - `@cloudflare/vitest-pool-workers` (Integration test chạy trực tiếp trên workerd và D1 cục bộ).
-  - `Playwright` (End-to-End E2E test mô phỏng toàn bộ hành trình người học trên cả Desktop và Mobile).
+  - `Playwright` (End-to-End E2E test mô phỏng toàn bộ hành trình người học trên cả Desktop, Tablet và Mobile).
 
 ---
 
@@ -71,13 +71,13 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (167 tests)
+# Chạy toàn bộ Unit Tests (175 tests across 8 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với workerd D1 (70 tests)
+# Chạy toàn bộ Integration Tests với workerd D1 (77 tests across 4 files)
 npm run test:integration
 
-# Chạy Playwright End-to-End Tests (15 tests, Desktop + Tablet + Mobile)
+# Chạy Playwright End-to-End Tests (18 tests, Desktop + Tablet + Mobile)
 npm run test:e2e
 
 # Xác thực toàn diện tất cả các cổng (typecheck, lint, test, build)
@@ -85,6 +85,9 @@ npm run verify
 
 # Xuất hồ sơ học tập ra tập tin JSON dự phòng
 npm run export:learner -- ./backup-tai.json
+
+# Mở khóa tạm thời tài khoản phụ huynh khi nhập sai mật khẩu quá 5 lần
+npm run unlock:parent
 ```
 
 ---

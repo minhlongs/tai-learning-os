@@ -67,6 +67,27 @@ export function AppShell({
               <button
                 type="button"
                 className="btn btn--ghost"
+                onClick={() => onNavigate("/parent/curriculum")}
+              >
+                Chương trình
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => onNavigate("/parent/baseline")}
+              >
+                Đánh giá đầu vào
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => onNavigate("/parent/planner")}
+              >
+                Kế hoạch 4 tuần
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
                 onClick={() => onNavigate("/parent/lessons")}
               >
                 Bài học

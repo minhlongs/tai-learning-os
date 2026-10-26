@@ -206,6 +206,12 @@ describe("export/import round trip restores the record from the file", () => {
         learners: { id: string; nickname: string; grade: number | null }[];
         learningSessions: { id: string; status: string }[];
         learningAttempts: { id: string; outcome: string; stepId: string }[];
+        curriculumIntakes?: unknown[];
+        curriculumObjectives?: unknown[];
+        lessonMetadata?: unknown[];
+        baselineAssessments?: unknown[];
+        learningPlanItems?: unknown[];
+        sessionReflections?: unknown[];
         skillEvidence: unknown[];
         auditEvents: unknown[];
       };
@@ -219,6 +225,12 @@ describe("export/import round trip restores the record from the file", () => {
     expect(exported.data.learners[0]!.nickname).toBe(LEARNER_NICKNAME);
     expect(exported.data.learningSessions.map((s) => s.id)).toContain(sessionId);
     expect(exported.data.learningAttempts.length).toBeGreaterThanOrEqual(2);
+    expect(Array.isArray(exported.data.curriculumIntakes)).toBe(true);
+    expect(Array.isArray(exported.data.curriculumObjectives)).toBe(true);
+    expect(Array.isArray(exported.data.lessonMetadata)).toBe(true);
+    expect(Array.isArray(exported.data.baselineAssessments)).toBe(true);
+    expect(Array.isArray(exported.data.learningPlanItems)).toBe(true);
+    expect(Array.isArray(exported.data.sessionReflections)).toBe(true);
 
     const exportedLearnerId = exported.data.learners[0]!.id;
     // The exported id must be the enrolled learner's own id, so the record being

@@ -414,4 +414,33 @@ test.describe("learner journey", () => {
     await page.goBack();
     await expect(page).toHaveURL(/\/login/);
   });
+
+  test("the parent can configure curriculum intake, run baseline diagnostics, and generate a 4-week learning plan", async ({
+    page,
+  }) => {
+    await signInWithFreshLearner(page);
+
+    // 1. Curriculum Setup Screen (/parent/curriculum)
+    await page.goto("/parent/curriculum");
+    await expect(page.getByRole("heading", { name: /Chương trình học/i })).toBeVisible();
+    await expect(page.locator("#curriculum-textbook")).toHaveValue("UNKNOWN");
+
+    await page.fill("#curriculum-textbook", "Kết nối tri thức với cuộc sống");
+    await page.fill("#curriculum-unit", "Chủ đề Phân số");
+    await page.getByTestId("save-curriculum-btn").click();
+    await expect(page.getByText(/Đã lưu thiết lập chương trình học/i)).toBeVisible();
+
+    // 2. Baseline Assessment Screen (/parent/baseline)
+    await page.goto("/parent/baseline");
+    await expect(page.getByRole("heading", { name: /Đánh giá đầu vào/i })).toBeVisible();
+    await page.getByTestId("evaluate-baseline-math").click();
+    await expect(page.getByText(/Đã tổng hợp báo cáo quan sát đầu vào cho môn math/i)).toBeVisible();
+
+    // 3. Four-Week Learning Planner Screen (/parent/planner)
+    await page.goto("/parent/planner");
+    await expect(page.getByRole("heading", { name: /Kế hoạch học tập 4 tuần/i })).toBeVisible();
+    await page.getByTestId("generate-plan-btn").click();
+    await expect(page.getByText(/Đã lập kế hoạch 4 tuần/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Chi tiết Tuần 1/i })).toBeVisible();
+  });
 });

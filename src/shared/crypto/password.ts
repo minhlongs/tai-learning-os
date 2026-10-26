@@ -34,7 +34,7 @@ function asBufferSource(bytes: Uint8Array): ArrayBuffer {
   return copy;
 }
 
-export const PBKDF2_ITERATIONS = 100000;
+export const PBKDF2_ITERATIONS = 600000;
 export const SALT_BYTES = 16;
 export const KEY_BYTES = 32;
 
