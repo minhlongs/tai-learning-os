@@ -359,6 +359,7 @@ export const submitAttempt: Handler = async (context) => {
     });
     const effectiveHelpLevel = Math.max(clampHelp(body.helpLevel), disclosedHintLevel);
 
+    const now = Date.now();
     const result = await recordAttemptWithDerivation(context.env.DB, {
       sessionId: session.id,
       learnerId: learner.id,
@@ -366,7 +367,22 @@ export const submitAttempt: Handler = async (context) => {
       step: stepContext,
       submission: body.submission,
       helpLevel: effectiveHelpLevel,
-      now: Date.now(),
+      now,
+    });
+
+    await repo.recordAudit(context.env.DB, {
+      id: crypto.randomUUID(),
+      actor: `learner:${learner.id}`,
+      action: "attempt.submitted",
+      subject: stepContext.stepId,
+      detail: JSON.stringify({
+        sessionId: session.id,
+        attemptId: result.attemptId,
+        outcome: result.outcome,
+        attemptNo: result.attemptNo,
+        helpLevel: effectiveHelpLevel,
+      }),
+      now,
     });
 
     return ok<SubmitAttemptResponse>({

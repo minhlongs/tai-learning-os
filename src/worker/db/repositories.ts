@@ -557,6 +557,18 @@ export async function countAttemptsForStepInSession(
   return row?.n ?? 0;
 }
 
+export async function countAttemptsForStepForLearner(
+  db: Db,
+  learnerId: string,
+  stepId: string,
+): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM learning_attempts WHERE learner_id = ?1 AND step_id = ?2")
+    .bind(learnerId, stepId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 /* ── Skill evidence & review schedule ────────────────────────────────────── */
 
 export async function listSkillEvidenceForLearner(

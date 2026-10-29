@@ -82,8 +82,12 @@ export async function recordAttemptWithDerivation(
     throw new GuardError("Phiên học không thuộc về người học này.", 403);
   }
 
+  // Independent mastery requires the attempt number to count every attempt this
+  // learner has ever made on this step, across every session. Counting only
+  // within the current session would let an abandoned session reset the counter
+  // and hand out unearned "observed" evidence.
   const attemptNo =
-    (await repo.countAttemptsForStepInSession(db, input.sessionId, step.stepId)) + 1;
+    (await repo.countAttemptsForStepForLearner(db, input.learnerId, step.stepId)) + 1;
 
   const attemptId = crypto.randomUUID();
   const evidenceKind: "observed" | "assisted" | "parent_correction" =
