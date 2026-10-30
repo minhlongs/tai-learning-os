@@ -70,24 +70,43 @@ export const getLearnerHome: Handler = async (context) => {
   }
   const learner = resolved.learner;
 
-  const [subjects, skills, lessons, approvals, evidence, reviewRows, sessions, attempts] =
-    await Promise.all([
-      repo.listSubjects(context.env.DB),
-      repo.listSkills(context.env.DB),
-      repo.listLessons(context.env.DB),
-      repo.listApprovalStatuses(context.env.DB),
-      repo.listSkillEvidenceForLearner(context.env.DB, learner.id),
-      repo.listReviewScheduleForLearner(context.env.DB, learner.id),
-      repo.listSessionsForLearner(context.env.DB, learner.id, 20),
-      repo.listAttemptsForLearner(context.env.DB, learner.id),
-    ]);
+  const [
+    subjects,
+    skills,
+    lessons,
+    approvals,
+    evidence,
+    reviewRows,
+    sessions,
+    attempts,
+    assignedOrgLessonIds,
+    allOrgLessonIds,
+  ] = await Promise.all([
+    repo.listSubjects(context.env.DB),
+    repo.listSkills(context.env.DB),
+    repo.listLessons(context.env.DB),
+    repo.listApprovalStatuses(context.env.DB, context.parent.parentId),
+    repo.listSkillEvidenceForLearner(context.env.DB, learner.id),
+    repo.listReviewScheduleForLearner(context.env.DB, learner.id),
+    repo.listSessionsForLearner(context.env.DB, learner.id, 20),
+    repo.listAttemptsForLearner(context.env.DB, learner.id),
+    repo.listAssignedOrgLessonIdsForLearner(context.env.DB, learner.id),
+    repo.listAllOrgLessonIds(context.env.DB),
+  ]);
 
   const skillById = new Map(skills.map((s) => [s.id, s]));
   const lessonById = new Map(lessons.map((l) => [l.id, l]));
 
   // Only APPROVED lessons count as available. A lesson the parent has not
-  // reviewed must not appear to the learner, even though it is stored.
-  const visibleLessons = lessons.filter((l) => approvals[l.id] === "approved");
+  // reviewed must not appear to the learner. Additionally, center-authored
+  // lessons must be approved and assigned to the learner's enrolled classroom.
+  const visibleLessons = lessons.filter((l) => {
+    if (approvals[l.id] !== "approved") return false;
+    if (allOrgLessonIds.has(l.id)) {
+      return assignedOrgLessonIds.has(l.id);
+    }
+    return true;
+  });
 
   const perSession = tallyBySession(attempts);
 
@@ -167,10 +186,15 @@ export const getLearnerHome: Handler = async (context) => {
 
 /** Subjects and their approved lessons. Inactive subjects are labelled as such. */
 export const listSubjectsForLearner: Handler = async (context) => {
-  const [subjects, lessons, approvals] = await Promise.all([
+  const resolved = await currentLearner(context);
+  const learnerId = "learner" in resolved ? resolved.learner.id : null;
+
+  const [subjects, lessons, approvals, assignedOrgLessonIds, allOrgLessonIds] = await Promise.all([
     repo.listSubjects(context.env.DB),
     repo.listLessons(context.env.DB),
-    repo.listApprovalStatuses(context.env.DB),
+    repo.listApprovalStatuses(context.env.DB, context.parent.parentId),
+    learnerId ? repo.listAssignedOrgLessonIdsForLearner(context.env.DB, learnerId) : Promise.resolve(new Set<string>()),
+    repo.listAllOrgLessonIds(context.env.DB),
   ]);
   return ok({
     subjects: subjects.map((subject) => ({
@@ -179,7 +203,14 @@ export const listSubjectsForLearner: Handler = async (context) => {
       nameEn: subject.name_en,
       active: subject.active === 1,
       lessons: lessons
-        .filter((l) => l.subject_id === subject.id && approvals[l.id] === "approved")
+        .filter((l) => {
+          if (l.subject_id !== subject.id) return false;
+          if (approvals[l.id] !== "approved") return false;
+          if (allOrgLessonIds.has(l.id)) {
+            return assignedOrgLessonIds.has(l.id);
+          }
+          return true;
+        })
         .map((l) => ({
           id: l.id,
           titleVi: l.title_vi,
@@ -216,7 +247,7 @@ export const startSession: Handler = async (context) => {
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
   const approval = await repo.getApproval(context.env.DB, lesson.id);
-  if (approval?.status !== "approved") {
+  if (approval?.status !== "approved" || approval.decided_by !== context.parent.parentId) {
     return forbidden("Bài học này chưa được phụ huynh phê duyệt.");
   }
 

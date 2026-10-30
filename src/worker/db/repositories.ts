@@ -343,10 +343,18 @@ export async function findLesson(db: Db, lessonId: string): Promise<LessonRow | 
   return row ?? null;
 }
 
-export async function listApprovalStatuses(db: Db): Promise<Record<string, ApprovalStatus>> {
-  const result = await db
-    .prepare("SELECT lesson_id, status FROM review_approvals")
-    .all<{ lesson_id: string; status: ApprovalStatus }>();
+export async function listApprovalStatuses(
+  db: Db,
+  decidedBy?: string,
+): Promise<Record<string, ApprovalStatus>> {
+  const result = decidedBy
+    ? await db
+        .prepare("SELECT lesson_id, status FROM review_approvals WHERE decided_by = ?1")
+        .bind(decidedBy)
+        .all<{ lesson_id: string; status: ApprovalStatus }>()
+    : await db
+        .prepare("SELECT lesson_id, status FROM review_approvals")
+        .all<{ lesson_id: string; status: ApprovalStatus }>();
   const map: Record<string, ApprovalStatus> = {};
   for (const row of result.results ?? []) map[row.lesson_id] = row.status;
   return map;
@@ -2170,8 +2178,9 @@ export async function listClassroomAssignedLessons(
               cla.assigned_at AS assignedAt, cla.due_at AS dueAt,
               ol.review_status AS orgReviewStatus
        FROM classroom_lesson_assignments cla
+       JOIN classrooms c ON c.id = cla.classroom_id
        JOIN lessons l ON l.id = cla.lesson_id
-       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
        WHERE cla.classroom_id = ?1
        ORDER BY cla.assigned_at DESC`,
     )
@@ -2202,13 +2211,36 @@ export async function isLessonAssignedToLearner(
        JOIN classrooms c ON c.id = cla.classroom_id
        JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
        JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
-       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.review_status = 'org_approved'
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'
        WHERE cla.lesson_id = ?2
        LIMIT 1`,
     )
     .bind(input.learnerId, input.lessonId)
     .first<{ ok: number }>();
   return (row?.ok ?? 0) === 1;
+}
+
+export async function listAssignedOrgLessonIdsForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<Set<string>> {
+  const result = await db
+    .prepare(
+      `SELECT cla.lesson_id
+       FROM classroom_lesson_assignments cla
+       JOIN classrooms c ON c.id = cla.classroom_id
+       JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
+       JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'`,
+    )
+    .bind(learnerId)
+    .all<{ lesson_id: string }>();
+  return new Set((result.results ?? []).map((r) => r.lesson_id));
+}
+
+export async function listAllOrgLessonIds(db: Db): Promise<Set<string>> {
+  const result = await db.prepare("SELECT lesson_id FROM organization_lessons").all<{ lesson_id: string }>();
+  return new Set((result.results ?? []).map((r) => r.lesson_id));
 }
 
 

@@ -210,8 +210,12 @@ export const assignClassroomLessonRoute: Handler = async (context) => {
 
   // Lesson must be approved by the organization before it can be assigned to a classroom
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, body.lessonId);
-  if (!orgLesson || orgLesson.review_status !== "org_approved") {
-    return forbidden("Bài học chưa được trung tâm phê duyệt (org_approved). Không thể giao cho lớp.");
+  if (
+    !orgLesson ||
+    orgLesson.organization_id !== classroom.organization_id ||
+    orgLesson.review_status !== "org_approved"
+  ) {
+    return forbidden("Bài học chưa được trung tâm phê duyệt (org_approved) hoặc không thuộc tổ chức này.");
   }
 
   const assignmentId = crypto.randomUUID();
@@ -252,6 +256,13 @@ export const listClassroomAssignedLessonsRoute: Handler = async (context) => {
   const role = await repo.findMemberRole(context.env.DB, classroom.organization_id, context.parent.parentId);
   if (!role) {
     return forbidden("Bạn không phải thành viên của tổ chức.");
+  }
+
+  if (role === "teacher") {
+    const isAssigned = await repo.isTeacherAssignedToClassroom(context.env.DB, classroomId, context.parent.parentId);
+    if (!isAssigned) {
+      return forbidden("Giáo viên chỉ có quyền xem bài học trong lớp được phân công.");
+    }
   }
 
   const lessons = await repo.listClassroomAssignedLessons(context.env.DB, classroomId);
@@ -316,7 +327,7 @@ export const listParentClassroomLessonsRoute: Handler = async (context) => {
         gradeTo: a.gradeTo,
         assignedAt: a.assignedAt,
         dueAt: a.dueAt,
-        isParentApproved: approval?.status === "approved",
+        isParentApproved: approval?.status === "approved" && approval.decided_by === context.parent.parentId,
       });
     }
   }

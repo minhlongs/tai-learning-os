@@ -206,13 +206,40 @@ export const getParentDashboard: Handler = async (context) => {
  */
 export const listLessons: Handler = async (context) => {
   const lessons = await repo.listLessons(context.env.DB);
-  const [approvalsResult, steps, metadataRows] = await Promise.all([
-    context.env.DB
-      .prepare("SELECT lesson_id, status, decided_at FROM review_approvals")
-      .all<{ lesson_id: string; status: ApprovalStatus; decided_at: number }>(),
-    repo.findStepsForLessons(context.env.DB, lessons.map((l) => l.id)),
-    repo.listLessonMetadata(context.env.DB),
-  ]);
+  const [approvalsResult, steps, metadataRows, orgLessonsResult, parentMemberships, parentLearners] =
+    await Promise.all([
+      context.env.DB
+        .prepare("SELECT lesson_id, status, decided_at FROM review_approvals WHERE decided_by = ?1")
+        .bind(context.parent.parentId)
+        .all<{ lesson_id: string; status: ApprovalStatus; decided_at: number }>(),
+      repo.findStepsForLessons(context.env.DB, lessons.map((l) => l.id)),
+      repo.listLessonMetadata(context.env.DB),
+      context.env.DB
+        .prepare("SELECT lesson_id, organization_id, review_status FROM organization_lessons")
+        .all<{ lesson_id: string; organization_id: string; review_status: string }>(),
+      context.env.DB
+        .prepare("SELECT organization_id FROM organization_members WHERE user_id = ?1")
+        .bind(context.parent.parentId)
+        .all<{ organization_id: string }>(),
+      repo.listLearnersForParent(context.env.DB, context.parent.parentId),
+    ]);
+
+  const memberOrgIds = new Set((parentMemberships.results ?? []).map((m) => m.organization_id));
+  const orgLessonMap = new Map((orgLessonsResult.results ?? []).map((ol) => [ol.lesson_id, ol]));
+
+  const assignedOrgLessonsForChildren = new Set<string>();
+  for (const learner of parentLearners) {
+    const ids = await repo.listAssignedOrgLessonIdsForLearner(context.env.DB, learner.id);
+    for (const id of ids) assignedOrgLessonsForChildren.add(id);
+  }
+
+  const visibleLessons = lessons.filter((lesson) => {
+    const orgLesson = orgLessonMap.get(lesson.id);
+    if (!orgLesson) return true; // Platform lesson
+    if (memberOrgIds.has(orgLesson.organization_id)) return true; // Parent is member/staff of this center
+    if (assignedOrgLessonsForChildren.has(lesson.id)) return true; // Assigned to this parent's child
+    return false; // Other center's private draft/unassigned lesson
+  });
 
   const approvalByLesson = new Map<string, { status: ApprovalStatus; decidedAt: number }>();
   for (const row of approvalsResult.results ?? []) {
@@ -227,7 +254,7 @@ export const listLessons: Handler = async (context) => {
   const metadataByLesson = new Map(metadataRows.map((m) => [m.lesson_id, m]));
 
   return ok<LessonListResponse>({
-    lessons: lessons.map((lesson) => {
+    lessons: visibleLessons.map((lesson) => {
       const approval = approvalByLesson.get(lesson.id);
       const status = approval?.status ?? "draft";
       const pendingReapproval =
