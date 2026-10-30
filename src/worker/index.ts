@@ -63,6 +63,14 @@ import {
   listClassroomsRoute,
   listOrganizationMembersRoute,
 } from "./routes/organization";
+import {
+  assignClassroomLessonRoute,
+  createOrgDraftLessonRoute,
+  listClassroomAssignedLessonsRoute,
+  listParentClassroomLessonsRoute,
+  reviewOrgLessonRoute,
+  submitOrgLessonReviewRoute,
+} from "./routes/organization-lessons";
 
 /**
  * Every route, in match order.
@@ -118,6 +126,14 @@ const ROUTES: readonly Route[] = [
   parentRoute("POST", /^\/api\/org\/classrooms\/teachers$/, assignClassroomTeacherRoute),
   parentRoute("POST", /^\/api\/org\/classrooms\/enroll$/, enrollLearnerRoute),
   parentRoute("GET", /^\/api\/org\/classrooms\/learners$/, listClassroomLearnersRoute),
+
+  // Organization Lesson Authoring & Classroom Assignments
+  parentRoute("POST", /^\/api\/org\/lessons\/draft$/, createOrgDraftLessonRoute),
+  parentRoute("POST", /^\/api\/org\/lessons\/submit$/, submitOrgLessonReviewRoute),
+  parentRoute("POST", /^\/api\/org\/lessons\/review$/, reviewOrgLessonRoute),
+  parentRoute("POST", /^\/api\/org\/classrooms\/assign-lesson$/, assignClassroomLessonRoute),
+  parentRoute("GET", /^\/api\/org\/classrooms\/assigned-lessons$/, listClassroomAssignedLessonsRoute),
+  parentRoute("GET", /^\/api\/parent\/classroom-lessons$/, listParentClassroomLessonsRoute),
 
   parentRoute("POST", /^\/api\/data\/export$/, exportRecord),
   parentRoute("POST", /^\/api\/data\/import$/, importRecord),

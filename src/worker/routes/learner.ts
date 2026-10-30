@@ -220,6 +220,21 @@ export const startSession: Handler = async (context) => {
     return forbidden("Bài học này chưa được phụ huynh phê duyệt.");
   }
 
+  // If this is a center-authored lesson, verify center approval and classroom assignment
+  const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
+  if (orgLesson) {
+    if (orgLesson.review_status !== "org_approved") {
+      return forbidden("Bài học của trung tâm chưa được kiểm duyệt hoàn tất.");
+    }
+    const assigned = await repo.isLessonAssignedToLearner(context.env.DB, {
+      learnerId: learner.id,
+      lessonId: lesson.id,
+    });
+    if (!assigned) {
+      return forbidden("Bài học này không thuộc lớp học được phân công của học sinh.");
+    }
+  }
+
   // Checked before any session row is written, so a broken lesson leaves
   // nothing behind to resume.
   const steps = toStepPayloads(await loadStepContexts(context.env.DB, lesson.id));

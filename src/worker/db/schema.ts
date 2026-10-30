@@ -320,4 +320,27 @@ export type ClassroomEnrollmentRow = {
   updated_at: number;
 };
 
+export type CenterReviewStatus = "draft" | "submitted" | "org_approved" | "org_rejected";
+
+export type OrganizationLessonRow = {
+  lesson_id: string;
+  organization_id: string;
+  author_id: string;
+  review_status: CenterReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: number | null;
+  review_note: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ClassroomLessonAssignmentRow = {
+  id: string;
+  classroom_id: string;
+  lesson_id: string;
+  assigned_by: string;
+  assigned_at: number;
+  due_at: number | null;
+};
+
 

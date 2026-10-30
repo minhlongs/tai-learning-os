@@ -644,6 +644,84 @@ export type ClassroomLearnersResponse = {
   }[];
 };
 
+// --- M2: Teacher Lesson Authoring & Classroom Assignments -----------------
+
+export type CenterReviewStatusContract = "draft" | "submitted" | "org_approved" | "org_rejected";
+
+export type CreateDraftLessonStep = {
+  position: number;
+  kind: LessonStepKind;
+  content: ExerciseSpec;
+  answerKey: unknown;
+  explanationVi: string;
+};
+
+export type CreateOrgLessonRequest = {
+  organizationId: string;
+  subjectId: string;
+  skillId?: string | null;
+  titleVi: string;
+  titleEn?: string;
+  objectiveVi: string;
+  objectiveEn?: string;
+  gradeFrom: number;
+  gradeTo: number;
+  steps: CreateDraftLessonStep[];
+};
+
+export type CreateOrgLessonResponse = {
+  lessonId: string;
+  organizationId: string;
+  reviewStatus: CenterReviewStatusContract;
+};
+
+export type SubmitOrgLessonReviewRequest = {
+  lessonId: string;
+  organizationId: string;
+};
+
+export type SubmitOrgLessonReviewResponse = {
+  success: boolean;
+  reviewStatus: "submitted";
+};
+
+export type ReviewOrgLessonRequest = {
+  lessonId: string;
+  organizationId: string;
+  decision: "org_approved" | "org_rejected";
+  note?: string;
+};
+
+export type ReviewOrgLessonResponse = {
+  success: boolean;
+  reviewStatus: "org_approved" | "org_rejected";
+};
+
+export type AssignClassroomLessonRequest = {
+  classroomId: string;
+  lessonId: string;
+  dueAt?: number | null;
+};
+
+export type AssignClassroomLessonResponse = {
+  success: boolean;
+  assignmentId: string;
+};
+
+export type ClassroomLessonListResponse = {
+  lessons: {
+    lessonId: string;
+    classroomId: string;
+    titleVi: string;
+    subjectId: string;
+    gradeFrom: number;
+    gradeTo: number;
+    assignedAt: number;
+    dueAt: number | null;
+    isParentApproved: boolean;
+  }[];
+};
+
 // --- Errors ---------------------------------------------------------------
 
 export type ApiError = {

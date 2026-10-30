@@ -42,6 +42,7 @@ import type {
   LearningGoalRow,
   OrganizationRow,
   OrganizationMemberRow,
+  OrganizationLessonRow,
   ClassroomRow,
   LearnerConsentRow,
   OrganizationRole,
@@ -1989,6 +1990,225 @@ export async function canStaffAccessLearner(
   }
 
   return false;
+}
+
+/* ── M2: Teacher Lesson Authoring & Multi-Tier Approvals ─────────────────── */
+
+export async function createOrganizationLesson(
+  db: Db,
+  input: {
+    lesson: LessonRow;
+    steps: {
+      id: string;
+      position: number;
+      kind: string;
+      content: string;
+      answerKey: string;
+      explanationVi: string;
+    }[];
+    organizationId: string;
+    authorId: string;
+    now: number;
+  },
+): Promise<void> {
+  const statements: D1PreparedStatement[] = [];
+
+  // 1. Insert lesson
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)`,
+      )
+      .bind(
+        input.lesson.id,
+        input.lesson.subject_id,
+        input.lesson.skill_id,
+        input.lesson.title_vi,
+        input.lesson.title_en,
+        input.lesson.objective_vi,
+        input.lesson.objective_en,
+        input.lesson.grade_from,
+        input.lesson.grade_to,
+        input.now,
+      ),
+  );
+
+  // 2. Insert steps
+  for (const step of input.steps) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO lesson_steps (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)`,
+        )
+        .bind(
+          step.id,
+          input.lesson.id,
+          step.position,
+          step.kind,
+          step.content,
+          step.answerKey,
+          step.explanationVi,
+        ),
+    );
+  }
+
+  // 3. Insert organization_lessons link (draft)
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO organization_lessons (lesson_id, organization_id, author_id, review_status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'draft', ?4, ?4)`,
+      )
+      .bind(input.lesson.id, input.organizationId, input.authorId, input.now),
+  );
+
+  await db.batch(statements);
+}
+
+export async function findOrganizationLesson(
+  db: Db,
+  lessonId: string,
+): Promise<OrganizationLessonRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT lesson_id, organization_id, author_id, review_status, reviewed_by, reviewed_at, review_note, created_at, updated_at
+       FROM organization_lessons WHERE lesson_id = ?1`,
+    )
+    .bind(lessonId)
+    .first<OrganizationLessonRow>();
+  return row ?? null;
+}
+
+export async function submitOrganizationLessonForReview(
+  db: Db,
+  input: { lessonId: string; organizationId: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE organization_lessons
+       SET review_status = 'submitted', updated_at = ?1
+       WHERE lesson_id = ?2 AND organization_id = ?3`,
+    )
+    .bind(input.now, input.lessonId, input.organizationId)
+    .run();
+}
+
+export async function reviewOrganizationLesson(
+  db: Db,
+  input: {
+    lessonId: string;
+    organizationId: string;
+    decision: "org_approved" | "org_rejected";
+    reviewedBy: string;
+    note: string | null;
+    now: number;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE organization_lessons
+       SET review_status = ?1, reviewed_by = ?2, reviewed_at = ?3, review_note = ?4, updated_at = ?3
+       WHERE lesson_id = ?5 AND organization_id = ?6`,
+    )
+    .bind(
+      input.decision,
+      input.reviewedBy,
+      input.now,
+      input.note,
+      input.lessonId,
+      input.organizationId,
+    )
+    .run();
+}
+
+export async function assignLessonToClassroom(
+  db: Db,
+  input: {
+    id: string;
+    classroomId: string;
+    lessonId: string;
+    assignedBy: string;
+    dueAt: number | null;
+    now: number;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO classroom_lesson_assignments (id, classroom_id, lesson_id, assigned_by, assigned_at, due_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(classroom_id, lesson_id) DO UPDATE SET
+         due_at = excluded.due_at,
+         assigned_at = excluded.assigned_at`,
+    )
+    .bind(input.id, input.classroomId, input.lessonId, input.assignedBy, input.now, input.dueAt)
+    .run();
+}
+
+export async function listClassroomAssignedLessons(
+  db: Db,
+  classroomId: string,
+): Promise<
+  {
+    assignmentId: string;
+    classroomId: string;
+    lessonId: string;
+    titleVi: string;
+    subjectId: string;
+    gradeFrom: number;
+    gradeTo: number;
+    assignedAt: number;
+    dueAt: number | null;
+    orgReviewStatus: string;
+  }[]
+> {
+  const result = await db
+    .prepare(
+      `SELECT cla.id AS assignmentId, cla.classroom_id AS classroomId, cla.lesson_id AS lessonId,
+              l.title_vi AS titleVi, l.subject_id AS subjectId, l.grade_from AS gradeFrom, l.grade_to AS gradeTo,
+              cla.assigned_at AS assignedAt, cla.due_at AS dueAt,
+              ol.review_status AS orgReviewStatus
+       FROM classroom_lesson_assignments cla
+       JOIN lessons l ON l.id = cla.lesson_id
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id
+       WHERE cla.classroom_id = ?1
+       ORDER BY cla.assigned_at DESC`,
+    )
+    .bind(classroomId)
+    .all<{
+      assignmentId: string;
+      classroomId: string;
+      lessonId: string;
+      titleVi: string;
+      subjectId: string;
+      gradeFrom: number;
+      gradeTo: number;
+      assignedAt: number;
+      dueAt: number | null;
+      orgReviewStatus: string;
+    }>();
+  return result.results ?? [];
+}
+
+export async function isLessonAssignedToLearner(
+  db: Db,
+  input: { learnerId: string; lessonId: string },
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok
+       FROM classroom_lesson_assignments cla
+       JOIN classrooms c ON c.id = cla.classroom_id
+       JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
+       JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.review_status = 'org_approved'
+       WHERE cla.lesson_id = ?2
+       LIMIT 1`,
+    )
+    .bind(input.learnerId, input.lessonId)
+    .first<{ ok: number }>();
+  return (row?.ok ?? 0) === 1;
 }
 
 
