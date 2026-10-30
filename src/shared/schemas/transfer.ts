@@ -466,6 +466,129 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     }
   }
 
+  const exportedLearnerIds = new Set(data.learners.map((l) => l.id));
+  const exportedSessionIds = new Set(data.learningSessions.map((s) => s.id));
+  const hintFloorByLearnerStep = new Map<string, number>();
+
+  for (const audit of data.auditEvents) {
+    if (typeof audit.actor !== "string" || audit.actor.trim().length === 0) {
+      errors.push("Sự kiện kiểm toán thiếu actor hợp lệ.");
+      continue;
+    }
+    if (typeof audit.action !== "string" || audit.action.trim().length === 0) {
+      errors.push("Sự kiện kiểm toán thiếu action hợp lệ.");
+      continue;
+    }
+    if (typeof audit.createdAt !== "number" || !Number.isFinite(audit.createdAt)) {
+      errors.push("Sự kiện kiểm toán thiếu thời điểm hợp lệ.");
+      continue;
+    }
+    if (audit.action === "hint.requested") {
+      if (!audit.actor.startsWith("learner:")) {
+        errors.push("Sự kiện gợi ý (hint.requested) phải có actor thuộc người học.");
+        continue;
+      }
+      const actorLearnerId = audit.actor.slice("learner:".length);
+      if (!exportedLearnerIds.has(actorLearnerId)) {
+        errors.push("Sự kiện gợi ý (hint.requested) tham chiếu đến người học không nằm trong tệp xuất.");
+        continue;
+      }
+      if (typeof audit.subject !== "string" || audit.subject.trim().length === 0) {
+        errors.push("Sự kiện gợi ý (hint.requested) thiếu mã bước học (subject).");
+        continue;
+      }
+      if (
+        typeof audit.detail !== "object" ||
+        audit.detail === null ||
+        Array.isArray(audit.detail)
+      ) {
+        errors.push("Chi tiết sự kiện gợi ý (hint.requested) phải là đối tượng JSON.");
+        continue;
+      }
+      const detailObj = audit.detail as Record<string, unknown>;
+      const level = detailObj.level;
+      if (typeof level !== "number" || !Number.isInteger(level) || level < 1 || level > 4) {
+        errors.push("Mức gợi ý trong sự kiện kiểm toán (hint.requested) phải là số nguyên 1..4.");
+        continue;
+      }
+      if (
+        detailObj.sessionId !== undefined &&
+        (typeof detailObj.sessionId !== "string" ||
+          (exportedSessionIds.size > 0 && !exportedSessionIds.has(detailObj.sessionId)))
+      ) {
+        errors.push("Sự kiện gợi ý (hint.requested) tham chiếu đến phiên học không hợp lệ.");
+        continue;
+      }
+      const key = `${actorLearnerId}::${audit.subject}`;
+      const prev = hintFloorByLearnerStep.get(key) ?? 0;
+      if (level > prev) hintFloorByLearnerStep.set(key, level);
+    }
+  }
+
+  // Provenance cross-check: attempts must not violate first-attempt or hint-floor rules,
+  // and skillEvidence must not claim higher independentCount than observed correct attempts.
+  const attemptsByLearnerStep = new Map<string, LearningAttemptExport[]>();
+  const observedCorrectByLearnerSkill = new Map<string, number>();
+
+  for (const attempt of data.learningAttempts) {
+    if (!exportedLearnerIds.has(attempt.learnerId)) {
+      errors.push("Bản ghi lượt trả lời tham chiếu đến người học không tồn tại trong tệp.");
+      continue;
+    }
+    const stepKey = `${attempt.learnerId}::${attempt.stepId}`;
+    const stepList = attemptsByLearnerStep.get(stepKey) ?? [];
+    stepList.push(attempt);
+    attemptsByLearnerStep.set(stepKey, stepList);
+
+    const floor = hintFloorByLearnerStep.get(stepKey) ?? 0;
+    const attemptNo = attempt.attemptNo ?? 1;
+    if (!Number.isInteger(attemptNo) || attemptNo < 1) {
+      errors.push("Số thứ tự lượt làm bài (attemptNo) phải là số nguyên dương.");
+    }
+    if (attempt.evidenceKind === "observed") {
+      if (attemptNo > 1 || attempt.helpLevel > 0 || floor > 0) {
+        errors.push(
+          `Lượt làm bài ${attempt.id} không thể được ghi nhận là độc lập (observed) khi đã dùng gợi ý hoặc làm lại.`,
+        );
+      }
+    }
+    if (attempt.outcome === "correct" && attempt.evidenceKind === "observed" && attempt.skillId) {
+      const skillKey = `${attempt.learnerId}::${attempt.skillId}`;
+      observedCorrectByLearnerSkill.set(
+        skillKey,
+        (observedCorrectByLearnerSkill.get(skillKey) ?? 0) + 1,
+      );
+    }
+  }
+
+  for (const [, stepAttempts] of attemptsByLearnerStep) {
+    const seenNos = new Set<number>();
+    let observedCount = 0;
+    for (const att of stepAttempts) {
+      const no = att.attemptNo ?? 1;
+      if (seenNos.has(no)) {
+        errors.push(`Trùng số thứ tự lượt làm bài (attemptNo=${no}) trên bước ${att.stepId}.`);
+      }
+      seenNos.add(no);
+      if (att.evidenceKind === "observed") observedCount += 1;
+    }
+    if (observedCount > 1) {
+      errors.push("Một bước học không thể có nhiều hơn một lượt làm bài độc lập (observed).");
+    }
+  }
+
+  for (const row of data.skillEvidence) {
+    if (row.source === "derived") {
+      const skillKey = `${row.learnerId}::${row.skillId}`;
+      const maxObserved = observedCorrectByLearnerSkill.get(skillKey) ?? 0;
+      if (row.independentCount > maxObserved) {
+        errors.push(
+          `Bằng chứng kỹ năng ${row.skillId} khai báo số lượt độc lập (${row.independentCount}) vượt quá số lượt làm đúng độc lập thực tế (${maxObserved}).`,
+        );
+      }
+    }
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   if (candidate.source === "demo_fixture") {

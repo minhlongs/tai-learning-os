@@ -101,7 +101,12 @@ export type LessonStepPayload = {
   explanationVi: string | null;
 };
 
-export type RequestHintRequest = { stepId: string; currentLevel: number };
+export type RequestHintRequest = {
+  stepId: string;
+  /** The session the learner is working in. Required: a disclosure is recorded against it. */
+  sessionId: string;
+  currentLevel: number;
+};
 export type RequestHintResponse = { level: number; hintVi: string | null };
 
 export type SubmitAttemptRequest = {

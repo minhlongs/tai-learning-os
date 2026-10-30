@@ -529,7 +529,7 @@ export const createLearnerProfile: Handler = async (context) => {
     actor: `parent:${context.parent.parentId}`,
     action: "learner.enrolled",
     subject: learner.id,
-    detail: JSON.stringify({ nickname: learner.nickname, grade: learner.grade }),
+    detail: JSON.stringify({ grade: learner.grade }),
     now,
   });
 
@@ -583,7 +583,7 @@ export const updateLearnerProfile: Handler = async (context) => {
     actor: `parent:${context.parent.parentId}`,
     action: "learner.updated",
     subject: learner.id,
-    detail: JSON.stringify({ from: learner.nickname, to: nickname, grade }),
+    detail: JSON.stringify({ grade }),
     now,
   });
 

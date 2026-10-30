@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { getPlatformProxy } from "wrangler";
 import { deriveForTest, PBKDF2_ITERATIONS } from "../../src/shared/crypto/password";
 import { leaksAnswer } from "../../src/shared/schemas/exercise";
 import { resetData } from "./reset-data";
+import { openTestDatabase, reopenTestDatabase, type TestProxy } from "./test-db";
 
 /**
  * The learner journey, end to end through the real Worker.
@@ -29,7 +29,7 @@ type Env = { DB: D1Database; SESSION_SECRET: string; ENVIRONMENT?: string };
 
 let worker: { fetch: typeof fetch };
 let env: Env;
-let proxy: Awaited<ReturnType<typeof getPlatformProxy>>;
+let proxy: TestProxy;
 
 interface Jar {
   cookies: Record<string, string>;
@@ -85,12 +85,12 @@ async function login(): Promise<void> {
 }
 
 beforeAll(async () => {
-  proxy = await getPlatformProxy<{ DB: D1Database }>();
+  proxy = await openTestDatabase();
   // `ENVIRONMENT: "development"` is what the shipped wrangler.jsonc sets, and it
   // is what lets first-run bootstrap work without a pre-seeded password hash.
   // The test env mirrors the shipped one so the gate under test is the real one.
   env = {
-    DB: proxy.env.DB,
+    DB: proxy.env.DB as unknown as D1Database,
     SESSION_SECRET: TEST_SECRET,
     ENVIRONMENT: "development",
   } as Env;
@@ -495,8 +495,8 @@ describe("restart recovery — data survives the process that wrote it", () => {
     // A new proxy, a new Worker instance: nothing carried over in memory. If the
     // session and its attempts did not reach disk, these reads come back empty
     // and the test fails for the right reason.
-    const reopened = await getPlatformProxy<{ DB: D1Database }>();
-    const rows = await reopened.env.DB.prepare(
+    const reopened = await reopenTestDatabase();
+    const rows = await (reopened.env.DB as D1Database).prepare(
       "select id, status from learning_sessions where id = ?",
     )
       .bind(started.sessionId)

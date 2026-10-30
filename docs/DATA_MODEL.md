@@ -125,9 +125,15 @@ The `actor` vocabulary (`parent:<id>` | `system` | `learner:<id>`) means an even
 always names *which kind of principal* acted, so a parent correcting a record can
 be distinguished from the system deriving one.
 
-> **Status: Implemented.** `repo.recordAudit` in `src/worker/db/repositories.ts` writes
-> audit records for parent logins, learner enrollment, lesson approvals, data exports,
-> imports, and learner deletion cascades.
+> **Status: Implemented.** `repo.recordAudit` and `repo.auditInsert` in `src/worker/db/repositories.ts`
+> write audit records for parent logins, learner enrollment, lesson approvals, hint requests,
+> attempt submissions (committed atomically inside `db.batch` alongside `learning_attempts`,
+> `skill_evidence`, and `review_schedule`), data exports, imports, and learner deletion cascades.
+> Migration `0004_evidence_integrity.sql` enforces append-only DML semantics via SQLite triggers
+> (`audit_events_no_update` and `audit_events_no_delete`). Note the threat-model boundary:
+> these triggers block `UPDATE` and `DELETE` DML within the active schema, but do not protect
+> against `DROP TRIGGER`, `DROP TABLE`, schema replacement, direct SQLite file replacement,
+> or a privileged database administrator.
 
 ---
 
@@ -210,14 +216,16 @@ interpretable as evidence about the version that was asked.
 [`src/shared/crypto/password.ts`](../src/shared/crypto/password.ts):
 
 - Format: `pbkdf2-sha256:<iterations>$<saltB64Url>$<hashB64Url>`
-- **60,000** iterations, SHA-256.
+- **600,000** iterations for every newly created hash, SHA-256.
 - Fresh **16-byte random salt** per password, so identical passwords hash
   differently and precomputation is not reusable.
 - Constant-time verification (`timing-safe-equal.ts`), so a wrong password is not
   distinguishable from a right one by how long the check takes.
 - **Minimum 10 characters** (`MIN_PASSWORD_LENGTH`), maximum 200.
-- The iteration count is stored **with** the hash, so it can be raised later
-  without invalidating the parent. `needsRehash` detects a weaker stored record.
+- The iteration count is stored **with** the hash: `verifyPassword` derives against
+  the stored record's iteration count, and `needsRehash` detects legacy records
+  (such as 100,000-iteration hashes) so they are transparently upgraded to
+  600,000 iterations after a successful login.
 - `verifyPassword` **fails closed** on a malformed record.
 
 **⚠ Two stale comments.** `migrations/0001_initial_schema.sql` lines 24 and 27

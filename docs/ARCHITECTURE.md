@@ -126,7 +126,7 @@ TAI LEARNING OS operates under a strict **Local Only / Production Blocked** poli
 
 ### 4.1 Parent Authentication & First-Run Bootstrap
 1. First run: If no parent account exists in local D1, `/api/session/bootstrap` creates the
-   single parent record using PBKDF2-SHA256 (60,000 iterations, 16-byte cryptographically secure salt).
+   single parent record using PBKDF2-SHA256 (600,000 iterations for new hashes, 16-byte cryptographically secure salt; verification uses the stored record's iteration count and transparently upgrades legacy 100,000-iteration records on successful login).
    Once created, the bootstrap endpoint fails closed.
 2. Login: Parent posts credentials to `/api/session/login`. On verification, the server issues
    a signed HMAC-SHA256 cookie (`tlo_session`, `HttpOnly`, `SameSite=Strict`, 8-hour TTL)

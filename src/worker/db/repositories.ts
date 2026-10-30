@@ -11,6 +11,8 @@
  *  2. No `SELECT *`. Columns are named, so a schema change surfaces here.
  */
 
+import type { D1PreparedStatement } from "@cloudflare/workers-types";
+import { clampHelp } from "../../shared/schemas/answer";
 import type {
   ApprovalStatus,
   CompetencyState,
@@ -496,7 +498,34 @@ export async function recordAttempt(
     now: number;
   },
 ): Promise<void> {
-  await db
+  await attemptInsert(db, input).run();
+}
+
+/**
+ * The attempt INSERT as a bound statement, for composing into `db.batch`.
+ *
+ * Kept beside `recordAttempt` so the two can never drift: the batch path and the
+ * single-statement path must write the same columns in the same order.
+ */
+export function attemptInsert(
+  db: Db,
+  input: {
+    id: string;
+    sessionId: string;
+    learnerId: string;
+    lessonId: string;
+    stepId: string;
+    stepVersion: number;
+    skillId: string | null;
+    submitted: string;
+    outcome: "correct" | "incorrect" | "partial";
+    helpLevel: number;
+    evidenceKind: "observed" | "assisted" | "parent_correction";
+    attemptNo: number;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO learning_attempts
          (id, session_id, learner_id, lesson_id, step_id, step_version, skill_id,
@@ -517,8 +546,116 @@ export async function recordAttempt(
       input.evidenceKind,
       input.attemptNo,
       input.now,
+    );
+}
+
+/**
+ * Concurrency-guarded attempt INSERT for composing into `db.batch`.
+ *
+ * Enforces three invariants at the SQLite/D1 statement execution point:
+ *   1. Gap-safe attempt numbering: `COALESCE(MAX(attempt_no), 0) + 1` for
+ *      `(learner_id, step_id)` must still equal `input.attemptNo`, and
+ *      `COUNT(*)` must still equal `input.expectedStepAttemptCount`.
+ *   2. Hint-floor linearization: no `hint.requested` audit row for
+ *      `(learner_id, step_id)` may have been committed since the snapshot
+ *      (`COUNT(*) = input.expectedHintAuditCount`) or carry a numeric `level`
+ *      greater than `input.helpLevel`.
+ *   3. Same-skill cross-step serialization: when `input.skillId` is present,
+ *      `COUNT(*)` of attempts for `(learner_id, skill_id)` must still equal
+ *      `input.expectedSkillAttemptCount`.
+ *
+ * If any concurrent request (same-step attempt, cross-step same-skill attempt,
+ * or hint disclosure) committed between snapshot read and batch execution, the
+ * `WHERE` clause evaluates to 0 rows, `attempt_no` becomes `NULL`, and SQLite
+ * aborts the entire `db.batch` with `NOT NULL constraint failed: learning_attempts.attempt_no`.
+ */
+export function attemptInsertGuarded(
+  db: Db,
+  input: {
+    id: string;
+    sessionId: string;
+    learnerId: string;
+    lessonId: string;
+    stepId: string;
+    stepVersion: number;
+    skillId: string | null;
+    submitted: string;
+    outcome: "correct" | "incorrect" | "partial";
+    helpLevel: number;
+    evidenceKind: "observed" | "assisted" | "parent_correction";
+    attemptNo: number;
+    now: number;
+    expectedStepAttemptCount: number;
+    expectedHintAuditCount: number;
+    expectedSkillAttemptCount: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO learning_attempts
+         (id, session_id, learner_id, lesson_id, step_id, step_version, skill_id,
+          submitted, outcome, help_level, evidence_kind, attempt_no, created_at)
+       VALUES (
+         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+         (
+           SELECT ?12
+           WHERE (
+             SELECT COALESCE(MAX(attempt_no), 0) + 1
+             FROM learning_attempts
+             WHERE learner_id = ?3 AND step_id = ?5
+           ) = ?12
+           AND (
+             SELECT COUNT(*)
+             FROM learning_attempts
+             WHERE learner_id = ?3 AND step_id = ?5
+           ) = ?14
+           AND (
+             SELECT COUNT(*)
+             FROM audit_events
+             WHERE action = 'hint.requested'
+               AND subject = ?5
+               AND actor = 'learner:' || ?3
+           ) = ?15
+           AND NOT EXISTS (
+             SELECT 1
+             FROM audit_events
+             WHERE action = 'hint.requested'
+               AND subject = ?5
+               AND actor = 'learner:' || ?3
+               AND json_valid(detail) = 1
+               AND json_type(detail, '$.level') IN ('integer', 'real')
+               AND MIN(4, MAX(0, CAST(json_extract(detail, '$.level') AS INTEGER))) > ?10
+           )
+           AND (
+             ?7 IS NULL
+             OR (
+               SELECT COUNT(*)
+               FROM learning_attempts
+               WHERE learner_id = ?3 AND skill_id = ?7
+             ) = ?16
+           )
+         ),
+         ?13
+       )`,
     )
-    .run();
+    .bind(
+      input.id,
+      input.sessionId,
+      input.learnerId,
+      input.lessonId,
+      input.stepId,
+      input.stepVersion,
+      input.skillId,
+      input.submitted,
+      input.outcome,
+      input.helpLevel,
+      input.evidenceKind,
+      input.attemptNo,
+      input.now,
+      input.expectedStepAttemptCount,
+      input.expectedHintAuditCount,
+      input.expectedSkillAttemptCount,
+    );
 }
 
 export async function listAttemptsForSession(db: Db, sessionId: string): Promise<LearningAttemptRow[]> {
@@ -569,6 +706,54 @@ export async function countAttemptsForStepForLearner(
   return row?.n ?? 0;
 }
 
+/**
+ * Gap-safe attempt numbering and prior-attempt check for `(learnerId, stepId)`.
+ *
+ * Uses `COALESCE(MAX(attempt_no), 0) + 1` rather than `COUNT(*) + 1` so imported
+ * or legacy history with non-contiguous numbering (e.g. an existing row with
+ * `attempt_no = 2` and no `attempt_no = 1`) never collides on `attempt_no` and
+ * still reports `priorAttemptCount > 0` so the next attempt is never marked `observed`.
+ */
+export async function getStepAttemptSummaryForLearner(
+  db: Db,
+  learnerId: string,
+  stepId: string,
+): Promise<{ nextAttemptNo: number; priorAttemptCount: number }> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count, COALESCE(MAX(attempt_no), 0) AS max_no
+       FROM learning_attempts
+       WHERE learner_id = ?1 AND step_id = ?2`,
+    )
+    .bind(learnerId, stepId)
+    .first<{ count: number; max_no: number }>();
+  const priorAttemptCount = Number(row?.count ?? 0);
+  const maxNo = Number(row?.max_no ?? 0);
+  return {
+    nextAttemptNo: Math.max(maxNo, priorAttemptCount) + 1,
+    priorAttemptCount,
+  };
+}
+
+/**
+ * Preflight diagnostic check for duplicate `(learner_id, step_id, attempt_no)`
+ * tuples before applying migration 0004 (`idx_attempts_learner_step_attempt`).
+ */
+export async function findDuplicateStepAttemptNumbers(
+  db: Db,
+): Promise<{ learner_id: string; step_id: string; attempt_no: number; duplicate_count: number }[]> {
+  const result = await db
+    .prepare(
+      `SELECT learner_id, step_id, attempt_no, COUNT(*) AS duplicate_count
+       FROM learning_attempts
+       GROUP BY learner_id, step_id, attempt_no
+       HAVING COUNT(*) > 1
+       ORDER BY learner_id ASC, step_id ASC, attempt_no ASC`,
+    )
+    .all<{ learner_id: string; step_id: string; attempt_no: number; duplicate_count: number }>();
+  return result.results ?? [];
+}
+
 /* ── Skill evidence & review schedule ────────────────────────────────────── */
 
 export async function listSkillEvidenceForLearner(
@@ -603,7 +788,28 @@ export async function upsertSkillEvidence(
     now: number;
   },
 ): Promise<void> {
-  await db
+  await skillEvidenceUpsert(db, input).run();
+}
+
+/** The skill_evidence upsert as a bound statement, for composing into `db.batch`. */
+export function skillEvidenceUpsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    skillId: string;
+    state: CompetencyState;
+    independentCount: number;
+    assistedCount: number;
+    correctCount: number;
+    lastIndependentAt: number | null;
+    lastObservedAt: number | null;
+    source: "derived" | "parent_correction";
+    correctionNote: string | null;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO skill_evidence
          (id, learner_id, skill_id, state, independent_count, assisted_count, correct_count,
@@ -633,8 +839,7 @@ export async function upsertSkillEvidence(
       input.source,
       input.correctionNote,
       input.now,
-    )
-    .run();
+    );
 }
 
 export async function listReviewScheduleForLearner(
@@ -666,7 +871,25 @@ export async function upsertReviewSchedule(
     now: number;
   },
 ): Promise<void> {
-  await db
+  await reviewScheduleUpsert(db, input).run();
+}
+
+/** The review_schedule upsert as a bound statement, for composing into `db.batch`. */
+export function reviewScheduleUpsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    skillId: string;
+    dueAt: number;
+    intervalDays: number;
+    lastResult: "passed" | "failed";
+    lastAttemptAt: number;
+    failureStreak: number;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO review_schedule
          (id, learner_id, skill_id, due_at, interval_days, last_result, last_attempt_at,
@@ -690,8 +913,7 @@ export async function upsertReviewSchedule(
       input.lastAttemptAt,
       input.failureStreak,
       input.now,
-    )
-    .run();
+    );
 }
 
 /* ── Goals ───────────────────────────────────────────────────────────────── */
@@ -734,12 +956,25 @@ export async function recordAudit(
   db: Db,
   input: { id: string; actor: string; action: string; subject: string | null; detail: string | null; now: number },
 ): Promise<void> {
-  await db
+  await auditInsert(db, input).run();
+}
+
+/**
+ * The audit INSERT as a bound statement, for composing into `db.batch`.
+ *
+ * `audit_events` is an append-only ledger guarded by a database trigger, so the
+ * only write that can ever exist here is an INSERT. Anything this builder does
+ * not produce cannot be batched against the ledger.
+ */
+export function auditInsert(
+  db: Db,
+  input: { id: string; actor: string; action: string; subject: string | null; detail: string | null; now: number },
+): D1PreparedStatement {
+  return db
     .prepare(
       "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
-    .bind(input.id, input.actor, input.action, input.subject, input.detail, input.now)
-    .run();
+    .bind(input.id, input.actor, input.action, input.subject, input.detail, input.now);
 }
 
 export async function listAudit(db: Db, limit: number): Promise<AuditEventRow[]> {
@@ -750,10 +985,21 @@ export async function listAudit(db: Db, limit: number): Promise<AuditEventRow[]>
   return result.results ?? [];
 }
 
-export async function findMaxDisclosedHintLevel(
+/**
+ * Highest hint level ever disclosed to this learner on this step, across every
+ * session (including legacy `hint.requested` rows recorded before `sessionId`
+ * became required). Once a step's hint has been shown to a learner, opening a
+ * fresh session cannot return that step to unassisted.
+ *
+ * Output is normalized through `clampHelp` (`0..4`) so malformed or out-of-range
+ * legacy detail JSON cannot produce `NaN`, negative numbers, or values > 4 that
+ * would break the `CHECK (help_level >= 0 AND help_level <= 4)` constraint on
+ * `learning_attempts`.
+ */
+export async function getDisclosedHintState(
   db: Db,
-  input: { learnerId: string; sessionId: string; stepId: string },
-): Promise<number> {
+  input: { learnerId: string; stepId: string },
+): Promise<{ maxLevel: number; auditCount: number }> {
   const result = await db
     .prepare(
       `SELECT detail FROM audit_events
@@ -764,23 +1010,31 @@ export async function findMaxDisclosedHintLevel(
     .bind(input.stepId, `learner:${input.learnerId}`)
     .all<{ detail: string | null }>();
 
+  const rows = result.results ?? [];
   let maxLevel = 0;
-  for (const row of result.results ?? []) {
+  for (const row of rows) {
     if (!row.detail) continue;
     try {
-      const parsed = JSON.parse(row.detail) as { sessionId?: string; level?: number };
-      if (
-        (parsed.sessionId === undefined || parsed.sessionId === input.sessionId) &&
-        typeof parsed.level === "number" &&
-        parsed.level > maxLevel
-      ) {
-        maxLevel = parsed.level;
+      const parsed = JSON.parse(row.detail) as { level?: unknown };
+      if (typeof parsed?.level === "number" && Number.isFinite(parsed.level)) {
+        const clamped = clampHelp(parsed.level);
+        if (clamped > maxLevel) {
+          maxLevel = clamped;
+        }
       }
     } catch {
       // Ignore malformed detail
     }
   }
-  return maxLevel;
+  return { maxLevel: clampHelp(maxLevel), auditCount: rows.length };
+}
+
+export async function findMaxDisclosedHintLevel(
+  db: Db,
+  input: { learnerId: string; stepId: string },
+): Promise<number> {
+  const state = await getDisclosedHintState(db, input);
+  return state.maxLevel;
 }
 
 /* ── Auth throttles ─────────────────────────────────────────────────────────

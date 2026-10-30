@@ -285,6 +285,17 @@ export const startSession: Handler = async (context) => {
  * asking again for a higher level: a client that claims level 0 after already
  * showing level 3 cannot reset the disclosure clock. Higher levels reveal more
  * of the method; the answer is never returned as a copyable string.
+ *
+ * The session is required and verified against the learner before a hint is
+ * produced. A disclosure is evidence — it floors the help level of every later
+ * attempt on this step, permanently, because the ledger is append-only — so it
+ * is recorded against a session the server has confirmed belongs to this
+ * learner, never against one the client merely names.
+ *
+ * The floor is per learner per step, not per session: opening a new session
+ * does not return a step to unassisted, because that would trade a real
+ * disclosure for a fresh chance at 'observed' evidence. To try a step without
+ * prior help, the learner works the equivalent step with a different step id.
  */
 export const requestHint: Handler = async (context) => {
   const resolved = await currentLearner(context);
@@ -294,10 +305,32 @@ export const requestHint: Handler = async (context) => {
   const parsed = await readJsonBody(context.request, 4_000);
   if (!parsed.ok) return parsed.response;
   const body = parsed.body as { stepId?: unknown; currentLevel?: unknown; sessionId?: unknown };
-  if (typeof body.stepId !== "string") return badRequest("Thiếu mã bước học.");
+  if (typeof body.stepId !== "string" || body.stepId.trim().length === 0) {
+    return badRequest("Thiếu mã bước học.");
+  }
+  if (typeof body.sessionId !== "string" || body.sessionId.trim().length === 0) {
+    return badRequest("Thiếu mã phiên học.");
+  }
+
+  const session = await repo.findSession(context.env.DB, body.sessionId, context.parent.parentId);
+  // A missing, foreign or owner-mismatched session is refused before a hint is
+  // computed, so no disclosure can be recorded against a session the caller
+  // cannot prove is theirs.
+  if (!session) return notFound("Phiên học không tồn tại.");
+  if (session.learner_id !== learner.id) {
+    return forbidden("Phiên học không thuộc về người học này.");
+  }
+  if (session.status !== "in_progress") {
+    return badRequest("Phiên học đã kết thúc.");
+  }
 
   const step = await repo.findStep(context.env.DB, body.stepId);
   if (!step) return notFound("Không tìm thấy bước học.");
+  // The step must belong to this session's lesson: a step id from another
+  // lesson would record a disclosure against a step this learner is not doing.
+  if (step.lesson_id !== session.lesson_id) {
+    return badRequest("Bước học không thuộc về bài học này.");
+  }
 
   const exercise = parseExercise(step.content);
   if (!exercise) return serverError();
@@ -305,15 +338,24 @@ export const requestHint: Handler = async (context) => {
   const level = clampHelp(typeof body.currentLevel === "number" ? body.currentLevel : 0);
   const hintVi = hintFor(exercise, level);
 
-  const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
-  await repo.recordAudit(context.env.DB, {
-    id: crypto.randomUUID(),
-    actor: `learner:${learner.id}`,
-    action: "hint.requested",
-    subject: step.id,
-    detail: JSON.stringify({ level, sessionId }),
-    now: Date.now(),
-  });
+  // The ledger write precedes the response. If it fails, the exception
+  // propagates and the learner receives an error rather than a hint whose
+  // disclosure was never recorded — which would let a client keep asking for
+  // hints the floor never learns about. `sessionId` records which verified
+  // session disclosed the hint; `findMaxDisclosedHintLevel` then enforces the
+  // floor per learner and step across all sessions (and legacy session-less rows).
+  try {
+    await repo.recordAudit(context.env.DB, {
+      id: crypto.randomUUID(),
+      actor: `learner:${learner.id}`,
+      action: "hint.requested",
+      subject: step.id,
+      detail: JSON.stringify({ level, sessionId: session.id }),
+      now: Date.now(),
+    });
+  } catch {
+    return serverError();
+  }
 
   return ok<RequestHintResponse>({ level, hintVi });
 };
@@ -352,13 +394,6 @@ export const submitAttempt: Handler = async (context) => {
   if (!stepContext) return notFound("Bước học không thuộc về bài học này.");
 
   try {
-    const disclosedHintLevel = await repo.findMaxDisclosedHintLevel(context.env.DB, {
-      learnerId: learner.id,
-      sessionId: session.id,
-      stepId: stepContext.stepId,
-    });
-    const effectiveHelpLevel = Math.max(clampHelp(body.helpLevel), disclosedHintLevel);
-
     const now = Date.now();
     const result = await recordAttemptWithDerivation(context.env.DB, {
       sessionId: session.id,
@@ -366,24 +401,14 @@ export const submitAttempt: Handler = async (context) => {
       lessonId: session.lesson_id,
       step: stepContext,
       submission: body.submission,
-      helpLevel: effectiveHelpLevel,
+      helpLevel: clampHelp(body.helpLevel),
       now,
     });
 
-    await repo.recordAudit(context.env.DB, {
-      id: crypto.randomUUID(),
-      actor: `learner:${learner.id}`,
-      action: "attempt.submitted",
-      subject: stepContext.stepId,
-      detail: JSON.stringify({
-        sessionId: session.id,
-        attemptId: result.attemptId,
-        outcome: result.outcome,
-        attemptNo: result.attemptNo,
-        helpLevel: effectiveHelpLevel,
-      }),
-      now,
-    });
+    // The audit row for this attempt is written inside `recordAttemptWithDerivation`'s
+    // own transaction, so the ledger entry cannot land without the attempt it
+    // describes. Writing it here as a second statement would reopen the gap where
+    // a failure between the two leaves a stored attempt with no audit row.
 
     return ok<SubmitAttemptResponse>({
       attemptId: result.attemptId,
