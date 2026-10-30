@@ -234,6 +234,8 @@ describe("PII-free audit ledger and complete learner erasure", () => {
 
     // Verify cascade removed all traces across child tables
     const tables = [
+      "classroom_enrollments",
+      "learner_consents",
       "session_reflections",
       "learning_plan_items",
       "baseline_assessments",

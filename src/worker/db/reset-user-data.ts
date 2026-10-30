@@ -24,6 +24,12 @@ export const PRESERVED_CATALOGUE_TABLES = [
 ] as const;
 
 export const USER_DATA_TABLES_IN_DELETE_ORDER = [
+  "classroom_enrollments",
+  "classroom_teachers",
+  "learner_consents",
+  "classrooms",
+  "organization_members",
+  "organizations",
   "session_reflections",
   "learning_plan_items",
   "baseline_assessments",

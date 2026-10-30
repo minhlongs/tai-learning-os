@@ -262,3 +262,62 @@ export type SessionReflectionRow = {
   created_at: number;
 };
 
+export type OrganizationRole = "owner" | "admin" | "teacher";
+
+export type OrganizationRow = {
+  id: string;
+  slug: string;
+  name: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type OrganizationMemberRow = {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: OrganizationRole;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ClassroomRow = {
+  id: string;
+  organization_id: string;
+  name: string;
+  grade: number | null;
+  subject_id: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ClassroomTeacherRow = {
+  classroom_id: string;
+  teacher_id: string;
+  created_at: number;
+};
+
+export type ConsentStatus = "active" | "revoked";
+
+export type LearnerConsentRow = {
+  id: string;
+  organization_id: string;
+  learner_id: string;
+  granted_by: string;
+  status: ConsentStatus;
+  granted_at: number;
+  revoked_at: number | null;
+};
+
+export type EnrollmentStatus = "enrolled" | "withdrawn";
+
+export type ClassroomEnrollmentRow = {
+  id: string;
+  classroom_id: string;
+  learner_id: string;
+  status: EnrollmentStatus;
+  created_at: number;
+  updated_at: number;
+};
+
+

@@ -40,6 +40,11 @@ import type {
   LearningAttemptRow,
   LearningSessionRow,
   LearningGoalRow,
+  OrganizationRow,
+  OrganizationMemberRow,
+  ClassroomRow,
+  LearnerConsentRow,
+  OrganizationRole,
 } from "./schema";
 
 export type Db = D1Database;
@@ -132,6 +137,21 @@ export async function findFirstLearnerForParent(db: Db, parentId: string): Promi
   return row ?? null;
 }
 
+export async function findLearnerForParent(
+  db: Db,
+  learnerId: string,
+  parentId: string,
+): Promise<LearnerRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at, archived_at
+       FROM learners WHERE id = ?1 AND parent_id = ?2 AND archived_at IS NULL`,
+    )
+    .bind(learnerId, parentId)
+    .first<LearnerRow>();
+  return row ?? null;
+}
+
 export async function createLearner(
   db: Db,
   input: {
@@ -185,6 +205,8 @@ export async function deleteLearnerCascade(
   input: { learnerId: string; parentId: string },
 ): Promise<void> {
   const statements: D1PreparedStatement[] = [
+    db.prepare("DELETE FROM classroom_enrollments WHERE learner_id = ?1"),
+    db.prepare("DELETE FROM learner_consents WHERE learner_id = ?1"),
     db.prepare("DELETE FROM session_reflections WHERE learner_id = ?1"),
     db.prepare("DELETE FROM learning_plan_items WHERE learner_id = ?1"),
     db.prepare("DELETE FROM baseline_assessments WHERE learner_id = ?1"),
@@ -1662,3 +1684,311 @@ export async function listSessionReflectionsForLearner(
     .all<SessionReflectionRow>();
   return result.results ?? [];
 }
+
+/* ── Organizations, Classrooms & Consent Grants ─────────────────────────── */
+
+export async function createOrganization(
+  db: Db,
+  input: { id: string; slug: string; name: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO organizations (id, slug, name, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?4)`,
+    )
+    .bind(input.id, input.slug, input.name, input.now)
+    .run();
+}
+
+export async function findOrganizationById(db: Db, id: string): Promise<OrganizationRow | null> {
+  const row = await db
+    .prepare("SELECT id, slug, name, created_at, updated_at FROM organizations WHERE id = ?1")
+    .bind(id)
+    .first<OrganizationRow>();
+  return row ?? null;
+}
+
+export async function findOrganizationBySlug(db: Db, slug: string): Promise<OrganizationRow | null> {
+  const row = await db
+    .prepare("SELECT id, slug, name, created_at, updated_at FROM organizations WHERE slug = ?1")
+    .bind(slug)
+    .first<OrganizationRow>();
+  return row ?? null;
+}
+
+export async function addOrganizationMember(
+  db: Db,
+  input: { id: string; organizationId: string; userId: string; role: OrganizationRole; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO organization_members (id, organization_id, user_id, role, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+       ON CONFLICT(organization_id, user_id) DO UPDATE SET
+         role = excluded.role,
+         updated_at = excluded.updated_at`,
+    )
+    .bind(input.id, input.organizationId, input.userId, input.role, input.now)
+    .run();
+}
+
+export async function findMemberRole(
+  db: Db,
+  organizationId: string,
+  userId: string,
+): Promise<OrganizationRole | null> {
+  const row = await db
+    .prepare("SELECT role FROM organization_members WHERE organization_id = ?1 AND user_id = ?2")
+    .bind(organizationId, userId)
+    .first<{ role: OrganizationRole }>();
+  return row?.role ?? null;
+}
+
+export async function listOrganizationMembers(
+  db: Db,
+  organizationId: string,
+): Promise<(OrganizationMemberRow & { displayName: string })[]> {
+  const result = await db
+    .prepare(
+      `SELECT om.id, om.organization_id, om.user_id, om.role, om.created_at, om.updated_at, p.display_name AS displayName
+       FROM organization_members om
+       JOIN parents p ON p.id = om.user_id
+       WHERE om.organization_id = ?1
+       ORDER BY om.created_at ASC`,
+    )
+    .bind(organizationId)
+    .all<OrganizationMemberRow & { displayName: string }>();
+  return result.results ?? [];
+}
+
+export async function createClassroom(
+  db: Db,
+  input: { id: string; organizationId: string; name: string; grade: number | null; subjectId: string | null; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO classrooms (id, organization_id, name, grade, subject_id, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`,
+    )
+    .bind(input.id, input.organizationId, input.name, input.grade, input.subjectId, input.now)
+    .run();
+}
+
+export async function listClassroomsForOrganization(
+  db: Db,
+  organizationId: string,
+): Promise<ClassroomRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, organization_id, name, grade, subject_id, created_at, updated_at
+       FROM classrooms WHERE organization_id = ?1 ORDER BY created_at ASC`,
+    )
+    .bind(organizationId)
+    .all<ClassroomRow>();
+  return result.results ?? [];
+}
+
+export async function assignClassroomTeacher(
+  db: Db,
+  input: { classroomId: string; teacherId: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO classroom_teachers (classroom_id, teacher_id, created_at)
+       VALUES (?1, ?2, ?3)`,
+    )
+    .bind(input.classroomId, input.teacherId, input.now)
+    .run();
+}
+
+export async function isTeacherAssignedToClassroom(
+  db: Db,
+  classroomId: string,
+  teacherId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT 1 AS ok FROM classroom_teachers WHERE classroom_id = ?1 AND teacher_id = ?2")
+    .bind(classroomId, teacherId)
+    .first<{ ok: number }>();
+  return (row?.ok ?? 0) === 1;
+}
+
+export async function grantLearnerConsent(
+  db: Db,
+  input: { id: string; organizationId: string; learnerId: string; grantedBy: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO learner_consents (id, organization_id, learner_id, granted_by, status, granted_at, revoked_at)
+       VALUES (?1, ?2, ?3, ?4, 'active', ?5, NULL)
+       ON CONFLICT(organization_id, learner_id) DO UPDATE SET
+         status = 'active',
+         granted_by = excluded.granted_by,
+         granted_at = excluded.granted_at,
+         revoked_at = NULL`,
+    )
+    .bind(input.id, input.organizationId, input.learnerId, input.grantedBy, input.now)
+    .run();
+}
+
+export async function revokeLearnerConsent(
+  db: Db,
+  input: { organizationId: string; learnerId: string; revokedBy: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE learner_consents
+       SET status = 'revoked', revoked_at = ?1
+       WHERE organization_id = ?2 AND learner_id = ?3 AND granted_by = ?4`,
+    )
+    .bind(input.now, input.organizationId, input.learnerId, input.revokedBy)
+    .run();
+}
+
+export async function findActiveConsent(
+  db: Db,
+  organizationId: string,
+  learnerId: string,
+): Promise<LearnerConsentRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, organization_id, learner_id, granted_by, status, granted_at, revoked_at
+       FROM learner_consents
+       WHERE organization_id = ?1 AND learner_id = ?2 AND status = 'active'`,
+    )
+    .bind(organizationId, learnerId)
+    .first<LearnerConsentRow>();
+  return row ?? null;
+}
+
+export async function listConsentsForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<(LearnerConsentRow & { organizationName: string })[]> {
+  const result = await db
+    .prepare(
+      `SELECT lc.id, lc.organization_id, lc.learner_id, lc.granted_by, lc.status, lc.granted_at, lc.revoked_at, o.name AS organizationName
+       FROM learner_consents lc
+       JOIN organizations o ON o.id = lc.organization_id
+       WHERE lc.learner_id = ?1
+       ORDER BY lc.granted_at DESC`,
+    )
+    .bind(learnerId)
+    .all<LearnerConsentRow & { organizationName: string }>();
+  return result.results ?? [];
+}
+
+export async function enrollLearnerInClassroom(
+  db: Db,
+  input: { id: string; classroomId: string; learnerId: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO classroom_enrollments (id, classroom_id, learner_id, status, created_at, updated_at)
+       VALUES (?1, ?2, ?3, 'enrolled', ?4, ?4)
+       ON CONFLICT(classroom_id, learner_id) DO UPDATE SET
+         status = 'enrolled',
+         updated_at = excluded.updated_at`,
+    )
+    .bind(input.id, input.classroomId, input.learnerId, input.now)
+    .run();
+}
+
+export async function listEnrolledLearnersInClassroom(
+  db: Db,
+  classroomId: string,
+): Promise<(LearnerRow & { enrollmentId: string; enrolledAt: number })[]> {
+  const result = await db
+    .prepare(
+      `SELECT l.id, l.parent_id, l.nickname, l.birth_year, l.grade, l.timezone, l.created_at, l.updated_at, l.archived_at,
+              ce.id AS enrollmentId, ce.created_at AS enrolledAt
+       FROM classroom_enrollments ce
+       JOIN classrooms c ON c.id = ce.classroom_id
+       JOIN learner_consents lc ON lc.learner_id = ce.learner_id AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN learners l ON l.id = ce.learner_id AND l.archived_at IS NULL
+       WHERE ce.classroom_id = ?1 AND ce.status = 'enrolled'
+       ORDER BY ce.created_at ASC`,
+    )
+    .bind(classroomId)
+    .all<LearnerRow & { enrollmentId: string; enrolledAt: number }>();
+  return result.results ?? [];
+}
+
+export async function listEnrollmentsForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<
+  {
+    enrollmentId: string;
+    classroomId: string;
+    classroomName: string;
+    organization_id: string;
+    organizationName: string;
+    status: string;
+    created_at: number;
+  }[]
+> {
+  const result = await db
+    .prepare(
+      `SELECT ce.id AS enrollmentId, ce.classroom_id AS classroomId, c.name AS classroomName,
+              c.organization_id, o.name AS organizationName, ce.status, ce.created_at
+       FROM classroom_enrollments ce
+       JOIN classrooms c ON c.id = ce.classroom_id
+       JOIN organizations o ON o.id = c.organization_id
+       WHERE ce.learner_id = ?1 AND ce.status = 'enrolled'
+       ORDER BY ce.created_at ASC`,
+    )
+    .bind(learnerId)
+    .all<{
+      enrollmentId: string;
+      classroomId: string;
+      classroomName: string;
+      organization_id: string;
+      organizationName: string;
+      status: string;
+      created_at: number;
+    }>();
+  return result.results ?? [];
+}
+
+/**
+ * Access check for center staff: returns true if the staff member is authorized
+ * to view the learner's evidence.
+ *
+ * Rules:
+ *  - An active consent MUST exist between the learner and the organization.
+ *  - If staff is owner or admin of the organization -> authorized.
+ *  - If staff is teacher -> must be assigned to at least one classroom where
+ *    the learner is actively enrolled in that organization.
+ */
+export async function canStaffAccessLearner(
+  db: Db,
+  input: { organizationId: string; staffUserId: string; learnerId: string },
+): Promise<boolean> {
+  const consent = await findActiveConsent(db, input.organizationId, input.learnerId);
+  if (!consent) return false;
+
+  const role = await findMemberRole(db, input.organizationId, input.staffUserId);
+  if (!role) return false;
+
+  if (role === "owner" || role === "admin") return true;
+
+  if (role === "teacher") {
+    const row = await db
+      .prepare(
+        `SELECT 1 AS ok
+         FROM classroom_teachers ct
+         JOIN classrooms c ON c.id = ct.classroom_id AND c.organization_id = ?1
+         JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?2 AND ce.status = 'enrolled'
+         WHERE ct.teacher_id = ?3
+         LIMIT 1`,
+      )
+      .bind(input.organizationId, input.learnerId, input.staffUserId)
+      .first<{ ok: number }>();
+    return (row?.ok ?? 0) === 1;
+  }
+
+  return false;
+}
+
+

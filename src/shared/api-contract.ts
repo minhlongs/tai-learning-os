@@ -512,6 +512,138 @@ export type SubmitReflectionResponse = {
   noteVi: string | null;
 };
 
+// --- Organization & Consent Grants ----------------------------------------
+
+export type OrganizationRoleContract = "owner" | "admin" | "teacher";
+export type ConsentStatusContract = "active" | "revoked";
+export type EnrollmentStatusContract = "enrolled" | "withdrawn";
+
+export type CreateOrganizationRequest = {
+  slug: string;
+  name: string;
+};
+
+export type CreateOrganizationResponse = {
+  organization: {
+    id: string;
+    slug: string;
+    name: string;
+    createdAt: number;
+  };
+};
+
+export type AddOrganizationMemberRequest = {
+  organizationId: string;
+  userId: string;
+  role: OrganizationRoleContract;
+};
+
+export type AddOrganizationMemberResponse = {
+  success: boolean;
+};
+
+export type OrganizationMemberListResponse = {
+  members: {
+    id: string;
+    userId: string;
+    displayName: string;
+    role: OrganizationRoleContract;
+    createdAt: number;
+  }[];
+};
+
+export type CreateClassroomRequest = {
+  organizationId: string;
+  name: string;
+  grade?: number | null;
+  subjectId?: string | null;
+};
+
+export type CreateClassroomResponse = {
+  classroom: {
+    id: string;
+    organizationId: string;
+    name: string;
+    grade: number | null;
+    subjectId: string | null;
+    createdAt: number;
+  };
+};
+
+export type ClassroomListResponse = {
+  classrooms: {
+    id: string;
+    organizationId: string;
+    name: string;
+    grade: number | null;
+    subjectId: string | null;
+    createdAt: number;
+  }[];
+};
+
+export type AssignClassroomTeacherRequest = {
+  classroomId: string;
+  teacherId: string;
+};
+
+export type AssignClassroomTeacherResponse = {
+  success: boolean;
+};
+
+export type EnrollLearnerRequest = {
+  classroomId: string;
+  learnerId: string;
+};
+
+export type EnrollLearnerResponse = {
+  success: boolean;
+  enrollmentId: string;
+};
+
+export type GrantLearnerConsentRequest = {
+  organizationId: string;
+  learnerId: string;
+};
+
+export type GrantLearnerConsentResponse = {
+  id: string;
+  organizationId: string;
+  learnerId: string;
+  status: ConsentStatusContract;
+  grantedAt: number;
+};
+
+export type RevokeLearnerConsentRequest = {
+  organizationId: string;
+  learnerId: string;
+};
+
+export type RevokeLearnerConsentResponse = {
+  success: boolean;
+  revokedAt: number;
+};
+
+export type LearnerConsentListResponse = {
+  consents: {
+    id: string;
+    organizationId: string;
+    organizationName: string;
+    learnerId: string;
+    status: ConsentStatusContract;
+    grantedAt: number;
+    revokedAt: number | null;
+  }[];
+};
+
+export type ClassroomLearnersResponse = {
+  learners: {
+    id: string;
+    nickname: string;
+    grade: number | null;
+    enrolledAt: number;
+  }[];
+};
+
 // --- Errors ---------------------------------------------------------------
 
 export type ApiError = {
