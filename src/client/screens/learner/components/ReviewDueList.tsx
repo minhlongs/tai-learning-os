@@ -36,15 +36,26 @@ export function ReviewDueList({
               <span aria-hidden="true">!</span>
               {overdueLabel(entry.daysOverdue, entry.dueAt)}
             </span>
-            {onStartReview && entry.lessonId ? (
-              <button
-                type="button"
-                className="btn btn--primary"
-                data-testid={`review-now-${entry.skillId}`}
-                onClick={() => onStartReview(entry)}
-              >
-                Ôn tập ngay
-              </button>
+            {onStartReview ? (
+              entry.lessonId ? (
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  data-testid={`review-now-${entry.skillId}`}
+                  onClick={() => onStartReview(entry)}
+                >
+                  Ôn tập ngay
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  data-testid={`review-fallback-${entry.skillId}`}
+                  onClick={() => onStartReview(entry)}
+                >
+                  Xem môn học
+                </button>
+              )
             ) : null}
           </span>
         </li>

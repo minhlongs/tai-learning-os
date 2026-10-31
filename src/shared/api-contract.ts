@@ -282,6 +282,7 @@ export type SetApprovalResponse = { lessonId: string; status: ApprovalStatus; le
 
 export type UpdateContentRequest = {
   lessonId: string;
+  expectedVersion?: number;
   titleVi?: string;
   objectiveVi?: string;
   /** Full replacement step set. Re-validated against the exercise schema. */
@@ -412,6 +413,7 @@ export type CurriculumGetResponse = {
 };
 
 export type UpsertCurriculumIntakeRequest = {
+  learnerId?: string;
   schoolYearLabel: string;
   grade: number;
   subjectId: string;
@@ -460,6 +462,7 @@ export type BaselineGetResponse = {
 };
 
 export type EvaluateBaselineRequest = {
+  learnerId?: string;
   subjectId: string;
   sessionId?: string | null;
   markReviewed?: boolean;
@@ -505,12 +508,14 @@ export type PlannerGetResponse = {
 };
 
 export type GeneratePlanRequest = {
+  learnerId?: string;
   schoolYearLabel?: string;
   sessionsPerWeek?: number;
   sessionDurationMinutes?: number;
 };
 
 export type UpdatePlanItemRequest = {
+  learnerId?: string;
   itemId: string;
   status: "scheduled" | "completed" | "skipped" | "rescheduled";
   weekIndex?: number;

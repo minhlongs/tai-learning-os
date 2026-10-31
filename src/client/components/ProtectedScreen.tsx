@@ -34,14 +34,13 @@ export function ProtectedScreen({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [pendingTarget, setPendingTarget] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
-  const { updateSession, reload } = useSessionContext();
+  const { updateSession, selectLearner } = useSessionContext();
 
   const handleSelectLearner = useCallback(
     (learnerId: string) => {
-      setActiveLearnerId(learnerId);
-      reload();
+      selectLearner(learnerId);
     },
-    [reload],
+    [selectLearner],
   );
 
   const onNavigate = useCallback(

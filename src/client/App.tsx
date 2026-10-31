@@ -123,32 +123,34 @@ export function Router(): React.JSX.Element {
   // a screen that would immediately redirect.
   if (loading || !session.authenticated) return <div className="app" />;
 
+  const activeLearnerKey = session.learner?.id ?? "no-learner";
+
   // If in learner mode and trying to access parent routes directly via URL, redirect to learner home
   if (session.mode === "learner" && route.name.startsWith("parent-")) {
-    return <LearnerHomeScreen onNavigate={go} />;
+    return <LearnerHomeScreen key={activeLearnerKey} onNavigate={go} />;
   }
 
   switch (route.name) {
     case "subject":
-      return <SubjectScreen subjectId={route.subjectId} onNavigate={go} />;
+      return <SubjectScreen key={`${activeLearnerKey}:${route.subjectId}`} subjectId={route.subjectId} onNavigate={go} />;
     case "lesson":
-      return <LessonScreen lessonId={route.lessonId} onNavigate={go} />;
+      return <LessonScreen key={`${activeLearnerKey}:${route.lessonId}`} lessonId={route.lessonId} onNavigate={go} />;
     case "session-summary":
-      return <SessionSummaryScreen sessionId={route.sessionId} onNavigate={go} />;
+      return <SessionSummaryScreen key={`${activeLearnerKey}:${route.sessionId}`} sessionId={route.sessionId} onNavigate={go} />;
     case "parent-dashboard":
-      return <DashboardScreen onNavigate={go} />;
+      return <DashboardScreen key={activeLearnerKey} onNavigate={go} />;
     case "parent-curriculum":
-      return <CurriculumSetupScreen onNavigate={go} />;
+      return <CurriculumSetupScreen key={activeLearnerKey} onNavigate={go} />;
     case "parent-baseline":
-      return <BaselineAssessmentScreen onNavigate={go} />;
+      return <BaselineAssessmentScreen key={activeLearnerKey} onNavigate={go} />;
     case "parent-planner":
-      return <FourWeekPlannerScreen onNavigate={go} />;
+      return <FourWeekPlannerScreen key={activeLearnerKey} onNavigate={go} />;
     case "parent-lessons":
-      return <LessonManagerScreen onNavigate={go} />;
+      return <LessonManagerScreen key={activeLearnerKey} onNavigate={go} />;
     case "parent-data":
-      return <DataControlScreen onNavigate={go} />;
+      return <DataControlScreen key={activeLearnerKey} onNavigate={go} />;
     case "learner-home":
-      return <LearnerHomeScreen onNavigate={go} />;
+      return <LearnerHomeScreen key={activeLearnerKey} onNavigate={go} />;
   }
 }
 

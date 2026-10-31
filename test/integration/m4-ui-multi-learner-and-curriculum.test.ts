@@ -216,10 +216,59 @@ describe("M4 UI Closure, Multi-Learner Header Scoping & Grade 4 Curriculum Expan
     expect(exportNa.data.learners[0]?.nickname).toBe("Bé Na");
     expect(exportNa.data.skillEvidence).toHaveLength(1);
 
-    // Foreign learnerId in x-tlo-learner-id is rejected with 404
+    // Seed a real second family (Parent 2 + Learner Minh) to verify cross-family rejection on a real foreign learner ID
+    await env.DB
+      .prepare(
+        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+      )
+      .bind("parent-other", "Phụ huynh Gia đình B", passHash, now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 4, ?4, ?4)",
+      )
+      .bind("learner-other-family", "parent-other", "Bé Minh (Gia đình B)", now)
+      .run();
+
+    // Real foreign learnerId in x-tlo-learner-id or body is rejected across session, dashboard, approval, skill correction, learner home, and export
+    const foreignSessionRes = await callWithJar(parentJar, "/api/session", {
+      learnerIdHeader: "learner-other-family",
+    });
+    expect(foreignSessionRes.status).toBe(200);
+    const foreignSessionBody = (await foreignSessionRes.json()) as SessionInfo;
+    expect(foreignSessionBody.learner?.id).not.toBe("learner-other-family");
+
+    const foreignDashRes = await callWithJar(parentJar, "/api/parent/dashboard", {
+      learnerIdHeader: "learner-other-family",
+    });
+    expect(foreignDashRes.status).toBe(404);
+
+    const foreignApproveRes = await callWithJar(parentJar, "/api/parent/lessons/approval", {
+      method: "POST",
+      learnerIdHeader: "learner-other-family",
+      json: { lessonId: "math-fractions-compare", status: "approved" },
+    });
+    expect(foreignApproveRes.status).toBe(404);
+
+    const foreignCorrectRes = await callWithJar(parentJar, "/api/parent/skills/correct", {
+      method: "POST",
+      learnerIdHeader: "learner-other-family",
+      json: {
+        skillId: "math-frac-compare",
+        state: "INDEPENDENT",
+        note: "Thử ghi đè kỹ năng của học sinh gia đình khác",
+      },
+    });
+    expect(foreignCorrectRes.status).toBe(404);
+
+    const foreignHomeRes = await callWithJar(parentJar, "/api/learner/home", {
+      learnerIdHeader: "learner-other-family",
+    });
+    expect(foreignHomeRes.status).toBe(404);
+
     const foreignExportRes = await callWithJar(parentJar, "/api/data/export", {
       method: "POST",
-      learnerIdHeader: "foreign-learner-id",
+      learnerIdHeader: "learner-other-family",
     });
     expect(foreignExportRes.status).toBe(404);
   });

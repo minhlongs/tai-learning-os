@@ -23,13 +23,14 @@
  *     dashboard points at a decision rather than implying a verdict.
  */
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   CorrectSkillRequest,
   CorrectSkillResponse,
   ParentDashboardResponse,
 } from "../../../shared/api-contract";
 import { COMPETENCY_STATES, type CompetencyState } from "../../../shared/schemas/attempt";
+import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
 import { useSessionContext } from "../../lib/SessionProvider";
@@ -59,10 +60,27 @@ export function DashboardScreen({
   const [loading, setLoading] = useState(true);
   /** Captured once per load so the review wording cannot change mid-view. */
   const [nowMs] = useState(() => Date.now());
+  const mountedRef = useRef(true);
+  const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const load = useCallback(() => {
+    const seq = ++requestSeqRef.current;
+    const expectedLearnerId = session.learner?.id ?? readActiveLearnerId();
     void api.get<ParentDashboardResponse>(endpoints.parentDashboard).then((result) => {
+      if (!mountedRef.current || requestSeqRef.current !== seq) return;
+      const currentActive = readActiveLearnerId();
+      if (expectedLearnerId && currentActive && currentActive !== expectedLearnerId) return;
       if (result.ok) {
+        if (expectedLearnerId && result.value.learner?.id && result.value.learner.id !== expectedLearnerId) {
+          return;
+        }
         setData(result.value);
         setError(null);
       } else {
@@ -70,7 +88,7 @@ export function DashboardScreen({
       }
       setLoading(false);
     });
-  }, []);
+  }, [session.learner?.id]);
 
   useEffect(() => {
     load();
@@ -262,6 +280,7 @@ function SkillTable({
   onCorrected: () => void;
 }): React.JSX.Element {
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
+  const [boundLearnerId, setBoundLearnerId] = useState<string | null>(learnerId);
   const [targetState, setTargetState] = useState<CompetencyState>("SUPPORTED");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -270,6 +289,7 @@ function SkillTable({
 
   const openEditor = (row: SkillEvidence) => {
     setEditingSkillId(row.skillId);
+    setBoundLearnerId(learnerId);
     setTargetState(row.state);
     setNote("");
     setFormError(null);
@@ -282,15 +302,21 @@ function SkillTable({
       setFormError("Vui lòng ghi lý do điều chỉnh.");
       return;
     }
+    const targetLearnerId = boundLearnerId ?? learnerId;
+    if (!targetLearnerId) {
+      setFormError("Không xác định được hồ sơ người học.");
+      return;
+    }
     setBusy(true);
     setFormError(null);
     const body: CorrectSkillRequest = {
       skillId: row.skillId,
       state: targetState,
       note: note.trim(),
-      learnerId: learnerId ?? undefined,
+      learnerId: targetLearnerId,
     };
     void api.post<CorrectSkillResponse>(endpoints.correctSkill, body).then((res) => {
+      if (readActiveLearnerId() && readActiveLearnerId() !== targetLearnerId) return;
       setBusy(false);
       if (!res.ok) {
         setFormError(failureMessage(res.failure));

@@ -1,7 +1,8 @@
 # TAI LEARNING OS — Project & Agent Context (`AGENTS.md`)
 
-> **Release Policy: LOCAL ONLY / PRODUCTION BLOCKED.**
-> Do not push to any remote. Do not deploy (`wrangler deploy`). Do not provision remote Cloudflare resources or connect paid/external LLM APIs.
+> **Release Policy: PR-MERGE AUTHORIZED / PRODUCTION DEPLOY BLOCKED.**
+> Git push, pull request creation, and squash/merge to `main` are authorized following comprehensive local multi-layer verification.
+> Remote deploy (`wrangler deploy`), remote migrations, remote resource provisioning, paid/external LLM APIs, and live child pilot remain strictly blocked.
 
 ---
 

@@ -47,14 +47,17 @@ import {
   type SkillCandidate,
 } from "../../shared/engine/planner";
 import * as repo from "../db/repositories";
-import { badRequest, forbidden, notFound, ok, readJsonBody, serverError } from "../http/response";
+import { badRequest, conflict, forbidden, notFound, ok, readJsonBody, serverError } from "../http/response";
 import type { Handler } from "../http/middleware";
 import { recordParentCorrection } from "../services/session-service";
 
 async function resolveTargetLearner(
   context: { request: Request; url: URL; env: { DB: D1Database }; parent: { parentId: string } },
   explicitLearnerId?: unknown,
-) {
+): Promise<{
+  learner: Awaited<ReturnType<typeof repo.findLearnerForParent>>;
+  explicitlyRequested: boolean;
+}> {
   const candidate =
     typeof explicitLearnerId === "string" && explicitLearnerId.trim().length > 0
       ? explicitLearnerId.trim()
@@ -62,17 +65,26 @@ async function resolveTargetLearner(
         context.request.headers.get("x-tlo-learner-id")?.trim() ||
         "";
   if (candidate.length > 0) {
-    return repo.findLearnerForParent(context.env.DB, candidate, context.parent.parentId);
+    return {
+      learner: await repo.findLearnerForParent(context.env.DB, candidate, context.parent.parentId),
+      explicitlyRequested: true,
+    };
   }
-  return repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  return {
+    learner: await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId),
+    explicitlyRequested: false,
+  };
 }
 
 /* ── GET /api/parent/dashboard ─────────────────────────────────────────────── */
 
 export const getParentDashboard: Handler = async (context) => {
-  const learner = await resolveTargetLearner(context);
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context);
 
   if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
     // Empty state, acknowledged as empty. No placeholder learner, no fake stats.
     return ok<ParentDashboardResponse>({
       learner: null,
@@ -221,7 +233,10 @@ export const getParentDashboard: Handler = async (context) => {
  * learner mode.
  */
 export const listLessons: Handler = async (context) => {
-  const targetLearner = await resolveTargetLearner(context);
+  const { learner: targetLearner, explicitlyRequested } = await resolveTargetLearner(context);
+  if (explicitlyRequested && !targetLearner) {
+    return notFound("Không tìm thấy hồ sơ người học.");
+  }
 
   const lessons = await repo.listLessons(context.env.DB);
   const [approvalsResult, steps, metadataRows, orgLessonsResult, parentMemberships, parentLearners] =
@@ -357,15 +372,23 @@ export const getLessonDetail: Handler = async (context) => {
   const queryVersion = context.url.searchParams.get("version");
   const targetVersion = queryVersion ? parseInt(queryVersion, 10) : lesson.version;
 
-  const targetLearner = await resolveTargetLearner(context);
+  const { learner: targetLearner, explicitlyRequested } = await resolveTargetLearner(context);
+  if (explicitlyRequested && !targetLearner) {
+    return notFound("Không tìm thấy hồ sơ người học.");
+  }
 
-  const [steps, approval] = await Promise.all([
+  const [steps, approval, versionSnapshot] = await Promise.all([
     repo.listStepsForLesson(context.env.DB, lesson.id, targetVersion),
     repo.getApproval(context.env.DB, lesson.id, {
       learnerId: targetLearner?.id,
       version: targetVersion,
     }),
+    repo.findLessonVersion(context.env.DB, lesson.id, targetVersion),
   ]);
+
+  if (queryVersion !== null && steps.length === 0 && !versionSnapshot) {
+    return notFound("Không tìm thấy phiên bản bài học được yêu cầu.");
+  }
 
   const payload: LessonDetailResponse["steps"] = [];
   for (const step of steps) {
@@ -388,10 +411,10 @@ export const getLessonDetail: Handler = async (context) => {
   return ok<LessonDetailResponse>({
     id: lesson.id,
     subjectId: lesson.subject_id,
-    titleVi: lesson.title_vi,
-    objectiveVi: lesson.objective_vi,
+    titleVi: versionSnapshot?.title_vi ?? lesson.title_vi,
+    objectiveVi: versionSnapshot?.objective_vi ?? lesson.objective_vi,
     approvalStatus: approval?.status ?? "draft",
-    version: lesson.version,
+    version: targetVersion,
     steps: payload,
   });
 };
@@ -504,6 +527,14 @@ export const updateLessonContent: Handler = async (context) => {
   const lesson = await repo.findLesson(context.env.DB, body.lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
+  if (
+    typeof body.expectedVersion === "number" &&
+    Number.isInteger(body.expectedVersion) &&
+    lesson.version !== body.expectedVersion
+  ) {
+    return conflict("Phiên bản bài học đã được cập nhật bởi thao tác khác. Vui lòng tải lại trước khi lưu.");
+  }
+
   // If the lesson belongs to an organization, only an authorized member (owner/admin or authoring teacher) may edit it.
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
   if (orgLesson) {
@@ -513,14 +544,15 @@ export const updateLessonContent: Handler = async (context) => {
     }
   }
 
-  if (body.titleVi !== undefined && (typeof body.titleVi !== "string" || body.titleVi.trim().length === 0)) {
-    return badRequest("Tiêu đề bài học không hợp lệ.");
+  if (body.titleVi !== undefined) {
+    if (typeof body.titleVi !== "string" || body.titleVi.trim().length < 1 || body.titleVi.trim().length > 200) {
+      return badRequest("Tiêu đề bài học không hợp lệ (1–200 ký tự).");
+    }
   }
-  if (
-    body.objectiveVi !== undefined &&
-    (typeof body.objectiveVi !== "string" || body.objectiveVi.trim().length === 0)
-  ) {
-    return badRequest("Mục tiêu bài học không hợp lệ.");
+  if (body.objectiveVi !== undefined) {
+    if (typeof body.objectiveVi !== "string" || body.objectiveVi.trim().length < 1 || body.objectiveVi.trim().length > 600) {
+      return badRequest("Mục tiêu bài học không hợp lệ (1–600 ký tự).");
+    }
   }
 
   if (body.steps !== undefined) {
@@ -528,10 +560,44 @@ export const updateLessonContent: Handler = async (context) => {
     if (!validated.ok) return badRequest(validated.error);
   }
 
-  const now = Date.now();
-  const nextVersion = lesson.version + 1;
-  const statements: D1PreparedStatement[] = [];
+  const expectedVersion =
+    typeof body.expectedVersion === "number" && Number.isInteger(body.expectedVersion)
+      ? body.expectedVersion
+      : lesson.version;
+  const nextVersion = expectedVersion + 1;
+  const nextTitleVi = typeof body.titleVi === "string" ? body.titleVi.trim() : lesson.title_vi;
+  const nextTitleEn = lesson.title_en;
+  const nextObjectiveVi = typeof body.objectiveVi === "string" ? body.objectiveVi.trim() : lesson.objective_vi;
+  const nextObjectiveEn = lesson.objective_en;
 
+  // Read and validate existing steps before building the atomic batch when this is a metadata-only edit
+  const existingSteps =
+    body.steps === undefined
+      ? await repo.listStepsForLesson(context.env.DB, lesson.id, expectedVersion)
+      : [];
+  if (body.steps === undefined && existingSteps.length === 0) {
+    return badRequest("Không tìm thấy các bước của phiên bản hiện tại để tạo bản chụp mới.");
+  }
+
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = [
+    // 1. Guarded immutable version snapshot insert.
+    //    If another editor published `nextVersion` first (or `lessons.version !== expectedVersion`),
+    //    `version` evaluates to NULL and aborts the entire `db.batch` before any step, lesson update,
+    //    deadline clamp, or audit row can commit.
+    repo.insertLessonVersionGuardedStatement(context.env.DB, {
+      lessonId: lesson.id,
+      expectedVersion,
+      nextVersion,
+      titleVi: nextTitleVi,
+      titleEn: nextTitleEn,
+      objectiveVi: nextObjectiveVi,
+      objectiveEn: nextObjectiveEn,
+      now,
+    }),
+  ];
+
+  // 2. Insert immutable step snapshots for `nextVersion` (never ON CONFLICT DO UPDATE).
   if (body.steps !== undefined) {
     for (const step of body.steps) {
       statements.push(
@@ -539,12 +605,7 @@ export const updateLessonContent: Handler = async (context) => {
           .prepare(
             `INSERT INTO lesson_steps
                (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(lesson_id, content_version, position) DO UPDATE SET
-               kind = excluded.kind,
-               content = excluded.content,
-               answer_key = excluded.answer_key,
-               explanation_vi = excluded.explanation_vi`,
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
           )
           .bind(
             crypto.randomUUID(),
@@ -559,19 +620,13 @@ export const updateLessonContent: Handler = async (context) => {
       );
     }
   } else {
-    const existingSteps = await repo.listStepsForLesson(context.env.DB, lesson.id, lesson.version);
     for (const step of existingSteps) {
       statements.push(
         context.env.DB
           .prepare(
             `INSERT INTO lesson_steps
                (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(lesson_id, content_version, position) DO UPDATE SET
-               kind = excluded.kind,
-               content = excluded.content,
-               answer_key = excluded.answer_key,
-               explanation_vi = excluded.explanation_vi`,
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
           )
           .bind(
             crypto.randomUUID(),
@@ -587,6 +642,7 @@ export const updateLessonContent: Handler = async (context) => {
     }
   }
 
+  // 3. Advance pointer on `lessons`, clamp active continuation deadlines, and record audit.
   statements.push(
     context.env.DB
       .prepare(
@@ -595,12 +651,12 @@ export const updateLessonContent: Handler = async (context) => {
          WHERE id = ?5 AND version = ?6`,
       )
       .bind(
-        typeof body.titleVi === "string" ? body.titleVi : lesson.title_vi,
-        typeof body.objectiveVi === "string" ? body.objectiveVi : lesson.objective_vi,
+        nextTitleVi,
+        nextObjectiveVi,
         nextVersion,
         now,
         lesson.id,
-        lesson.version,
+        expectedVersion,
       ),
     repo.clampContinuationDeadlinesForLearnerLessonStatement(context.env.DB, {
       lessonId: lesson.id,
@@ -613,13 +669,25 @@ export const updateLessonContent: Handler = async (context) => {
       subject: lesson.id,
       detail: JSON.stringify({
         version: nextVersion,
-        steps: body.steps?.length ?? null,
+        steps: body.steps?.length ?? existingSteps.length,
       }),
       now,
     }),
   );
 
-  await context.env.DB.batch(statements);
+  try {
+    await context.env.DB.batch(statements);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes("NOT NULL constraint failed: lesson_versions.version") ||
+      msg.includes("UNIQUE constraint failed: lesson_versions.lesson_id, lesson_versions.version") ||
+      msg.includes("UNIQUE constraint failed: lesson_steps.lesson_id, lesson_steps.content_version, lesson_steps.position")
+    ) {
+      return conflict("Phiên bản bài học đã được cập nhật bởi thao tác khác. Vui lòng tải lại trước khi lưu.");
+    }
+    return serverError();
+  }
 
   return ok<UpdateContentResponse>({ lessonId: lesson.id, version: nextVersion });
 };
@@ -652,7 +720,7 @@ export const correctSkillEvidence: Handler = async (context) => {
     return badRequest("Vui lòng ghi lý do điều chỉnh.");
   }
 
-  const learner = await resolveTargetLearner(context, body.learnerId);
+  const { learner } = await resolveTargetLearner(context, body.learnerId);
   if (!learner) return notFound("Không tìm thấy hồ sơ người học.");
   const skill = await repo.findSkill(context.env.DB, body.skillId);
   if (!skill) return notFound("Không tìm thấy kỹ năng.");
@@ -830,7 +898,10 @@ function isProvenanceType(val: unknown): val is ProvenanceType {
 }
 
 export const getCurriculumSetup: Handler = async (context) => {
-  const learner = await resolveTargetLearner(context);
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context);
+  if (explicitlyRequested && !learner) {
+    return notFound("Không tìm thấy hồ sơ người học.");
+  }
   const objectives = await repo.listCurriculumObjectives(context.env.DB);
   const schoolYearLabel = "2026-2027";
   const grade = learner?.grade ?? 4;
@@ -899,14 +970,17 @@ export const getCurriculumSetup: Handler = async (context) => {
 /* ── POST /api/parent/curriculum ──────────────────────────────────────────── */
 
 export const upsertCurriculumSetup: Handler = async (context) => {
-  const learner = await resolveTargetLearner(context);
-  if (!learner) {
-    return badRequest("Vui lòng tạo hồ sơ người học trước khi thiết lập chương trình học.");
-  }
-
   const parsed = await readJsonBody(context.request, 8_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as Partial<UpsertCurriculumIntakeRequest>;
+  const body = parsed.body as Partial<UpsertCurriculumIntakeRequest> & { learnerId?: unknown };
+
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context, body.learnerId);
+  if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
+    return badRequest("Vui lòng tạo hồ sơ người học trước khi thiết lập chương trình học.");
+  }
 
   if (typeof body.subjectId !== "string" || body.subjectId.trim().length === 0) {
     return badRequest("Thiếu mã môn học.");
@@ -1024,7 +1098,10 @@ export const upsertCurriculumSetup: Handler = async (context) => {
 /* ── GET /api/parent/baseline ─────────────────────────────────────────────── */
 
 export const getBaselineAssessments: Handler = async (context) => {
-  const learner = await resolveTargetLearner(context);
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context);
+  if (explicitlyRequested && !learner) {
+    return notFound("Không tìm thấy hồ sơ người học.");
+  }
   const [lessons, metadataRows, approvals] = await Promise.all([
     repo.listLessons(context.env.DB),
     repo.listLessonMetadata(context.env.DB),
@@ -1078,14 +1155,17 @@ export const getBaselineAssessments: Handler = async (context) => {
 /* ── POST /api/parent/baseline ────────────────────────────────────────────── */
 
 export const evaluateBaselineAssessment: Handler = async (context) => {
-  const learner = await resolveTargetLearner(context);
-  if (!learner) {
-    return badRequest("Chưa có hồ sơ người học.");
-  }
-
   const parsed = await readJsonBody(context.request, 8_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as Partial<EvaluateBaselineRequest>;
+  const body = parsed.body as Partial<EvaluateBaselineRequest> & { learnerId?: unknown };
+
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context, body.learnerId);
+  if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
+    return badRequest("Chưa có hồ sơ người học.");
+  }
 
   if (typeof body.subjectId !== "string" || body.subjectId.trim().length === 0) {
     return badRequest("Thiếu mã môn học.");
@@ -1178,7 +1258,10 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
 /* ── GET /api/parent/planner ──────────────────────────────────────────────── */
 
 export const getFourWeekPlan: Handler = async (context) => {
-  const learner = await resolveTargetLearner(context);
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context);
+  if (explicitlyRequested && !learner) {
+    return notFound("Không tìm thấy hồ sơ người học.");
+  }
   const schoolYearLabel = "2026-2027";
   if (!learner) {
     return ok<PlannerGetResponse>({
@@ -1251,14 +1334,17 @@ export const getFourWeekPlan: Handler = async (context) => {
 /* ── POST /api/parent/planner/generate ────────────────────────────────────── */
 
 export const generateFourWeekPlanRoute: Handler = async (context) => {
-  const learner = await resolveTargetLearner(context);
-  if (!learner) {
-    return badRequest("Vui lòng tạo hồ sơ người học trước khi lập kế hoạch 4 tuần.");
-  }
-
   const parsed = await readJsonBody(context.request, 8_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as Partial<GeneratePlanRequest>;
+  const body = parsed.body as Partial<GeneratePlanRequest> & { learnerId?: unknown };
+
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context, body.learnerId);
+  if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
+    return badRequest("Vui lòng tạo hồ sơ người học trước khi lập kế hoạch 4 tuần.");
+  }
 
   const [skills, prereqs, lessons, metaRows, evidenceRows, reviewRows, baselines, intakes] =
     await Promise.all([
@@ -1372,12 +1458,17 @@ export const generateFourWeekPlanRoute: Handler = async (context) => {
 /* ── PATCH /api/parent/planner/item ───────────────────────────────────────── */
 
 export const updatePlanItemRoute: Handler = async (context) => {
-  const learner = await resolveTargetLearner(context);
-  if (!learner) return badRequest("Chưa có hồ sơ người học.");
-
   const parsed = await readJsonBody(context.request, 8_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as Partial<UpdatePlanItemRequest>;
+  const body = parsed.body as Partial<UpdatePlanItemRequest> & { learnerId?: unknown };
+
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context, body.learnerId);
+  if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
+    return badRequest("Chưa có hồ sơ người học.");
+  }
 
   if (typeof body.itemId !== "string" || body.itemId.length === 0) {
     return badRequest("Thiếu mã mục kế hoạch.");

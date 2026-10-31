@@ -28,6 +28,7 @@ import type {
   LessonMetadataRow,
   LessonRow,
   LessonStepRow,
+  LessonVersionRow,
   LearningPlanItemRow,
   ReviewApprovalRow,
   ReviewScheduleRow,
@@ -342,6 +343,64 @@ export async function findLesson(db: Db, lessonId: string): Promise<LessonRow | 
     .bind(lessonId)
     .first<LessonRow>();
   return row ?? null;
+}
+
+export async function findLessonVersion(
+  db: Db,
+  lessonId: string,
+  version: number,
+): Promise<LessonVersionRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at
+       FROM lesson_versions WHERE lesson_id = ?1 AND version = ?2`,
+    )
+    .bind(lessonId, version)
+    .first<LessonVersionRow>();
+  return row ?? null;
+}
+
+/**
+ * Guarded insert of an immutable lesson version snapshot.
+ *
+ * Uses a subquery for `version` that returns `NULL` if `lessons.version` no
+ * longer equals `expectedVersion` (or if the lesson does not exist). Because
+ * `lesson_versions.version` is `NOT NULL`, any concurrent version publication
+ * aborts the entire `db.batch` with `NOT NULL constraint failed: lesson_versions.version`
+ * before any step insert, lesson update, deadline clamp, or audit row can commit.
+ */
+export function insertLessonVersionGuardedStatement(
+  db: Db,
+  input: {
+    lessonId: string;
+    expectedVersion: number;
+    nextVersion: number;
+    titleVi: string;
+    titleEn: string;
+    objectiveVi: string;
+    objectiveEn: string;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO lesson_versions (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+       VALUES (
+         ?1,
+         (SELECT ?3 WHERE EXISTS (SELECT 1 FROM lessons WHERE id = ?1 AND version = ?2)),
+         ?4, ?5, ?6, ?7, ?8
+       )`,
+    )
+    .bind(
+      input.lessonId,
+      input.expectedVersion,
+      input.nextVersion,
+      input.titleVi,
+      input.titleEn,
+      input.objectiveVi,
+      input.objectiveEn,
+      input.now,
+    );
 }
 
 export async function listApprovalStatuses(
@@ -684,6 +743,96 @@ export function finalizeSessionUpdate(
     .bind(input.status, input.stepsSeen, input.endedAt, input.sessionId);
 }
 
+/**
+ * Guarded session finalization at the write boundary.
+ *
+ * Requires the session to still be `in_progress` and, if a `continuation_deadline`
+ * is present, requires `decisionNow < continuation_deadline` at the moment of the
+ * UPDATE statement execution.
+ */
+export function finalizeSessionUpdateGuarded(
+  db: Db,
+  input: {
+    sessionId: string;
+    learnerId: string;
+    status: SessionStatus;
+    stepsSeen: number;
+    endedAt: number;
+    decisionNow: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE learning_sessions
+       SET status = ?1, steps_seen = ?2, ended_at = ?3
+       WHERE id = ?4
+         AND learner_id = ?5
+         AND status = 'in_progress'
+         AND (continuation_deadline IS NULL OR ?6 < continuation_deadline)`,
+    )
+    .bind(
+      input.status,
+      input.stepsSeen,
+      input.endedAt,
+      input.sessionId,
+      input.learnerId,
+      input.decisionNow,
+    );
+}
+
+/**
+ * Guarded session-completed audit INSERT that verifies in the same `db.batch`
+ * that `finalizeSessionUpdateGuarded` actually transitioned the session to
+ * `status = 'completed'`. If the session was already ended or its continuation
+ * deadline expired before the batch executed, `action` evaluates to `NULL` and
+ * SQLite aborts the entire `db.batch` with `NOT NULL constraint failed: audit_events.action`.
+ */
+export function finalizeSessionAuditInsertGuarded(
+  db: Db,
+  input: {
+    id: string;
+    actor: string;
+    sessionId: string;
+    learnerId: string;
+    detail: string;
+    now: number;
+    decisionNow?: number;
+  },
+): D1PreparedStatement {
+  const decisionNow = input.decisionNow ?? input.now;
+  return db
+    .prepare(
+      `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
+       VALUES (
+         ?1,
+         ?2,
+         (
+           SELECT 'session.completed'
+           WHERE EXISTS (
+             SELECT 1
+             FROM learning_sessions
+             WHERE id = ?3
+               AND learner_id = ?4
+               AND status = 'completed'
+               AND (continuation_deadline IS NULL OR ?7 < continuation_deadline)
+           )
+         ),
+         ?3,
+         ?5,
+         ?6
+       )`,
+    )
+    .bind(
+      input.id,
+      input.actor,
+      input.sessionId,
+      input.learnerId,
+      input.detail,
+      input.now,
+      decisionNow,
+    );
+}
+
 export async function finalizeSession(
   db: Db,
   input: { sessionId: string; status: SessionStatus; stepsSeen: number; endedAt: number },
@@ -908,11 +1057,13 @@ export function attemptInsertGuarded(
     evidenceKind: "observed" | "assisted" | "parent_correction";
     attemptNo: number;
     now: number;
+    decisionNow?: number;
     expectedStepAttemptCount: number;
     expectedHintAuditCount: number;
     expectedSkillAttemptCount: number;
   },
 ): D1PreparedStatement {
+  const decisionNow = input.decisionNow ?? input.now;
   return db
     .prepare(
       `INSERT INTO learning_attempts
@@ -969,7 +1120,7 @@ export function attemptInsertGuarded(
                  AND lesson_id = ?4
                  AND lesson_version = ?6
                  AND status = 'in_progress'
-                 AND (continuation_deadline IS NULL OR ?13 < continuation_deadline)
+                 AND (continuation_deadline IS NULL OR ?17 < continuation_deadline)
              )
            )
          ),
@@ -993,6 +1144,7 @@ export function attemptInsertGuarded(
       input.expectedStepAttemptCount,
       input.expectedHintAuditCount,
       input.expectedSkillAttemptCount,
+      decisionNow,
     );
 }
 
@@ -1332,8 +1484,10 @@ export function hintAuditInsertGuarded(
     stepId: string;
     detail: string;
     now: number;
+    decisionNow?: number;
   },
 ): D1PreparedStatement {
+  const decisionNow = input.decisionNow ?? input.now;
   return db
     .prepare(
       `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
@@ -1350,7 +1504,7 @@ export function hintAuditInsertGuarded(
                AND lesson_id = ?5
                AND lesson_version = ?6
                AND status = 'in_progress'
-               AND (continuation_deadline IS NULL OR ?9 < continuation_deadline)
+               AND (continuation_deadline IS NULL OR ?10 < continuation_deadline)
            )
          ),
          ?7,
@@ -1368,6 +1522,7 @@ export function hintAuditInsertGuarded(
       input.stepId,
       input.detail,
       input.now,
+      decisionNow,
     );
 }
 
@@ -2421,6 +2576,23 @@ export async function createOrganizationLesson(
         input.lesson.objective_en,
         input.lesson.grade_from,
         input.lesson.grade_to,
+        input.now,
+      ),
+  );
+
+  // 1b. Insert initial immutable version snapshot (v1)
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO lesson_versions (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+         VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6)`,
+      )
+      .bind(
+        input.lesson.id,
+        input.lesson.title_vi,
+        input.lesson.title_en,
+        input.lesson.objective_vi,
+        input.lesson.objective_en,
         input.now,
       ),
   );

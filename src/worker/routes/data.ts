@@ -599,6 +599,7 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
       .run();
   }
 
+  const lessonsById = new Map(data.lessons.map((l) => [l.id, l]));
   for (const lesson of data.lessons) {
     await db
       .prepare(
@@ -622,9 +623,55 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
         lesson.updatedAt,
       )
       .run();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO lesson_versions
+           (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      )
+      .bind(
+        lesson.id,
+        lesson.version,
+        lesson.titleVi,
+        lesson.titleEn,
+        lesson.objectiveVi,
+        lesson.objectiveEn,
+        lesson.updatedAt,
+      )
+      .run();
+  }
+
+  for (const lv of data.lessonVersions ?? []) {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO lesson_versions
+           (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      )
+      .bind(lv.lessonId, lv.version, lv.titleVi, lv.titleEn, lv.objectiveVi, lv.objectiveEn, lv.createdAt)
+      .run();
   }
 
   for (const step of data.lessonSteps) {
+    const parentLesson = lessonsById.get(step.lessonId);
+    if (parentLesson) {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO lesson_versions
+             (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        )
+        .bind(
+          parentLesson.id,
+          step.contentVersion,
+          parentLesson.titleVi,
+          parentLesson.titleEn,
+          parentLesson.objectiveVi,
+          parentLesson.objectiveEn,
+          parentLesson.createdAt,
+        )
+        .run();
+    }
     await db
       .prepare(
         `INSERT OR IGNORE INTO lesson_steps
@@ -644,40 +691,45 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
       .run();
   }
 
-  const approvedLearnerLessonVersions = new Set<string>();
+  // Fail-closed authorization on import:
+  // `reviewApprovals` in an imported JSON file are untrusted external claims and
+  // NEVER grant live authorization. Any imported approval claiming `status = 'approved'`
+  // is downgraded to `'draft'` so the parent must explicitly review and re-approve
+  // the lesson version for the restored learner before new sessions or continuation
+  // can occur.
   for (const approval of data.reviewApprovals) {
     const version =
       typeof approval.lessonVersion === "number" && Number.isInteger(approval.lessonVersion) && approval.lessonVersion >= 1
         ? approval.lessonVersion
         : 1;
     const learnerId = approval.learnerId ?? null;
+    const importedStatus = approval.status === "approved" ? "draft" : approval.status;
     await repo.setApproval(db, {
       id: approval.id,
       learnerId,
       lessonId: approval.lessonId,
       version,
-      status: approval.status,
+      status: importedStatus,
       decidedBy: approval.decidedBy,
       note: approval.note,
       now: approval.decidedAt,
     });
-    if (approval.status === "approved" && learnerId) {
-      approvedLearnerLessonVersions.add(`${learnerId}::${approval.lessonId}::${version}`);
-    }
   }
 
   for (const session of data.learningSessions) {
-    const hasVerifiedApproval = approvedLearnerLessonVersions.has(
-      `${session.learnerId}::${session.lessonId}::${session.lessonVersion}`,
-    );
     const explicitDeadline =
       typeof session.continuationDeadline === "number" && Number.isFinite(session.continuationDeadline)
         ? session.continuationDeadline
         : null;
-    // Fail-closed: an imported in_progress session without verified per-learner, per-version approval
-    // provenance does not automatically receive continuation (clamped to startedAt).
+    // Fail-closed: an imported `in_progress` session never retains an open
+    // continuation window from JSON claims (`continuationDeadline = null` or a
+    // future timestamp), nor is it granted a fresh `now + 30 min` grace window.
+    // Its deadline is clamped to `Math.min(explicitDeadline, session.startedAt)`
+    // (or `session.startedAt` when null), preserving historical session evidence
+    // while blocking unverified continuation until the parent re-approves and
+    // starts a fresh authorized session.
     const continuationDeadline =
-      session.status === "in_progress" && !hasVerifiedApproval
+      session.status === "in_progress"
         ? explicitDeadline !== null
           ? Math.min(explicitDeadline, session.startedAt)
           : session.startedAt

@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import type { LearnerHomeResponse } from "../../../shared/api-contract";
+import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { useSessionContext } from "../../lib/SessionProvider";
 import { competencyClass, competencyGlyph, competencyLabel } from "../../lib/format";
@@ -34,12 +35,16 @@ export function LearnerHomeScreen({
 
   useEffect(() => {
     let live = true;
+    const expectedLearnerId = session.learner?.id ?? readActiveLearnerId();
     // `loading` starts true, so this effect only ever clears it. Switching the
     // spinner on from inside the effect is what React's cascading-render rule
     // objects to.
     void api.get<LearnerHomeResponse>("/api/learner/home").then((result) => {
       if (!live) return;
+      const currentActive = readActiveLearnerId();
+      if (expectedLearnerId && currentActive && currentActive !== expectedLearnerId) return;
       if (result.ok) {
+        if (expectedLearnerId && result.value.learner.id !== expectedLearnerId) return;
         setData(result.value);
         setError(null);
       } else {
@@ -50,7 +55,7 @@ export function LearnerHomeScreen({
     return () => {
       live = false;
     };
-  }, []);
+  }, [session.learner?.id]);
 
   const nickname = data?.learner.nickname ?? session.learner?.nickname ?? null;
 

@@ -527,11 +527,19 @@ describe("export/import round trip restores the record from the file", () => {
     expect(restoredLearnerId, "import rebuilds exactly one learner").toBeTruthy();
     expect(restoredLearnerId!.id).not.toBe(learnerId);
 
+    // Imported approvals do not grant live authorization until the parent explicitly
+    // re-approves the lesson for the restored learner.
+    const reapproveRes = await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, status: "approved", learnerId: restoredLearnerId!.id },
+    });
+    expect(reapproveRes.status).toBe(200);
+
     // Start a session for the restored learner and submit a correct answer on stepId with client helpLevel: 0
     const sessionB = (await (
       await call("/api/learner/sessions", {
         method: "POST",
-        json: { lessonId },
+        json: { lessonId, learnerId: restoredLearnerId!.id },
       })
     ).json()) as { sessionId: string };
 
