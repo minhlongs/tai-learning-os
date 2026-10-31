@@ -116,7 +116,7 @@ export function LearnerHomeScreen({
             ) : null}
 
             {data.reviewDue.length > 0 ? (
-              <section className="card card--attention" aria-labelledby="review-title">
+              <section className="card card--attention" aria-labelledby="review-title" data-testid="review-due-list">
                 <h2 className="card__title" id="review-title">
                   Đến hạn ôn tập
                 </h2>

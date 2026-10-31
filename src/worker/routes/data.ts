@@ -721,18 +721,19 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
       typeof session.continuationDeadline === "number" && Number.isFinite(session.continuationDeadline)
         ? session.continuationDeadline
         : null;
+    const importNow = Date.now();
     // Fail-closed: an imported `in_progress` session never retains an open
     // continuation window from JSON claims (`continuationDeadline = null` or a
     // future timestamp), nor is it granted a fresh `now + 30 min` grace window.
-    // Its deadline is clamped to `Math.min(explicitDeadline, session.startedAt)`
-    // (or `session.startedAt` when null), preserving historical session evidence
-    // while blocking unverified continuation until the parent re-approves and
-    // starts a fresh authorized session.
+    // Its deadline is clamped to at most `Math.min(explicitDeadline ?? Infinity, session.startedAt, importNow)`,
+    // preserving historical session evidence while blocking unverified continuation
+    // until the parent re-approves and starts a fresh authorized session.
+    // If an imported session was in_progress, transition its stored status to 'abandoned'
+    // so it can never be resumed via session-continuation paths.
+    const effectiveStatus = session.status === "in_progress" ? "abandoned" : session.status;
     const continuationDeadline =
       session.status === "in_progress"
-        ? explicitDeadline !== null
-          ? Math.min(explicitDeadline, session.startedAt)
-          : session.startedAt
+        ? Math.min(explicitDeadline !== null ? explicitDeadline : session.startedAt, session.startedAt, importNow)
         : explicitDeadline;
 
     await db
@@ -749,7 +750,7 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
         session.schoolYearId,
         session.startedAt,
         session.endedAt,
-        session.status,
+        effectiveStatus,
         session.stepsSeen,
         continuationDeadline,
       )

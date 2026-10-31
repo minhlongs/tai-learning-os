@@ -215,6 +215,39 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       expect(evidenceAfter).toHaveLength(0);
       const reviewsAfter = await repo.listReviewScheduleForLearner(env.DB, "learner-1");
       expect(reviewsAfter).toHaveLength(0);
+
+      // Deterministic interleaving test at write execution boundary:
+      // A request was prepared when clock was valid (e.g. deadline - 100),
+      // but db.batch statement execution is delayed and runs when clock reaches/passes deadline.
+      // attemptInsertGuarded executes statement-level subquery: (?17 < continuation_deadline).
+      // When ?17 (decisionNow) reaches deadline, subquery returns NULL for attempt_no,
+      // tripping SQLite NOT NULL constraint on attempt_no and aborting the entire atomic transaction!
+      const delayedStmt = repo.attemptInsertGuarded(env.DB, {
+        id: "att-interleaved-1",
+        sessionId: "sess-cutoff-1",
+        learnerId: "learner-1",
+        lessonId: "math-fractions-equivalent",
+        stepId: firstStep.stepId,
+        stepVersion: 1,
+        skillId: "math-frac-equiv",
+        submitted: JSON.stringify({ kind: "choice", choiceId: "choice-1" }),
+        outcome: "correct",
+        helpLevel: 0,
+        evidenceKind: "observed",
+        attemptNo: 1,
+        now: deadline - 100, // input time was before deadline
+        decisionNow: deadline, // write execution time crossed deadline
+        expectedStepAttemptCount: 0,
+        expectedHintAuditCount: 0,
+        expectedSkillAttemptCount: 0,
+      });
+
+      // Executing statement at write boundary when decisionNow >= deadline fails closed with NOT NULL constraint
+      await expect(delayedStmt.run()).rejects.toThrow(/NOT NULL constraint failed/i);
+
+      // Verify still 0 attempts in DB
+      const attemptsStillZero = await repo.listAttemptsForSession(env.DB, "sess-cutoff-1");
+      expect(attemptsStillZero).toHaveLength(0);
     });
 
     it("enforces exact boundary semantics (deadline - 1ms allowed, deadline rejected, deadline + 1ms rejected) across submitAttempt, requestHint, finalizeSession, and startSession resume", async () => {
@@ -650,26 +683,26 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       expect(approvalRow?.status).toBe("draft");
 
       // Verify imported in_progress session had its continuation_deadline clamped to started_at (never NULL or extended)
+      // and its status safely transitioned to 'abandoned' so it can never be resumed.
       const importedSess = await env.DB
-        .prepare("SELECT started_at, continuation_deadline FROM learning_sessions WHERE status = 'in_progress'")
-        .first<{ started_at: number; continuation_deadline: number | null }>();
+        .prepare("SELECT started_at, continuation_deadline, status FROM learning_sessions WHERE id = 'imported-in-progress-sess'")
+        .first<{ started_at: number; continuation_deadline: number | null; status: string }>();
       expect(importedSess?.continuation_deadline).toBe(importedSess?.started_at);
+      expect(importedSess?.status).toBe("abandoned");
 
-      // Verify learner cannot submit attempts on the imported in_progress session or start a new session without live parent approval
+      // Verify learner cannot submit attempts on the imported session or start a new session without live parent approval.
+      // Attempt returns 400 (session already abandoned) or 403 (forbidden).
       const steps = await repo.listStepsForLesson(env.DB, "math-fractions-equivalent", 1);
-      const sessIdRow = await env.DB
-        .prepare("SELECT id FROM learning_sessions WHERE status = 'in_progress'")
-        .first<{ id: string }>();
       const attemptOnImported = await callWithJar(learnerJar, "/api/learner/attempts", {
         method: "POST",
         json: {
-          sessionId: sessIdRow!.id,
+          sessionId: "imported-in-progress-sess",
           stepId: steps[0]!.id,
           submission: { kind: "choice", choiceId: "choice-1" },
           helpLevel: 0,
         },
       });
-      expect(attemptOnImported.status).toBe(403);
+      expect([400, 403]).toContain(attemptOnImported.status);
 
       const startWithoutReapproval = await callWithJar(learnerJar, "/api/learner/sessions", {
         method: "POST",
@@ -721,10 +754,70 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       expect(legacyImportRes.status).toBe(200);
 
       const legacySessAfter = await env.DB
-        .prepare("SELECT started_at, continuation_deadline, lesson_version FROM learning_sessions WHERE status = 'in_progress'")
-        .first<{ started_at: number; continuation_deadline: number | null; lesson_version: number }>();
+        .prepare("SELECT started_at, continuation_deadline, lesson_version, status FROM learning_sessions WHERE id = 'legacy-backup-sess'")
+        .first<{ started_at: number; continuation_deadline: number | null; lesson_version: number; status: string }>();
       expect(legacySessAfter?.lesson_version).toBe(1);
       expect(legacySessAfter?.continuation_deadline).toBe(legacySessAfter?.started_at);
+      expect(legacySessAfter?.status).toBe("abandoned");
+
+      // 4. Priority Counterexample: Future-dated in_progress session in backup JSON
+      //    Attacker crafts a backup where in_progress session has `startedAt = now + 86_400_000` (tomorrow)
+      //    and no continuationDeadline or a future deadline.
+      //    Import must reject the future-dated timestamp or fail closed so the session CANNOT be resumed or attempted.
+      const currentLearner3 = await repo.findFirstLearnerForParent(env.DB, "parent-imp");
+      expect(currentLearner3).not.toBeNull();
+      const del3Res = await callWithJar(parentJar, "/api/data/learner", {
+        method: "DELETE",
+        json: { learnerId: currentLearner3!.id, confirmation: "XOA Tài" },
+      });
+      expect(del3Res.status).toBe(200);
+
+      const futureDatedEnvelope = structuredClone(envelope);
+      const futureData = futureDatedEnvelope.data as Record<string, unknown[]>;
+      const futureTimestamp = now + 86_400_000; // +24 hours into the future
+      futureData.learningSessions = [
+        {
+          id: "future-sess-attack",
+          learnerId: "learner-imp",
+          lessonId: "math-fractions-equivalent",
+          lessonVersion: 1,
+          schoolYearId: null,
+          status: "in_progress",
+          stepsSeen: 1,
+          startedAt: futureTimestamp,
+          endedAt: null,
+          continuationDeadline: null,
+        },
+      ];
+
+      const futureImportRes = await callWithJar(parentJar, "/api/data/import", {
+        method: "POST",
+        json: futureDatedEnvelope,
+      });
+
+      // The import must either be rejected at envelope validation (400) because of impossible future timestamp,
+      // OR if accepted, the session must be transitioned/clamped so it CANNOT be resumed (resume returns 403, attempt returns 403).
+      if (futureImportRes.status === 200) {
+        // If imported, verify learner CANNOT resume this session or submit attempts
+        const resumeAttack = await callWithJar(learnerJar, "/api/learner/sessions", {
+          method: "POST",
+          json: { lessonId: "math-fractions-equivalent" },
+        });
+        expect(resumeAttack.status).toBe(403);
+
+        const attemptAttack = await callWithJar(learnerJar, "/api/learner/attempts", {
+          method: "POST",
+          json: {
+            sessionId: "future-sess-attack",
+            stepId: steps[0]!.id,
+            submission: { kind: "choice", choiceId: "choice-1" },
+            helpLevel: 0,
+          },
+        });
+        expect(attemptAttack.status).toBe(403);
+      } else {
+        expect(futureImportRes.status).toBe(400);
+      }
 
       void data;
       void TRANSFER_FORMAT_VERSION;
