@@ -82,16 +82,16 @@ export const exportRecord: Handler = async (context) => {
       repo.listLessons(db),
       db
         .prepare(
-          `SELECT id, lesson_id, status, decided_by, decided_at, note
+          `SELECT id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note
            FROM review_approvals
-           WHERE decided_by = ?1
+           WHERE decided_by = ?1 AND (learner_id = ?2 OR learner_id IS NULL)
            ORDER BY decided_at ASC`,
         )
-        .bind(context.parent.parentId)
+        .bind(context.parent.parentId, learner.id)
         .all<Record<string, unknown>>(),
       db
         .prepare(
-          `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen
+          `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline
            FROM learning_sessions WHERE learner_id = ?1 ORDER BY started_at ASC`,
         )
         .bind(learner.id)
@@ -200,7 +200,9 @@ export const exportRecord: Handler = async (context) => {
     lessonSteps,
     reviewApprovals: (approvals.results ?? []).map((row) => ({
       id: String(row.id),
+      learnerId: (row.learner_id as string | null) ?? null,
       lessonId: String(row.lesson_id),
+      lessonVersion: typeof row.lesson_version === "number" ? row.lesson_version : 1,
       status: String(row.status) as ExportBody["reviewApprovals"][number]["status"],
       decidedBy: String(row.decided_by),
       decidedAt: Number(row.decided_at),
@@ -216,6 +218,7 @@ export const exportRecord: Handler = async (context) => {
       endedAt: row.ended_at as number | null,
       status: String(row.status) as ExportBody["learningSessions"][number]["status"],
       stepsSeen: Number(row.steps_seen),
+      continuationDeadline: (row.continuation_deadline as number | null) ?? null,
     })),
     learningAttempts: attempts.map((a) => ({
       id: a.id,
@@ -449,6 +452,11 @@ export const importRecord: Handler = async (context) => {
         ...row,
         learnerId: retarget(learnerIds, row.learnerId),
       })),
+      reviewApprovals: data.reviewApprovals.map((row) => ({
+        ...row,
+        learnerId: row.learnerId ? retarget(learnerIds, row.learnerId) : null,
+        decidedBy: context.parent.parentId,
+      })),
       learningAttempts: data.learningAttempts.map((row) => ({
         ...row,
         learnerId: retarget(learnerIds, row.learnerId),
@@ -626,23 +634,50 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
       .run();
   }
 
+  const approvedLearnerLessonVersions = new Set<string>();
   for (const approval of data.reviewApprovals) {
+    const version =
+      typeof approval.lessonVersion === "number" && Number.isInteger(approval.lessonVersion) && approval.lessonVersion >= 1
+        ? approval.lessonVersion
+        : 1;
+    const learnerId = approval.learnerId ?? null;
     await repo.setApproval(db, {
       id: approval.id,
+      learnerId,
       lessonId: approval.lessonId,
+      version,
       status: approval.status,
       decidedBy: approval.decidedBy,
       note: approval.note,
       now: approval.decidedAt,
     });
+    if (approval.status === "approved" && learnerId) {
+      approvedLearnerLessonVersions.add(`${learnerId}::${approval.lessonId}::${version}`);
+    }
   }
 
   for (const session of data.learningSessions) {
+    const hasVerifiedApproval = approvedLearnerLessonVersions.has(
+      `${session.learnerId}::${session.lessonId}::${session.lessonVersion}`,
+    );
+    const explicitDeadline =
+      typeof session.continuationDeadline === "number" && Number.isFinite(session.continuationDeadline)
+        ? session.continuationDeadline
+        : null;
+    // Fail-closed: an imported in_progress session without verified per-learner, per-version approval
+    // provenance does not automatically receive continuation (clamped to startedAt).
+    const continuationDeadline =
+      session.status === "in_progress" && !hasVerifiedApproval
+        ? explicitDeadline !== null
+          ? Math.min(explicitDeadline, session.startedAt)
+          : session.startedAt
+        : explicitDeadline;
+
     await db
       .prepare(
         `INSERT OR IGNORE INTO learning_sessions
-           (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+           (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
       )
       .bind(
         session.id,
@@ -654,6 +689,7 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
         session.endedAt,
         session.status,
         session.stepsSeen,
+        continuationDeadline,
       )
       .run();
   }

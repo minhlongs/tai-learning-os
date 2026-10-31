@@ -84,7 +84,9 @@ export type LessonStepRow = {
 
 export type ReviewApprovalRow = {
   id: string;
+  learner_id: string | null;
   lesson_id: string;
+  lesson_version: number;
   status: ApprovalStatus;
   decided_by: string;
   decided_at: number;
@@ -101,6 +103,7 @@ export type LearningSessionRow = {
   ended_at: number | null;
   status: SessionStatus;
   steps_seen: number;
+  continuation_deadline: number | null;
 };
 
 export type LearningAttemptRow = {

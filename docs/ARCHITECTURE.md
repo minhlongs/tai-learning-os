@@ -106,7 +106,11 @@ Concretely, the Worker alone:
   observed facts. `skill_evidence` is re-derived upon each attempt, and `review_schedule`
   is scheduled without client-supplied metrics.
 - **Enforces parent lesson approval.** Learners only see lessons with an active
-  `review_approvals.status = 'approved'` record.
+  `review_approvals.status = 'approved'` record scoped to **that learner** and
+  **that lesson version** (`UNIQUE (learner_id, lesson_id, lesson_version)`).
+  Approving a lesson for one child does not approve it for a sibling, and
+  approving version 1 does not approve a later re-authored version — new content
+  always needs a fresh parent decision.
 
 ---
 

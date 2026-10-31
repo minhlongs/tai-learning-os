@@ -159,14 +159,27 @@ export const reviewOrgLessonRoute: Handler = async (context) => {
   }
 
   const now = Date.now();
-  await repo.reviewOrganizationLesson(context.env.DB, {
-    lessonId: body.lessonId,
-    organizationId: body.organizationId,
-    decision: body.decision,
-    reviewedBy: context.parent.parentId,
-    note: body.note?.trim() ?? null,
-    now,
-  });
+  const statements: D1PreparedStatement[] = [
+    repo.reviewOrganizationLessonStatement(context.env.DB, {
+      lessonId: body.lessonId,
+      organizationId: body.organizationId,
+      decision: body.decision,
+      reviewedBy: context.parent.parentId,
+      note: body.note?.trim() ?? null,
+      now,
+    }),
+  ];
+
+  if (body.decision === "org_rejected") {
+    statements.push(
+      repo.clampContinuationDeadlinesForLearnerLessonStatement(context.env.DB, {
+        lessonId: body.lessonId,
+        revokedAt: now,
+      }),
+    );
+  }
+
+  await context.env.DB.batch(statements);
 
   return ok<ReviewOrgLessonResponse>({
     success: true,
@@ -317,7 +330,11 @@ export const listParentClassroomLessonsRoute: Handler = async (context) => {
     const assigned = await repo.listClassroomAssignedLessons(context.env.DB, cid);
     for (const a of assigned) {
       if (a.orgReviewStatus !== "org_approved") continue;
-      const approval = await repo.getApproval(context.env.DB, a.lessonId);
+      const lessonRow = await repo.findLesson(context.env.DB, a.lessonId);
+      const approval = await repo.getApproval(context.env.DB, a.lessonId, {
+        learnerId: learner.id,
+        version: lessonRow?.version,
+      });
       lessons.push({
         lessonId: a.lessonId,
         classroomId: a.classroomId,
@@ -327,7 +344,7 @@ export const listParentClassroomLessonsRoute: Handler = async (context) => {
         gradeTo: a.gradeTo,
         assignedAt: a.assignedAt,
         dueAt: a.dueAt,
-        isParentApproved: approval?.status === "approved" && approval.decided_by === context.parent.parentId,
+        isParentApproved: approval?.status === "approved" && approval.decided_by === context.parent.parentId && approval.learner_id === learner.id,
       });
     }
   }

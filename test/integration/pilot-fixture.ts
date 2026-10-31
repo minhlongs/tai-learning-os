@@ -345,10 +345,10 @@ export async function seedPilotFixture(db: D1Database): Promise<{
   // Pre-approve for Ba Minh (Bé Tài)
   await db
     .prepare(
-      `INSERT OR REPLACE INTO review_approvals (id, lesson_id, reviewer_id, status, note, created_at, updated_at)
-       VALUES (?1, ?2, ?3, 'approved', 'Phụ huynh phê duyệt thí điểm', ?4, ?4)`,
+      `INSERT OR REPLACE INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
+       VALUES (?1, ?2, ?3, 1, 'approved', ?4, ?5, 'Phụ huynh phê duyệt thí điểm')`,
     )
-    .bind("approval-pilot-math-01", lessonId, PILOT_LEARNERS[0]!.parentId, now)
+    .bind("approval-pilot-math-01", PILOT_LEARNERS[0]!.learnerId, lessonId, PILOT_LEARNERS[0]!.parentId, now)
     .run();
 
   return {

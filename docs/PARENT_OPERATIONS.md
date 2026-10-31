@@ -30,6 +30,13 @@ Mặc định, khi bài học mới được đưa vào hệ thống, bài học
 3. Nhấn nút **"Chưa duyệt"** để chuyển sang **"Đã duyệt"**.
 4. Khi đã duyệt, bài học sẽ lập tức xuất hiện trên giao diện học tập của bé. Phụ huynh có thể thu hồi phê duyệt bất kỳ lúc nào nếu muốn điều chỉnh lộ trình học.
 
+**Phạm vi của bản duyệt:** Phê duyệt gắn với **từng bé** và **từng phiên bản nội dung** của bài học:
+
+- Duyệt bài cho bé thứ nhất **không** tự động duyệt cho bé thứ hai.
+- Nếu bài học được chỉnh sửa nội dung (tạo phiên bản mới), bé sẽ không thấy bản mới cho đến khi phụ huynh duyệt lại.
+
+**Khi thu hồi quyền đang có phiên đang học:** Phụ huynh thu hồi quyền thì phiên học mới bị chặn ngay lập tức. Nếu bé đang học dở một phiên hợp lệ đã bắt đầu trước khi thu hồi, phiên đó chỉ được tiếp tục tối đa **30 phút** kể từ lần thu hồi đầu tiên, sau đó mọi thao tác đều bị từ chối. Việc thu hồi rồi cấp lại không kéo dài thêm khoảng 30 phút này.
+
 ---
 
 ## 3. Theo Dõi Tiến Độ & Bằng Chứng Năng Lực (Mastery Dashboard)

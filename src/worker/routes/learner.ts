@@ -45,7 +45,20 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** A resolved learner, or the response that explains why there is none. */
 type LearnerResult = { learner: LearnerRow } | { response: Response };
 
-async function currentLearner(context: HandlerContext): Promise<LearnerResult> {
+async function currentLearner(context: HandlerContext, explicitLearnerId?: string | null): Promise<LearnerResult> {
+  const targetId =
+    explicitLearnerId ||
+    context.url.searchParams.get("learnerId") ||
+    context.request.headers.get("x-tlo-learner-id");
+
+  if (targetId) {
+    const learner = await repo.findLearnerForParent(context.env.DB, targetId, context.parent.parentId);
+    if (!learner) {
+      return { response: notFound("Không tìm thấy hồ sơ người học.") };
+    }
+    return { learner };
+  }
+
   const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
   if (!learner) {
     return { response: notFound("Chưa có hồ sơ người học. Phụ huynh vui lòng tạo hồ sơ trước.") };
@@ -85,7 +98,7 @@ export const getLearnerHome: Handler = async (context) => {
     repo.listSubjects(context.env.DB),
     repo.listSkills(context.env.DB),
     repo.listLessons(context.env.DB),
-    repo.listApprovalStatuses(context.env.DB, context.parent.parentId),
+    repo.listApprovalStatuses(context.env.DB, context.parent.parentId, learner.id),
     repo.listSkillEvidenceForLearner(context.env.DB, learner.id),
     repo.listReviewScheduleForLearner(context.env.DB, learner.id),
     repo.listSessionsForLearner(context.env.DB, learner.id, 20),
@@ -140,7 +153,11 @@ export const getLearnerHome: Handler = async (context) => {
     });
 
   const inProgress = sessions.find((s) => s.status === "in_progress") ?? null;
-  const inProgressLesson = inProgress ? lessonById.get(inProgress.lesson_id) : null;
+  const isContinuationExpired =
+    inProgress?.continuation_deadline !== null &&
+    inProgress?.continuation_deadline !== undefined &&
+    now >= inProgress.continuation_deadline;
+  const inProgressLesson = inProgress && !isContinuationExpired ? lessonById.get(inProgress.lesson_id) : null;
   const continueLesson = inProgress && inProgressLesson
     ? {
         sessionId: inProgress.id,
@@ -192,7 +209,7 @@ export const listSubjectsForLearner: Handler = async (context) => {
   const [subjects, lessons, approvals, assignedOrgLessonIds, allOrgLessonIds] = await Promise.all([
     repo.listSubjects(context.env.DB),
     repo.listLessons(context.env.DB),
-    repo.listApprovalStatuses(context.env.DB, context.parent.parentId),
+    learnerId ? repo.listApprovalStatuses(context.env.DB, context.parent.parentId, learnerId) : Promise.resolve({} as Record<string, import("../../shared/schemas/attempt").ApprovalStatus>),
     learnerId ? repo.listAssignedOrgLessonIdsForLearner(context.env.DB, learnerId) : Promise.resolve(new Set<string>()),
     repo.listAllOrgLessonIds(context.env.DB),
   ]);
@@ -232,26 +249,53 @@ export const listSubjectsForLearner: Handler = async (context) => {
  * known, because this is the only path that renders content to the child.
  */
 export const startSession: Handler = async (context) => {
-  const resolved = await currentLearner(context);
-  if ("response" in resolved) return resolved.response;
-  const learner = resolved.learner;
-
   const parsed = await readJsonBody(context.request, 4_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as { lessonId?: unknown };
+  const body = parsed.body as { lessonId?: unknown; learnerId?: unknown };
   if (typeof body.lessonId !== "string" || body.lessonId.length === 0) {
     return badRequest("Thiếu mã bài học.");
   }
 
+  const explicitLearnerId = typeof body.learnerId === "string" ? body.learnerId : null;
+  const resolved = await currentLearner(context, explicitLearnerId);
+  if ("response" in resolved) return resolved.response;
+  const learner = resolved.learner;
+
   const lesson = await repo.findLesson(context.env.DB, body.lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
-  const approval = await repo.getApproval(context.env.DB, lesson.id);
+  const now = Date.now();
+  const existing = await repo.findInProgressSessionForLearner(context.env.DB, learner.id);
+
+  // If there is an existing in_progress session for this lesson, check if it's within the continuation window
+  if (existing && existing.lesson_id === lesson.id) {
+    if (existing.continuation_deadline !== null && existing.continuation_deadline !== undefined) {
+      if (now >= existing.continuation_deadline) {
+        return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+      }
+    }
+    const sessionSteps = toStepPayloads(await loadStepContexts(context.env.DB, existing.lesson_id, existing.lesson_version));
+    if (!sessionSteps) return serverError();
+
+    return ok<StartSessionResponse>({
+      sessionId: existing.id,
+      lessonId: existing.lesson_id,
+      lessonTitleVi: lesson.title_vi,
+      subjectId: lesson.subject_id,
+      steps: sessionSteps,
+    });
+  }
+
+  // To start a NEW session (or start a different lesson): check strict approval for (learner.id, lesson.id, lesson.version)
+  const approval = await repo.getApproval(context.env.DB, lesson.id, {
+    learnerId: learner.id,
+    version: lesson.version,
+  });
   if (approval?.status !== "approved" || approval.decided_by !== context.parent.parentId) {
     return forbidden("Bài học này chưa được phụ huynh phê duyệt.");
   }
 
-  // If this is a center-authored lesson, verify center approval and classroom assignment
+  // If this is a center-authored lesson, verify center approval and classroom assignment with active consent
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
   if (orgLesson) {
     if (orgLesson.review_status !== "org_approved") {
@@ -266,52 +310,56 @@ export const startSession: Handler = async (context) => {
     }
   }
 
-  // Checked before any session row is written, so a broken lesson leaves
-  // nothing behind to resume.
-  const steps = toStepPayloads(await loadStepContexts(context.env.DB, lesson.id));
+  // Checked before any session row is written, so a broken lesson leaves nothing behind to resume.
+  const steps = toStepPayloads(await loadStepContexts(context.env.DB, lesson.id, lesson.version));
   if (!steps) return serverError();
 
-  // Resume rather than duplicate: an unfinished session keeps its attempts.
-  const existing = await repo.findInProgressSessionForLearner(context.env.DB, learner.id);
+  const schoolYearId = await resolveSchoolYear(context, learner);
+  const sessionId = crypto.randomUUID();
+  const commitNow = Date.now();
+  const startStatements: D1PreparedStatement[] = [];
+
+  // A different lesson was unfinished: close it out atomically in the same batch so only one is in progress.
   if (existing) {
-    if (existing.lesson_id === lesson.id) {
-      return ok<StartSessionResponse>({
+    startStatements.push(
+      repo.finalizeSessionUpdate(context.env.DB, {
         sessionId: existing.id,
-        lessonId: lesson.id,
-        lessonTitleVi: lesson.title_vi,
-        subjectId: lesson.subject_id,
-        steps,
-      });
-    }
-    // A different lesson is unfinished: close it out so only one is in progress.
-    await repo.finalizeSession(context.env.DB, {
-      sessionId: existing.id,
-      status: "abandoned",
-      stepsSeen: existing.steps_seen,
-      endedAt: Date.now(),
-    });
+        status: "abandoned",
+        stepsSeen: existing.steps_seen,
+        endedAt: commitNow,
+      }),
+    );
   }
 
-  const schoolYearId = await resolveSchoolYear(context, learner);
-  const now = Date.now();
-  const sessionId = crypto.randomUUID();
-  await repo.createSession(context.env.DB, {
-    id: sessionId,
-    learnerId: learner.id,
-    lessonId: lesson.id,
-    lessonVersion: lesson.version,
-    schoolYearId,
-    now,
-  });
+  startStatements.push(
+    repo.createSessionGuardedInsert(context.env.DB, {
+      id: sessionId,
+      learnerId: learner.id,
+      parentId: context.parent.parentId,
+      lessonId: lesson.id,
+      lessonVersion: lesson.version,
+      schoolYearId,
+      now: commitNow,
+    }),
+    repo.auditInsert(context.env.DB, {
+      id: crypto.randomUUID(),
+      actor: `parent:${context.parent.parentId}`,
+      action: "session.started",
+      subject: sessionId,
+      detail: JSON.stringify({ lessonId: lesson.id, lessonVersion: lesson.version, learnerId: learner.id }),
+      now: commitNow,
+    }),
+  );
 
-  await repo.recordAudit(context.env.DB, {
-    id: crypto.randomUUID(),
-    actor: `parent:${context.parent.parentId}`,
-    action: "session.started",
-    subject: sessionId,
-    detail: JSON.stringify({ lessonId: lesson.id, lessonVersion: lesson.version }),
-    now,
-  });
+  try {
+    await context.env.DB.batch(startStatements);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("NOT NULL constraint failed: learning_sessions.lesson_version")) {
+      return forbidden("Quyền truy cập hoặc phiên bản bài học đã thay đổi. Vui lòng thử lại.");
+    }
+    return serverError();
+  }
 
   return ok<StartSessionResponse>({
     sessionId,
@@ -344,13 +392,9 @@ export const startSession: Handler = async (context) => {
  * prior help, the learner works the equivalent step with a different step id.
  */
 export const requestHint: Handler = async (context) => {
-  const resolved = await currentLearner(context);
-  if ("response" in resolved) return resolved.response;
-  const learner = resolved.learner;
-
   const parsed = await readJsonBody(context.request, 4_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as { stepId?: unknown; currentLevel?: unknown; sessionId?: unknown };
+  const body = parsed.body as { stepId?: unknown; currentLevel?: unknown; sessionId?: unknown; learnerId?: unknown };
   if (typeof body.stepId !== "string" || body.stepId.trim().length === 0) {
     return badRequest("Thiếu mã bước học.");
   }
@@ -359,10 +403,14 @@ export const requestHint: Handler = async (context) => {
   }
 
   const session = await repo.findSession(context.env.DB, body.sessionId, context.parent.parentId);
-  // A missing, foreign or owner-mismatched session is refused before a hint is
-  // computed, so no disclosure can be recorded against a session the caller
-  // cannot prove is theirs.
+  // A missing, foreign or owner-mismatched session is refused before a hint is computed.
   if (!session) return notFound("Phiên học không tồn tại.");
+
+  const explicitLearnerId = typeof body.learnerId === "string" ? body.learnerId : session.learner_id;
+  const resolved = await currentLearner(context, explicitLearnerId);
+  if ("response" in resolved) return resolved.response;
+  const learner = resolved.learner;
+
   if (session.learner_id !== learner.id) {
     return forbidden("Phiên học không thuộc về người học này.");
   }
@@ -370,11 +418,18 @@ export const requestHint: Handler = async (context) => {
     return badRequest("Phiên học đã kết thúc.");
   }
 
+  // Check bounded continuation deadline: hard cutoff at continuation_deadline (now >= deadline rejected)
+  const now = Date.now();
+  if (session.continuation_deadline !== null && session.continuation_deadline !== undefined) {
+    if (now >= session.continuation_deadline) {
+      return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+    }
+  }
+
   const step = await repo.findStep(context.env.DB, body.stepId);
   if (!step) return notFound("Không tìm thấy bước học.");
-  // The step must belong to this session's lesson: a step id from another
-  // lesson would record a disclosure against a step this learner is not doing.
-  if (step.lesson_id !== session.lesson_id) {
+  // The step must belong to this session's lesson and matching lesson_version
+  if (step.lesson_id !== session.lesson_id || step.content_version !== session.lesson_version) {
     return badRequest("Bước học không thuộc về bài học này.");
   }
 
@@ -384,22 +439,23 @@ export const requestHint: Handler = async (context) => {
   const level = clampHelp(typeof body.currentLevel === "number" ? body.currentLevel : 0);
   const hintVi = hintFor(exercise, level);
 
-  // The ledger write precedes the response. If it fails, the exception
-  // propagates and the learner receives an error rather than a hint whose
-  // disclosure was never recorded — which would let a client keep asking for
-  // hints the floor never learns about. `sessionId` records which verified
-  // session disclosed the hint; `findMaxDisclosedHintLevel` then enforces the
-  // floor per learner and step across all sessions (and legacy session-less rows).
   try {
-    await repo.recordAudit(context.env.DB, {
+    const commitNow = Date.now();
+    await repo.hintAuditInsertGuarded(context.env.DB, {
       id: crypto.randomUUID(),
-      actor: `learner:${learner.id}`,
-      action: "hint.requested",
-      subject: step.id,
+      sessionId: session.id,
+      learnerId: learner.id,
+      lessonId: session.lesson_id,
+      lessonVersion: session.lesson_version,
+      stepId: step.id,
       detail: JSON.stringify({ level, sessionId: session.id }),
-      now: Date.now(),
-    });
-  } catch {
+      now: commitNow,
+    }).run();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("NOT NULL constraint failed: audit_events.action")) {
+      return forbidden("Phiên học đã kết thúc hoặc đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+    }
     return serverError();
   }
 
@@ -415,13 +471,9 @@ export const requestHint: Handler = async (context) => {
  * and then got it" is real evidence, and collapsing it would hide the struggle.
  */
 export const submitAttempt: Handler = async (context) => {
-  const resolved = await currentLearner(context);
-  if ("response" in resolved) return resolved.response;
-  const learner = resolved.learner;
-
   const parsed = await readJsonBody(context.request, 8_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as SubmitAttemptRequest & { sessionId?: unknown };
+  const body = parsed.body as SubmitAttemptRequest & { sessionId?: unknown; learnerId?: unknown };
 
   if (typeof body.sessionId !== "string" || typeof body.stepId !== "string") {
     return badRequest("Thiếu thông tin bài làm.");
@@ -430,17 +482,31 @@ export const submitAttempt: Handler = async (context) => {
 
   const session = await repo.findSession(context.env.DB, body.sessionId, context.parent.parentId);
   if (!session) return notFound("Phiên học không tồn tại.");
+
+  const explicitLearnerId = typeof body.learnerId === "string" ? body.learnerId : session.learner_id;
+  const resolved = await currentLearner(context, explicitLearnerId);
+  if ("response" in resolved) return resolved.response;
+  const learner = resolved.learner;
+
   if (session.learner_id !== learner.id) {
     return forbidden("Phiên học không thuộc về người học này.");
   }
   if (session.status !== "in_progress") return badRequest("Phiên học đã kết thúc.");
 
-  const stepContexts = await loadStepContexts(context.env.DB, session.lesson_id);
+  // Check bounded continuation deadline: hard cutoff at continuation_deadline (now >= deadline rejected)
+  const now = Date.now();
+  if (session.continuation_deadline !== null && session.continuation_deadline !== undefined) {
+    if (now >= session.continuation_deadline) {
+      return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+    }
+  }
+
+  // Load steps with immutable version snapshot matching the session's lesson_version
+  const stepContexts = await loadStepContexts(context.env.DB, session.lesson_id, session.lesson_version);
   const stepContext = stepContexts.find((s) => s.stepId === body.stepId);
   if (!stepContext) return notFound("Bước học không thuộc về bài học này.");
 
   try {
-    const now = Date.now();
     const result = await recordAttemptWithDerivation(context.env.DB, {
       sessionId: session.id,
       learnerId: learner.id,
@@ -448,7 +514,7 @@ export const submitAttempt: Handler = async (context) => {
       step: stepContext,
       submission: body.submission,
       helpLevel: clampHelp(body.helpLevel),
-      now,
+      now: Date.now(),
     });
 
     // The audit row for this attempt is written inside `recordAttemptWithDerivation`'s
@@ -486,17 +552,19 @@ export const submitAttempt: Handler = async (context) => {
  * `assistedCount` keeps it visible when help was needed.
  */
 export const finalizeSession: Handler = async (context) => {
-  const resolved = await currentLearner(context);
-  if ("response" in resolved) return resolved.response;
-  const learner = resolved.learner;
-
   const parsed = await readJsonBody(context.request, 4_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as { sessionId?: unknown };
+  const body = parsed.body as { sessionId?: unknown; learnerId?: unknown };
   if (typeof body.sessionId !== "string") return badRequest("Thiếu mã phiên học.");
 
   const session = await repo.findSession(context.env.DB, body.sessionId, context.parent.parentId);
   if (!session) return notFound("Phiên học không tồn tại.");
+
+  const explicitLearnerId = typeof body.learnerId === "string" ? body.learnerId : session.learner_id;
+  const resolved = await currentLearner(context, explicitLearnerId);
+  if ("response" in resolved) return resolved.response;
+  const learner = resolved.learner;
+
   if (session.learner_id !== learner.id) {
     return forbidden("Phiên học không thuộc về người học này.");
   }
@@ -534,25 +602,27 @@ export const finalizeSession: Handler = async (context) => {
   let status = session.status;
   if (session.status === "in_progress") {
     status = "completed";
-    await repo.finalizeSession(context.env.DB, {
-      sessionId: session.id,
-      status,
-      stepsSeen: stepsCompleted,
-      endedAt: now,
-    });
-    await repo.recordAudit(context.env.DB, {
-      id: crypto.randomUUID(),
-      actor: `parent:${context.parent.parentId}`,
-      action: "session.completed",
-      subject: session.id,
-      detail: JSON.stringify({
-        lessonId: session.lesson_id,
-        attempted: attempts.length,
-        correct: correctCount,
-        assisted: assistedCount,
+    await context.env.DB.batch([
+      repo.finalizeSessionUpdate(context.env.DB, {
+        sessionId: session.id,
+        status,
+        stepsSeen: stepsCompleted,
+        endedAt: now,
       }),
-      now,
-    });
+      repo.auditInsert(context.env.DB, {
+        id: crypto.randomUUID(),
+        actor: `parent:${context.parent.parentId}`,
+        action: "session.completed",
+        subject: session.id,
+        detail: JSON.stringify({
+          lessonId: session.lesson_id,
+          attempted: attempts.length,
+          correct: correctCount,
+          assisted: assistedCount,
+        }),
+        now,
+      }),
+    ]);
   }
 
   return ok<FinalizeSessionResponse>({
@@ -575,13 +645,9 @@ export const finalizeSession: Handler = async (context) => {
 const VALID_FEELINGS: readonly SessionFeeling[] = ["confident", "good", "neutral", "confused", "tired"];
 
 export const submitSessionReflection: Handler = async (context) => {
-  const resolved = await currentLearner(context);
-  if ("response" in resolved) return resolved.response;
-  const learner = resolved.learner;
-
   const parsed = await readJsonBody(context.request, 4_000);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as Partial<SubmitReflectionRequest>;
+  const body = parsed.body as Partial<SubmitReflectionRequest> & { learnerId?: unknown };
 
   if (typeof body.sessionId !== "string" || body.sessionId.length === 0) {
     return badRequest("Thiếu mã phiên học.");
@@ -592,6 +658,12 @@ export const submitSessionReflection: Handler = async (context) => {
 
   const session = await repo.findSession(context.env.DB, body.sessionId, context.parent.parentId);
   if (!session) return notFound("Phiên học không tồn tại.");
+
+  const explicitLearnerId = typeof body.learnerId === "string" ? body.learnerId : session.learner_id;
+  const resolved = await currentLearner(context, explicitLearnerId);
+  if ("response" in resolved) return resolved.response;
+  const learner = resolved.learner;
+
   if (session.learner_id !== learner.id) return forbidden("Phiên học không thuộc về người học này.");
 
   const now = Date.now();

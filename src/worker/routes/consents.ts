@@ -132,21 +132,28 @@ export const revokeConsent: Handler = async (context) => {
   // Revoke is an instant, unconditional cut-off. If there is no active grant the
   // access is already denied, so reporting success keeps the parent's model
   // simple: "after I click, the center cannot see my child."
-  await repo.revokeLearnerConsent(context.env.DB, {
-    organizationId: body.organizationId,
-    learnerId: learner.id,
-    revokedBy: context.parent.parentId,
-    now,
-  });
-
-  await recordAudit(context.env.DB, {
-    id: crypto.randomUUID(),
-    actor: `parent:${context.parent.parentId}`,
-    action: "consent.revoked",
-    subject: learner.id,
-    detail: JSON.stringify({ organizationId: body.organizationId }),
-    now,
-  });
+  await context.env.DB.batch([
+    repo.revokeLearnerConsentStatement(context.env.DB, {
+      organizationId: body.organizationId,
+      learnerId: learner.id,
+      revokedBy: context.parent.parentId,
+      now,
+    }),
+    // Clamp any in-progress sessions for this learner that belong to this organization to 30 min max
+    repo.clampContinuationDeadlinesForLearnerOrgStatement(context.env.DB, {
+      learnerId: learner.id,
+      organizationId: body.organizationId,
+      revokedAt: now,
+    }),
+    repo.auditInsert(context.env.DB, {
+      id: crypto.randomUUID(),
+      actor: `parent:${context.parent.parentId}`,
+      action: "consent.revoked",
+      subject: learner.id,
+      detail: JSON.stringify({ organizationId: body.organizationId }),
+      now,
+    }),
+  ]);
 
   return ok<RevokeLearnerConsentResponse>({ success: true, revokedAt: now });
 };

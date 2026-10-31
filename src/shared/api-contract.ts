@@ -266,8 +266,14 @@ export type LessonDetailResponse = {
   steps: (LessonStepPayload & { answerKey: unknown })[];
 };
 
-export type SetApprovalRequest = { lessonId: string; status: ApprovalStatus; note?: string };
-export type SetApprovalResponse = { lessonId: string; status: ApprovalStatus };
+export type SetApprovalRequest = {
+  lessonId: string;
+  status: ApprovalStatus;
+  note?: string;
+  learnerId?: string;
+  version?: number;
+};
+export type SetApprovalResponse = { lessonId: string; status: ApprovalStatus; learnerId?: string; version?: number };
 
 export type UpdateContentRequest = {
   lessonId: string;

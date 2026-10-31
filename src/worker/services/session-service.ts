@@ -95,6 +95,12 @@ export async function recordAttemptWithDerivation(
     // A session belonging to another learner must never accept this answer.
     throw new GuardError("Phiên học không thuộc về người học này.", 403);
   }
+  if (session.status !== "in_progress") {
+    throw new GuardError("Phiên học đã kết thúc.", 403);
+  }
+  if (session.continuation_deadline !== null && input.now >= session.continuation_deadline) {
+    throw new GuardError("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.", 403);
+  }
 
   const clientHelpLevel = clampHelp(input.helpLevel);
 
@@ -286,6 +292,15 @@ export async function recordAttemptWithDerivation(
         review,
       };
     } catch (error) {
+      // Re-verify session status and continuation deadline if batch failed due to constraint
+      const currentSession = await repo.findSession(db, input.sessionId, await ownerOf(db, input.learnerId));
+      if (!currentSession || currentSession.status !== "in_progress") {
+        throw new GuardError("Phiên học đã kết thúc.", 403);
+      }
+      if (currentSession.continuation_deadline !== null && input.now >= currentSession.continuation_deadline) {
+        throw new GuardError("Phiên học đã hết hạn gia hạn.", 403);
+      }
+
       if (!isAttemptConcurrencyConflict(error) || round >= MAX_CONCURRENCY_RETRIES) {
         throw error;
       }
@@ -388,8 +403,12 @@ async function ownerOf(db: D1Database, learnerId: string): Promise<string> {
   if (!row) throw new GuardError("Không tìm thấy hồ sơ người học.", 404);
   return row.parent_id;
 }
-export async function loadStepContexts(db: D1Database, lessonId: string): Promise<StepContext[]> {
-  const rows = await repo.listStepsForLesson(db, lessonId);
+export async function loadStepContexts(
+  db: D1Database,
+  lessonId: string,
+  contentVersion?: number,
+): Promise<StepContext[]> {
+  const rows = await repo.listStepsForLesson(db, lessonId, contentVersion);
   const lesson = await repo.findLesson(db, lessonId);
   return rows.map((row) => ({
     stepId: row.id,

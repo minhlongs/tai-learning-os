@@ -185,7 +185,8 @@ export const listClassroomsRoute: Handler = async (context) => {
     return forbidden("Bạn không phải thành viên của tổ chức này.");
   }
 
-  const classrooms = await repo.listClassroomsForOrganization(context.env.DB, orgId);
+  const teacherId = requesterRole === "teacher" ? context.parent.parentId : undefined;
+  const classrooms = await repo.listClassroomsForOrganization(context.env.DB, orgId, teacherId);
   return ok<ClassroomListResponse>({
     classrooms: classrooms.map((c) => ({
       id: c.id,
@@ -224,6 +225,12 @@ export const assignClassroomTeacherRoute: Handler = async (context) => {
     return forbidden("Chỉ chủ sở hữu hoặc quản trị viên mới có quyền phân công giáo viên.");
   }
 
+  // Cross-tenant protection: verify that teacherId belongs to this organization
+  const teacherMemberRole = await repo.findMemberRole(context.env.DB, classroom.organization_id, body.teacherId);
+  if (!teacherMemberRole) {
+    return forbidden("Giáo viên này không thuộc tổ chức quản lý lớp học.");
+  }
+
   const now = Date.now();
   await repo.assignClassroomTeacher(context.env.DB, {
     classroomId: body.classroomId,
@@ -258,6 +265,15 @@ export const enrollLearnerRoute: Handler = async (context) => {
   const requesterRole = await repo.findMemberRole(context.env.DB, classroom.organization_id, context.parent.parentId);
   if (requesterRole !== "owner" && requesterRole !== "admin") {
     return forbidden("Chỉ chủ sở hữu hoặc quản trị viên mới có quyền xếp lớp.");
+  }
+
+  // Verify learner exists and is not archived
+  const learner = await context.env.DB
+    .prepare("SELECT id FROM learners WHERE id = ?1 AND archived_at IS NULL")
+    .bind(body.learnerId)
+    .first<{ id: string }>();
+  if (!learner) {
+    return notFound("Không tìm thấy hồ sơ người học.");
   }
 
   // Check consent: parent must have granted active consent to the organization

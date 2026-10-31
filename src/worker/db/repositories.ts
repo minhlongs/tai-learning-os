@@ -208,6 +208,7 @@ export async function deleteLearnerCascade(
   const statements: D1PreparedStatement[] = [
     db.prepare("DELETE FROM classroom_enrollments WHERE learner_id = ?1"),
     db.prepare("DELETE FROM learner_consents WHERE learner_id = ?1"),
+    db.prepare("DELETE FROM review_approvals WHERE learner_id = ?1"),
     db.prepare("DELETE FROM session_reflections WHERE learner_id = ?1"),
     db.prepare("DELETE FROM learning_plan_items WHERE learner_id = ?1"),
     db.prepare("DELETE FROM baseline_assessments WHERE learner_id = ?1"),
@@ -346,28 +347,61 @@ export async function findLesson(db: Db, lessonId: string): Promise<LessonRow | 
 export async function listApprovalStatuses(
   db: Db,
   decidedBy?: string,
+  learnerId?: string | null,
 ): Promise<Record<string, ApprovalStatus>> {
-  const result = decidedBy
-    ? await db
-        .prepare("SELECT lesson_id, status FROM review_approvals WHERE decided_by = ?1")
-        .bind(decidedBy)
-        .all<{ lesson_id: string; status: ApprovalStatus }>()
-    : await db
-        .prepare("SELECT lesson_id, status FROM review_approvals")
-        .all<{ lesson_id: string; status: ApprovalStatus }>();
+  if (learnerId === null || (learnerId !== undefined && learnerId.trim().length === 0)) {
+    return {};
+  }
+  let query = `
+    SELECT ra.lesson_id, ra.status, ra.learner_id
+    FROM review_approvals ra
+    JOIN lessons l ON l.id = ra.lesson_id AND ra.lesson_version = l.version
+    WHERE 1=1
+  `;
+  const binds: (string | number)[] = [];
+  if (decidedBy) {
+    binds.push(decidedBy);
+    query += ` AND ra.decided_by = ?${binds.length}`;
+  }
+  if (learnerId !== undefined) {
+    binds.push(learnerId);
+    query += ` AND ra.learner_id = ?${binds.length}`;
+  } else {
+    query += " AND ra.learner_id IS NOT NULL";
+  }
+  const result = binds.length > 0
+    ? await db.prepare(query).bind(...binds).all<{ lesson_id: string; status: ApprovalStatus; learner_id: string | null }>()
+    : await db.prepare(query).all<{ lesson_id: string; status: ApprovalStatus; learner_id: string | null }>();
   const map: Record<string, ApprovalStatus> = {};
-  for (const row of result.results ?? []) map[row.lesson_id] = row.status;
+  for (const row of result.results ?? []) {
+    map[row.lesson_id] = row.status;
+  }
   return map;
 }
 
-export async function listStepsForLesson(db: Db, lessonId: string): Promise<LessonStepRow[]> {
-  const result = await db
-    .prepare(
-      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
-       FROM lesson_steps WHERE lesson_id = ?1 ORDER BY position ASC`,
-    )
-    .bind(lessonId)
-    .all<LessonStepRow>();
+export async function listStepsForLesson(
+  db: Db,
+  lessonId: string,
+  contentVersion?: number,
+): Promise<LessonStepRow[]> {
+  const result = contentVersion !== undefined
+    ? await db
+        .prepare(
+          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
+           FROM lesson_steps WHERE lesson_id = ?1 AND content_version = ?2 ORDER BY position ASC`,
+        )
+        .bind(lessonId, contentVersion)
+        .all<LessonStepRow>()
+    : await db
+        .prepare(
+          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
+           FROM lesson_steps
+           WHERE lesson_id = ?1
+             AND content_version = (SELECT version FROM lessons WHERE id = ?1)
+           ORDER BY position ASC`,
+        )
+        .bind(lessonId)
+        .all<LessonStepRow>();
   return result.results ?? [];
 }
 
@@ -376,8 +410,10 @@ export async function findStepsForLessons(db: Db, lessonIds: readonly string[]):
   const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
   const result = await db
     .prepare(
-      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
-       FROM lesson_steps WHERE lesson_id IN (${placeholders}) ORDER BY lesson_id, position ASC`,
+      `SELECT ls.id, ls.lesson_id, ls.position, ls.kind, ls.content, ls.answer_key, ls.explanation_vi, ls.content_version
+       FROM lesson_steps ls
+       JOIN lessons l ON l.id = ls.lesson_id AND ls.content_version = l.version
+       WHERE ls.lesson_id IN (${placeholders}) ORDER BY ls.lesson_id, ls.position ASC`,
     )
     .bind(...lessonIds)
     .all<LessonStepRow>();
@@ -402,33 +438,195 @@ export async function listTransferStepIds(db: Db): Promise<Set<string>> {
   return new Set((result.results ?? []).map((r) => r.id));
 }
 
-export async function getApproval(db: Db, lessonId: string): Promise<ReviewApprovalRow | null> {
-  const row = await db
-    .prepare("SELECT id, lesson_id, status, decided_by, decided_at, note FROM review_approvals WHERE lesson_id = ?1")
-    .bind(lessonId)
-    .first<ReviewApprovalRow>();
+export async function getApproval(
+  db: Db,
+  lessonId: string,
+  options?: { learnerId?: string | null; version?: number },
+): Promise<ReviewApprovalRow | null> {
+  const learnerId = options?.learnerId !== undefined ? options.learnerId : undefined;
+  const version = options?.version;
+
+  let query = "SELECT id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note FROM review_approvals WHERE lesson_id = ?1";
+  const binds: (string | number)[] = [lessonId];
+
+  if (version !== undefined) {
+    binds.push(version);
+    query += ` AND lesson_version = ?${binds.length}`;
+  }
+
+  if (learnerId !== undefined) {
+    if (learnerId === null) {
+      query += " AND learner_id IS NULL";
+    } else {
+      binds.push(learnerId);
+      query += ` AND learner_id = ?${binds.length}`;
+    }
+  }
+
+  query += " ORDER BY lesson_version DESC LIMIT 1";
+
+  const row = await db.prepare(query).bind(...binds).first<ReviewApprovalRow>();
   return row ?? null;
+}
+
+export function setApprovalStatements(
+  db: Db,
+  input: {
+    id: string;
+    lessonId: string;
+    status: ApprovalStatus;
+    decidedBy: string;
+    note: string | null;
+    now: number;
+    learnerId?: string | null;
+    version?: number;
+  },
+): D1PreparedStatement[] {
+  const learnerId = input.learnerId ?? null;
+  const version = input.version ?? 1;
+
+  if (learnerId === null) {
+    return [
+      db
+        .prepare("DELETE FROM review_approvals WHERE lesson_id = ?1 AND lesson_version = ?2 AND learner_id IS NULL")
+        .bind(input.lessonId, version),
+      db
+        .prepare(
+          `INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
+           VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        )
+        .bind(input.id, input.lessonId, version, input.status, input.decidedBy, input.now, input.note),
+    ];
+  }
+
+  return [
+    db
+      .prepare(
+        `INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(learner_id, lesson_id, lesson_version) DO UPDATE SET
+           status = excluded.status,
+           decided_by = excluded.decided_by,
+           decided_at = excluded.decided_at,
+           note = excluded.note`,
+      )
+      .bind(input.id, learnerId, input.lessonId, version, input.status, input.decidedBy, input.now, input.note),
+  ];
 }
 
 export async function setApproval(
   db: Db,
-  input: { id: string; lessonId: string; status: ApprovalStatus; decidedBy: string; note: string | null; now: number },
+  input: {
+    id: string;
+    lessonId: string;
+    status: ApprovalStatus;
+    decidedBy: string;
+    note: string | null;
+    now: number;
+    learnerId?: string | null;
+    version?: number;
+  },
 ): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO review_approvals (id, lesson_id, status, decided_by, decided_at, note)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-       ON CONFLICT(lesson_id) DO UPDATE SET
-         status = excluded.status,
-         decided_by = excluded.decided_by,
-         decided_at = excluded.decided_at,
-         note = excluded.note`,
-    )
-    .bind(input.id, input.lessonId, input.status, input.decidedBy, input.now, input.note)
-    .run();
+  const stmts = setApprovalStatements(db, input);
+  if (stmts.length === 1) {
+    await stmts[0]!.run();
+  } else {
+    await db.batch(stmts);
+  }
 }
 
 /* ── Sessions ────────────────────────────────────────────────────────────── */
+
+export function createSessionInsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    lessonId: string;
+    lessonVersion: number;
+    schoolYearId: string | null;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO learning_sessions
+         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', 0)`,
+    )
+    .bind(input.id, input.learnerId, input.lessonId, input.lessonVersion, input.schoolYearId, input.now);
+}
+
+/**
+ * Concurrency-guarded session creation statement for `POST /api/learner/sessions`.
+ *
+ * Verifies at SQLite write time that:
+ *   1. The lesson is still at `input.lessonVersion`.
+ *   2. An explicit `approved` row in `review_approvals` exists for `(learnerId, lessonId, lessonVersion)`
+ *      decided by `input.parentId`.
+ *   3. If the lesson belongs to an organization (`organization_lessons`), its `review_status` is
+ *      `'org_approved'` and the learner has an active classroom assignment + active parent consent.
+ *
+ * If a concurrent revocation or version bump landed between the route's read check and the batch commit,
+ * `lesson_version` evaluates to `NULL` and aborts the batch with a `NOT NULL` constraint error.
+ */
+export function createSessionGuardedInsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    parentId: string;
+    lessonId: string;
+    lessonVersion: number;
+    schoolYearId: string | null;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO learning_sessions
+         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen)
+       VALUES (
+         ?1, ?2, ?3,
+         (
+           SELECT ?4
+           WHERE EXISTS (
+             SELECT 1 FROM lessons WHERE id = ?3 AND version = ?4
+           )
+           AND EXISTS (
+             SELECT 1 FROM review_approvals
+             WHERE learner_id = ?2
+               AND lesson_id = ?3
+               AND lesson_version = ?4
+               AND decided_by = ?7
+               AND status = 'approved'
+           )
+           AND (
+             NOT EXISTS (SELECT 1 FROM organization_lessons WHERE lesson_id = ?3)
+             OR EXISTS (
+               SELECT 1
+               FROM classroom_lesson_assignments cla
+               JOIN classrooms c ON c.id = cla.classroom_id
+               JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?2 AND ce.status = 'enrolled'
+               JOIN learner_consents lc ON lc.learner_id = ?2 AND lc.organization_id = c.organization_id AND lc.status = 'active'
+               JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'
+               WHERE cla.lesson_id = ?3
+             )
+           )
+         ),
+         ?5, ?6, 'in_progress', 0
+       )`,
+    )
+    .bind(
+      input.id,
+      input.learnerId,
+      input.lessonId,
+      input.lessonVersion,
+      input.schoolYearId,
+      input.now,
+      input.parentId,
+    );
+}
 
 export async function createSession(
   db: Db,
@@ -441,14 +639,7 @@ export async function createSession(
     now: number;
   },
 ): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO learning_sessions
-         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', 0)`,
-    )
-    .bind(input.id, input.learnerId, input.lessonId, input.lessonVersion, input.schoolYearId, input.now)
-    .run();
+  await createSessionInsert(db, input).run();
 }
 
 export async function findSession(
@@ -459,7 +650,7 @@ export async function findSession(
   const row = await db
     .prepare(
       `SELECT s.id, s.learner_id, s.lesson_id, s.lesson_version, s.school_year_id,
-              s.started_at, s.ended_at, s.status, s.steps_seen, l.parent_id
+              s.started_at, s.ended_at, s.status, s.steps_seen, s.continuation_deadline, l.parent_id
        FROM learning_sessions s
        JOIN learners l ON l.id = s.learner_id
        WHERE s.id = ?1 AND l.parent_id = ?2`,
@@ -475,7 +666,7 @@ export async function findInProgressSessionForLearner(
 ): Promise<LearningSessionRow | null> {
   const row = await db
     .prepare(
-      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline
        FROM learning_sessions WHERE learner_id = ?1 AND status = 'in_progress'
        ORDER BY started_at DESC LIMIT 1`,
     )
@@ -484,14 +675,20 @@ export async function findInProgressSessionForLearner(
   return row ?? null;
 }
 
+export function finalizeSessionUpdate(
+  db: Db,
+  input: { sessionId: string; status: SessionStatus; stepsSeen: number; endedAt: number },
+): D1PreparedStatement {
+  return db
+    .prepare("UPDATE learning_sessions SET status = ?1, steps_seen = ?2, ended_at = ?3 WHERE id = ?4")
+    .bind(input.status, input.stepsSeen, input.endedAt, input.sessionId);
+}
+
 export async function finalizeSession(
   db: Db,
   input: { sessionId: string; status: SessionStatus; stepsSeen: number; endedAt: number },
 ): Promise<void> {
-  await db
-    .prepare("UPDATE learning_sessions SET status = ?1, steps_seen = ?2, ended_at = ?3 WHERE id = ?4")
-    .bind(input.status, input.stepsSeen, input.endedAt, input.sessionId)
-    .run();
+  await finalizeSessionUpdate(db, input).run();
 }
 
 export async function listSessionsForLearner(
@@ -501,12 +698,107 @@ export async function listSessionsForLearner(
 ): Promise<LearningSessionRow[]> {
   const result = await db
     .prepare(
-      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline
        FROM learning_sessions WHERE learner_id = ?1 ORDER BY started_at DESC LIMIT ?2`,
     )
     .bind(learnerId, limit)
     .all<LearningSessionRow>();
   return result.results ?? [];
+}
+
+export const SESSION_CONTINUATION_GRACE_MS = 30 * 60 * 1000;
+
+/**
+ * Monotonically clamp the continuation_deadline on active sessions when authorization is lost.
+ * Never extends an existing deadline.
+ */
+export async function clampSessionContinuationDeadlines(
+  db: Db,
+  sessionIds: string[],
+  revokedAt: number,
+): Promise<void> {
+  if (sessionIds.length === 0) return;
+  const deadline = revokedAt + SESSION_CONTINUATION_GRACE_MS;
+  const placeholders = sessionIds.map((_, i) => `?${i + 2}`).join(",");
+  await db
+    .prepare(
+      `UPDATE learning_sessions
+       SET continuation_deadline = CASE
+         WHEN continuation_deadline IS NULL THEN ?1
+         WHEN continuation_deadline > ?1 THEN ?1
+         ELSE continuation_deadline
+       END
+       WHERE id IN (${placeholders}) AND status = 'in_progress'`,
+    )
+    .bind(deadline, ...sessionIds)
+    .run();
+}
+
+export function clampContinuationDeadlinesForLearnerLessonStatement(
+  db: Db,
+  input: { learnerId?: string | null; lessonId: string; revokedAt: number },
+): D1PreparedStatement {
+  const deadline = input.revokedAt + SESSION_CONTINUATION_GRACE_MS;
+  if (input.learnerId) {
+    return db
+      .prepare(
+        `UPDATE learning_sessions
+         SET continuation_deadline = CASE
+           WHEN continuation_deadline IS NULL THEN ?1
+           WHEN continuation_deadline > ?1 THEN ?1
+           ELSE continuation_deadline
+         END
+         WHERE learner_id = ?2 AND lesson_id = ?3 AND status = 'in_progress'`,
+      )
+      .bind(deadline, input.learnerId, input.lessonId);
+  }
+  return db
+    .prepare(
+      `UPDATE learning_sessions
+       SET continuation_deadline = CASE
+         WHEN continuation_deadline IS NULL THEN ?1
+         WHEN continuation_deadline > ?1 THEN ?1
+         ELSE continuation_deadline
+       END
+       WHERE lesson_id = ?2 AND status = 'in_progress'`,
+    )
+    .bind(deadline, input.lessonId);
+}
+
+export async function clampContinuationDeadlinesForLearnerLesson(
+  db: Db,
+  input: { learnerId?: string | null; lessonId: string; revokedAt: number },
+): Promise<void> {
+  await clampContinuationDeadlinesForLearnerLessonStatement(db, input).run();
+}
+
+export function clampContinuationDeadlinesForLearnerOrgStatement(
+  db: Db,
+  input: { learnerId: string; organizationId: string; revokedAt: number },
+): D1PreparedStatement {
+  const deadline = input.revokedAt + SESSION_CONTINUATION_GRACE_MS;
+  return db
+    .prepare(
+      `UPDATE learning_sessions
+       SET continuation_deadline = CASE
+         WHEN continuation_deadline IS NULL THEN ?1
+         WHEN continuation_deadline > ?1 THEN ?1
+         ELSE continuation_deadline
+       END
+       WHERE learner_id = ?2
+         AND status = 'in_progress'
+         AND lesson_id IN (
+           SELECT lesson_id FROM organization_lessons WHERE organization_id = ?3
+         )`,
+    )
+    .bind(deadline, input.learnerId, input.organizationId);
+}
+
+export async function clampContinuationDeadlinesForLearnerOrg(
+  db: Db,
+  input: { learnerId: string; organizationId: string; revokedAt: number },
+): Promise<void> {
+  await clampContinuationDeadlinesForLearnerOrgStatement(db, input).run();
 }
 
 /* ── Attempts ────────────────────────────────────────────────────────────── */
@@ -664,6 +956,21 @@ export function attemptInsertGuarded(
                FROM learning_attempts
                WHERE learner_id = ?3 AND skill_id = ?7
              ) = ?16
+           )
+           AND (
+             -- Keep missing-lesson errors on the native FOREIGN KEY path rather
+             -- than tripping the NOT NULL attempt_no retry sentinel.
+             NOT EXISTS (SELECT 1 FROM lessons WHERE id = ?4)
+             OR EXISTS (
+               SELECT 1
+               FROM learning_sessions
+               WHERE id = ?2
+                 AND learner_id = ?3
+                 AND lesson_id = ?4
+                 AND lesson_version = ?6
+                 AND status = 'in_progress'
+                 AND (continuation_deadline IS NULL OR ?13 < continuation_deadline)
+             )
            )
          ),
          ?13
@@ -1006,6 +1313,62 @@ export function auditInsert(
       "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(input.id, input.actor, input.action, input.subject, input.detail, input.now);
+}
+
+/**
+ * Guarded hint audit INSERT that verifies at write time that the session is still
+ * `in_progress`, belongs to the learner and lesson version, and has not reached
+ * `continuation_deadline`. If the session was finalized or expired concurrently,
+ * `action` evaluates to `NULL` and aborts with a `NOT NULL` constraint failure.
+ */
+export function hintAuditInsertGuarded(
+  db: Db,
+  input: {
+    id: string;
+    sessionId: string;
+    learnerId: string;
+    lessonId: string;
+    lessonVersion: number;
+    stepId: string;
+    detail: string;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
+       VALUES (
+         ?1,
+         ?2,
+         (
+           SELECT 'hint.requested'
+           WHERE EXISTS (
+             SELECT 1
+             FROM learning_sessions
+             WHERE id = ?3
+               AND learner_id = ?4
+               AND lesson_id = ?5
+               AND lesson_version = ?6
+               AND status = 'in_progress'
+               AND (continuation_deadline IS NULL OR ?9 < continuation_deadline)
+           )
+         ),
+         ?7,
+         ?8,
+         ?9
+       )`,
+    )
+    .bind(
+      input.id,
+      `learner:${input.learnerId}`,
+      input.sessionId,
+      input.learnerId,
+      input.lessonId,
+      input.lessonVersion,
+      input.stepId,
+      input.detail,
+      input.now,
+    );
 }
 
 export async function listAudit(db: Db, limit: number): Promise<AuditEventRow[]> {
@@ -1786,7 +2149,21 @@ export async function createClassroom(
 export async function listClassroomsForOrganization(
   db: Db,
   organizationId: string,
+  teacherId?: string,
 ): Promise<ClassroomRow[]> {
+  if (teacherId) {
+    const result = await db
+      .prepare(
+        `SELECT c.id, c.organization_id, c.name, c.grade, c.subject_id, c.created_at, c.updated_at
+         FROM classrooms c
+         JOIN classroom_teachers ct ON ct.classroom_id = c.id
+         WHERE c.organization_id = ?1 AND ct.teacher_id = ?2
+         ORDER BY c.created_at ASC`,
+      )
+      .bind(organizationId, teacherId)
+      .all<ClassroomRow>();
+    return result.results ?? [];
+  }
   const result = await db
     .prepare(
       `SELECT id, organization_id, name, grade, subject_id, created_at, updated_at
@@ -1840,18 +2217,24 @@ export async function grantLearnerConsent(
     .run();
 }
 
-export async function revokeLearnerConsent(
+export function revokeLearnerConsentStatement(
   db: Db,
   input: { organizationId: string; learnerId: string; revokedBy: string; now: number },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare(
       `UPDATE learner_consents
        SET status = 'revoked', revoked_at = ?1
        WHERE organization_id = ?2 AND learner_id = ?3 AND granted_by = ?4`,
     )
-    .bind(input.now, input.organizationId, input.learnerId, input.revokedBy)
-    .run();
+    .bind(input.now, input.organizationId, input.learnerId, input.revokedBy);
+}
+
+export async function revokeLearnerConsent(
+  db: Db,
+  input: { organizationId: string; learnerId: string; revokedBy: string; now: number },
+): Promise<void> {
+  await revokeLearnerConsentStatement(db, input).run();
 }
 
 export async function findActiveConsent(
@@ -2103,7 +2486,7 @@ export async function submitOrganizationLessonForReview(
     .run();
 }
 
-export async function reviewOrganizationLesson(
+export function reviewOrganizationLessonStatement(
   db: Db,
   input: {
     lessonId: string;
@@ -2113,8 +2496,8 @@ export async function reviewOrganizationLesson(
     note: string | null;
     now: number;
   },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare(
       `UPDATE organization_lessons
        SET review_status = ?1, reviewed_by = ?2, reviewed_at = ?3, review_note = ?4, updated_at = ?3
@@ -2127,8 +2510,21 @@ export async function reviewOrganizationLesson(
       input.note,
       input.lessonId,
       input.organizationId,
-    )
-    .run();
+    );
+}
+
+export async function reviewOrganizationLesson(
+  db: Db,
+  input: {
+    lessonId: string;
+    organizationId: string;
+    decision: "org_approved" | "org_rejected";
+    reviewedBy: string;
+    note: string | null;
+    now: number;
+  },
+): Promise<void> {
+  await reviewOrganizationLessonStatement(db, input).run();
 }
 
 export async function assignLessonToClassroom(

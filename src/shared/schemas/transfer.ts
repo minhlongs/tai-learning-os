@@ -114,7 +114,9 @@ export type LessonStepExport = WithId & {
 };
 
 export type ReviewApprovalExport = WithId & {
+  learnerId?: string | null;
   lessonId: string;
+  lessonVersion?: number;
   status: ApprovalStatus;
   decidedBy: string;
   decidedAt: number;
@@ -130,6 +132,7 @@ export type LearningSessionExport = WithId & {
   endedAt: number | null;
   status: SessionStatus;
   stepsSeen: number;
+  continuationDeadline?: number | null;
 };
 
 export type LearningAttemptExport = WithId & {
@@ -468,6 +471,15 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
 
   const exportedLearnerIds = new Set(data.learners.map((l) => l.id));
   const exportedSessionIds = new Set(data.learningSessions.map((s) => s.id));
+  for (const approval of data.reviewApprovals) {
+    if (
+      approval.learnerId !== undefined &&
+      approval.learnerId !== null &&
+      !exportedLearnerIds.has(approval.learnerId)
+    ) {
+      errors.push("Bản ghi phê duyệt tham chiếu đến người học không tồn tại trong tệp.");
+    }
+  }
   const hintFloorByLearnerStep = new Map<string, number>();
 
   for (const audit of data.auditEvents) {
