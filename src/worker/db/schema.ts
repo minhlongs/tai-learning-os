@@ -71,6 +71,16 @@ export type LessonRow = {
   updated_at: number;
 };
 
+export type LessonVersionRow = {
+  lesson_id: string;
+  version: number;
+  title_vi: string;
+  title_en: string;
+  objective_vi: string;
+  objective_en: string;
+  created_at: number;
+};
+
 export type LessonStepRow = {
   id: string;
   lesson_id: string;

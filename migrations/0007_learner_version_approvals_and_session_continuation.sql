@@ -71,6 +71,9 @@ WHERE status = 'in_progress'
   );
 
 -- 3. Rebuild lesson_steps to allow immutable snapshots per content_version
+-- Preserve FK-linked learning_attempts across table rebuild
+CREATE TABLE _tmp_learning_attempts AS SELECT * FROM learning_attempts;
+
 CREATE TABLE lesson_steps_v7 (
   id               TEXT PRIMARY KEY NOT NULL,
   lesson_id        TEXT NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
@@ -89,6 +92,9 @@ FROM lesson_steps;
 
 DROP TABLE lesson_steps;
 ALTER TABLE lesson_steps_v7 RENAME TO lesson_steps;
+
+INSERT OR IGNORE INTO learning_attempts SELECT * FROM _tmp_learning_attempts;
+DROP TABLE _tmp_learning_attempts;
 
 CREATE INDEX idx_lesson_steps_lesson ON lesson_steps(lesson_id, content_version, position);
 

@@ -73,6 +73,7 @@ export async function recordAttemptWithDerivation(
     submission: Submission;
     helpLevel: number;
     now: number;
+    clock?: () => number;
   },
 ): Promise<{
   attemptId: string;
@@ -83,6 +84,7 @@ export async function recordAttemptWithDerivation(
   review: { dueAt: number; intervalDays: number; reasonVi: string } | null;
 }> {
   const { step } = input;
+  const readClock = input.clock ?? Date.now;
   if (!step.content) {
     // A step whose content no longer validates is a content bug, not a
     // learner error. Refuse rather than guess.
@@ -98,7 +100,10 @@ export async function recordAttemptWithDerivation(
   if (session.status !== "in_progress") {
     throw new GuardError("Phiên học đã kết thúc.", 403);
   }
-  if (session.continuation_deadline !== null && input.now >= session.continuation_deadline) {
+  if (
+    session.continuation_deadline !== null &&
+    (input.now >= session.continuation_deadline || readClock() >= session.continuation_deadline)
+  ) {
     throw new GuardError("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.", 403);
   }
 
@@ -245,6 +250,12 @@ export async function recordAttemptWithDerivation(
       }
     }
 
+    // Evaluate decisionNow right at the write execution boundary with zero awaits before db.batch
+    const decisionNow = Math.max(input.now, readClock());
+    if (session.continuation_deadline !== null && decisionNow >= session.continuation_deadline) {
+      throw new GuardError("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.", 403);
+    }
+
     const statements: D1PreparedStatement[] = [
       repo.attemptInsertGuarded(db, {
         id: attemptId,
@@ -260,6 +271,7 @@ export async function recordAttemptWithDerivation(
         evidenceKind,
         attemptNo,
         now: input.now,
+        decisionNow,
         expectedStepAttemptCount: stepSummary.priorAttemptCount,
         expectedHintAuditCount: hintState.auditCount,
         expectedSkillAttemptCount,
@@ -292,16 +304,22 @@ export async function recordAttemptWithDerivation(
         review,
       };
     } catch (error) {
-      // Re-verify session status and continuation deadline if batch failed due to constraint
+      // Only inspect session status/deadline if the batch failed due to the guarded
+      // attemptInsertGuarded sentinel; never convert unrelated DB errors into 403.
+      if (!isAttemptConcurrencyConflict(error)) {
+        throw error;
+      }
+
       const currentSession = await repo.findSession(db, input.sessionId, await ownerOf(db, input.learnerId));
+      const postFailureNow = Math.max(decisionNow, readClock());
       if (!currentSession || currentSession.status !== "in_progress") {
         throw new GuardError("Phiên học đã kết thúc.", 403);
       }
-      if (currentSession.continuation_deadline !== null && input.now >= currentSession.continuation_deadline) {
+      if (currentSession.continuation_deadline !== null && postFailureNow >= currentSession.continuation_deadline) {
         throw new GuardError("Phiên học đã hết hạn gia hạn.", 403);
       }
 
-      if (!isAttemptConcurrencyConflict(error) || round >= MAX_CONCURRENCY_RETRIES) {
+      if (round >= MAX_CONCURRENCY_RETRIES) {
         throw error;
       }
     }

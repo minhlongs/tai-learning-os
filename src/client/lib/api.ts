@@ -48,7 +48,15 @@ function redirectToLogin(): void {
 async function request<T>(method: string, path: string, body?: unknown): Promise<ApiResult<T>> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const activeLearnerId = readActiveLearnerId();
+  const bodyLearnerId =
+    typeof body === "object" &&
+    body !== null &&
+    !Array.isArray(body) &&
+    typeof (body as { learnerId?: unknown }).learnerId === "string" &&
+    (body as { learnerId: string }).learnerId.trim().length > 0
+      ? (body as { learnerId: string }).learnerId.trim()
+      : null;
+  const activeLearnerId = bodyLearnerId ?? readActiveLearnerId();
   if (activeLearnerId) {
     headers["x-tlo-learner-id"] = activeLearnerId;
   }

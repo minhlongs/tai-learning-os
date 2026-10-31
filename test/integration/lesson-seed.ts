@@ -228,31 +228,47 @@ export async function seedLessons(
 
     if (canonical(lesson.id) === storedCanonical(existing, stepRows.results ?? [])) {
       const now = Date.now();
-      await db
-        .prepare(
-          `insert into lesson_metadata
-             (lesson_id, objective_id, provenance, source_ref, expected_duration_minutes, review_recommendation_vi, is_baseline, updated_at)
-           values (?, ?, ?, ?, ?, ?, ?, ?)
-           on conflict(lesson_id) do update set
-             objective_id = excluded.objective_id,
-             provenance = excluded.provenance,
-             source_ref = excluded.source_ref,
-             expected_duration_minutes = excluded.expected_duration_minutes,
-             review_recommendation_vi = excluded.review_recommendation_vi,
-             is_baseline = excluded.is_baseline,
-             updated_at = excluded.updated_at`,
-        )
-        .bind(
-          lesson.id,
-          lesson.objectiveId ?? null,
-          lesson.provenance ?? "original_supplemental",
-          lesson.sourceRef ?? null,
-          lesson.expectedDurationMinutes ?? 20,
-          lesson.reviewRecommendationVi ?? null,
-          lesson.isBaseline ? 1 : 0,
-          now,
-        )
-        .run();
+      await db.batch([
+        db
+          .prepare(
+            `insert or ignore into lesson_versions
+               (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+             values (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            lesson.id,
+            existing.version,
+            lesson.titleVi,
+            lesson.titleEn,
+            lesson.objectiveVi,
+            lesson.objectiveEn,
+            existing.updated_at || now,
+          ),
+        db
+          .prepare(
+            `insert into lesson_metadata
+               (lesson_id, objective_id, provenance, source_ref, expected_duration_minutes, review_recommendation_vi, is_baseline, updated_at)
+             values (?, ?, ?, ?, ?, ?, ?, ?)
+             on conflict(lesson_id) do update set
+               objective_id = excluded.objective_id,
+               provenance = excluded.provenance,
+               source_ref = excluded.source_ref,
+               expected_duration_minutes = excluded.expected_duration_minutes,
+               review_recommendation_vi = excluded.review_recommendation_vi,
+               is_baseline = excluded.is_baseline,
+               updated_at = excluded.updated_at`,
+          )
+          .bind(
+            lesson.id,
+            lesson.objectiveId ?? null,
+            lesson.provenance ?? "original_supplemental",
+            lesson.sourceRef ?? null,
+            lesson.expectedDurationMinutes ?? 20,
+            lesson.reviewRecommendationVi ?? null,
+            lesson.isBaseline ? 1 : 0,
+            now,
+          ),
+      ]);
       unchanged += 1;
       continue;
     }
@@ -309,6 +325,26 @@ async function writeLesson(db: D1Database, lessonId: string, version: number): P
         lesson.gradeTo,
         version,
         now,
+        now,
+      ),
+    db
+      .prepare(
+        `insert into lesson_versions
+           (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+         values (?, ?, ?, ?, ?, ?, ?)
+         on conflict(lesson_id, version) do update set
+           title_vi = excluded.title_vi,
+           title_en = excluded.title_en,
+           objective_vi = excluded.objective_vi,
+           objective_en = excluded.objective_en`,
+      )
+      .bind(
+        lesson.id,
+        version,
+        lesson.titleVi,
+        lesson.titleEn,
+        lesson.objectiveVi,
+        lesson.objectiveEn,
         now,
       ),
     ...lesson.steps.map((step) =>

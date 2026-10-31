@@ -35,6 +35,7 @@ export type ExportBody = {
   curriculumObjectives?: CurriculumObjectiveExport[];
   curriculumIntakes?: CurriculumIntakeExport[];
   lessons: LessonExport[];
+  lessonVersions?: LessonVersionExport[];
   lessonSteps: LessonStepExport[];
   lessonMetadata?: LessonMetadataExport[];
   reviewApprovals: ReviewApprovalExport[];
@@ -101,6 +102,16 @@ export type LessonExport = WithId & {
   version: number;
   createdAt: number;
   updatedAt: number;
+};
+
+export type LessonVersionExport = {
+  lessonId: string;
+  version: number;
+  titleVi: string;
+  titleEn: string;
+  objectiveVi: string;
+  objectiveEn: string;
+  createdAt: number;
 };
 
 export type LessonStepExport = WithId & {
@@ -538,9 +549,12 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
   }
 
   // Provenance cross-check: attempts must not violate first-attempt or hint-floor rules,
-  // and skillEvidence must not claim higher independentCount than observed correct attempts.
+  // and skillEvidence must not claim higher independentCount or competency state than derived from attempts.
   const attemptsByLearnerStep = new Map<string, LearningAttemptExport[]>();
   const observedCorrectByLearnerSkill = new Map<string, number>();
+  const transferStepIds = new Set(
+    data.lessonSteps.filter((s) => s.kind === "transfer").map((s) => s.id),
+  );
 
   for (const attempt of data.learningAttempts) {
     if (!exportedLearnerIds.has(attempt.learnerId)) {
@@ -596,6 +610,29 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       if (row.independentCount > maxObserved) {
         errors.push(
           `Bằng chứng kỹ năng ${row.skillId} khai báo số lượt độc lập (${row.independentCount}) vượt quá số lượt làm đúng độc lập thực tế (${maxObserved}).`,
+        );
+      }
+      const skillAttempts = data.learningAttempts.filter(
+        (a) => a.learnerId === row.learnerId && a.skillId === row.skillId,
+      );
+      const anyObservedCorrect = maxObserved >= 1;
+      const anyObservedTransfer = skillAttempts.some(
+        (a) =>
+          a.outcome === "correct" &&
+          a.evidenceKind === "observed" &&
+          transferStepIds.has(a.stepId),
+      );
+      if (
+        (row.state === "INDEPENDENT" || row.state === "TRANSFERRED" || row.state === "RETAINED") &&
+        !anyObservedCorrect
+      ) {
+        errors.push(
+          `Bằng chứng kỹ năng ${row.skillId} khai báo trạng thái ${row.state} nhưng không có lượt làm đúng độc lập (observed).`,
+        );
+      }
+      if ((row.state === "TRANSFERRED" || row.state === "RETAINED") && !anyObservedTransfer) {
+        errors.push(
+          `Bằng chứng kỹ năng ${row.skillId} khai báo trạng thái ${row.state} nhưng không có lượt làm đúng độc lập ở bước vận dụng (transfer).`,
         );
       }
     }

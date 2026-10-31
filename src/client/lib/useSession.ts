@@ -25,6 +25,7 @@ export type SessionState = {
   error: ApiFailure | null;
   reload: () => void;
   updateSession: (info: SessionInfo) => void;
+  selectLearner: (learnerId: string) => void;
 };
 
 function syncLearnerStore(info: SessionInfo): void {
@@ -89,5 +90,18 @@ export function useSession(): SessionState {
     setError(null);
   }, []);
 
-  return { loading, session, error, reload, updateSession };
+  const selectLearner = useCallback((learnerId: string) => {
+    setActiveLearnerId(learnerId);
+    setSession((current) => {
+      const target = (current.learners ?? []).find((l) => l.id === learnerId);
+      if (!target) return current;
+      return {
+        ...current,
+        learner: { id: target.id, nickname: target.nickname },
+      };
+    });
+    setNonce((n) => n + 1);
+  }, []);
+
+  return { loading, session, error, reload, updateSession, selectLearner };
 }

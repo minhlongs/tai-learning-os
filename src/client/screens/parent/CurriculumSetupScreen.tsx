@@ -8,12 +8,13 @@
  * registered for the grade.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CurriculumGetResponse,
   ProvenanceType,
   UpsertCurriculumIntakeRequest,
 } from "../../../shared/api-contract";
+import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
 import { useSessionContext } from "../../lib/SessionProvider";
@@ -56,6 +57,15 @@ export function CurriculumSetupScreen({
   const [materialReference, setMaterialReference] = useState("");
   const [learningGoalsVi, setLearningGoalsVi] = useState("");
   const [provenance, setProvenance] = useState<ProvenanceType>("unverified_assumption");
+  const mountedRef = useRef(true);
+  const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const syncFormForSubject = useCallback(
     (payload: CurriculumGetResponse, subjectId: string) => {
@@ -88,17 +98,25 @@ export function CurriculumSetupScreen({
   );
 
   const loadCurriculum = useCallback(() => {
+    const seq = ++requestSeqRef.current;
+    const expectedLearnerId = session.learner?.id ?? readActiveLearnerId();
     void api.get<CurriculumGetResponse>(endpoints.curriculum).then((result) => {
+      if (!mountedRef.current || requestSeqRef.current !== seq) return;
+      const currentActive = readActiveLearnerId();
+      if (expectedLearnerId && currentActive && currentActive !== expectedLearnerId) return;
       setLoading(false);
       if (!result.ok) {
         setError(failureMessage(result.failure));
+        return;
+      }
+      if (expectedLearnerId && result.value.learnerId && result.value.learnerId !== expectedLearnerId) {
         return;
       }
       setData(result.value);
       setError(null);
       syncFormForSubject(result.value, selectedSubject);
     });
-  }, [selectedSubject, syncFormForSubject]);
+  }, [selectedSubject, session.learner?.id, syncFormForSubject]);
 
   useEffect(() => {
     loadCurriculum();
@@ -114,9 +132,11 @@ export function CurriculumSetupScreen({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
+    const targetLearnerId = data?.learnerId ?? session.learner?.id ?? readActiveLearnerId();
     setSaving(true);
     setStatusNote(null);
     const body: UpsertCurriculumIntakeRequest = {
+      learnerId: targetLearnerId ?? undefined,
       schoolYearLabel: schoolYearLabel.trim() || "2026-2027",
       grade,
       subjectId: selectedSubject,
@@ -132,6 +152,8 @@ export function CurriculumSetupScreen({
     void api
       .post<{ ok: true; intakeId: string }>(endpoints.curriculum, body)
       .then((result) => {
+        if (!mountedRef.current) return;
+        if (targetLearnerId && readActiveLearnerId() && readActiveLearnerId() !== targetLearnerId) return;
         setSaving(false);
         if (!result.ok) {
           setStatusNote({ tone: "error", text: failureMessage(result.failure) });

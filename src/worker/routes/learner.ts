@@ -43,7 +43,9 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** A resolved learner, or the response that explains why there is none. */
-type LearnerResult = { learner: LearnerRow } | { response: Response };
+type LearnerResult =
+  | { learner: LearnerRow; explicitlyRequested: boolean }
+  | { response: Response; explicitlyRequested: boolean };
 
 async function currentLearner(context: HandlerContext, explicitLearnerId?: string | null): Promise<LearnerResult> {
   const targetId =
@@ -54,16 +56,19 @@ async function currentLearner(context: HandlerContext, explicitLearnerId?: strin
   if (targetId) {
     const learner = await repo.findLearnerForParent(context.env.DB, targetId, context.parent.parentId);
     if (!learner) {
-      return { response: notFound("Không tìm thấy hồ sơ người học.") };
+      return { response: notFound("Không tìm thấy hồ sơ người học."), explicitlyRequested: true };
     }
-    return { learner };
+    return { learner, explicitlyRequested: true };
   }
 
   const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
   if (!learner) {
-    return { response: notFound("Chưa có hồ sơ người học. Phụ huynh vui lòng tạo hồ sơ trước.") };
+    return {
+      response: notFound("Chưa có hồ sơ người học. Phụ huynh vui lòng tạo hồ sơ trước."),
+      explicitlyRequested: false,
+    };
   }
-  return { learner };
+  return { learner, explicitlyRequested: false };
 }
 
 /* ── GET /api/learner/home ─────────────────────────────────────────────────── */
@@ -71,6 +76,9 @@ async function currentLearner(context: HandlerContext, explicitLearnerId?: strin
 export const getLearnerHome: Handler = async (context) => {
   const resolved = await currentLearner(context);
   if ("response" in resolved) {
+    if (resolved.explicitlyRequested) {
+      return resolved.response;
+    }
     // No learner enrolled yet: an honest empty home, never a fabricated one.
     return ok<LearnerHomeResponse>({
       learner: { id: "", nickname: "" },
@@ -161,30 +169,40 @@ export const getLearnerHome: Handler = async (context) => {
     inProgress?.continuation_deadline !== undefined &&
     now >= inProgress.continuation_deadline;
   const inProgressLesson = inProgress && !isContinuationExpired ? lessonById.get(inProgress.lesson_id) : null;
+  const inProgressSnapshot =
+    inProgress && inProgressLesson
+      ? await repo.findLessonVersion(context.env.DB, inProgress.lesson_id, inProgress.lesson_version)
+      : null;
   const continueLesson = inProgress && inProgressLesson
     ? {
         sessionId: inProgress.id,
         lessonId: inProgress.lesson_id,
-        titleVi: inProgressLesson.title_vi,
+        titleVi: inProgressSnapshot?.title_vi ?? inProgressLesson.title_vi,
         subjectId: inProgressLesson.subject_id,
         stepPosition: inProgress.steps_seen,
       }
     : null;
 
-  const completedSessions = sessions
+  const completedSessionCandidates = sessions
     .filter((s) => s.status === "completed")
-    .slice(0, 10)
-    .map((s) => {
-      const tally = perSession.get(s.id);
-      return {
-        sessionId: s.id,
-        lessonTitleVi: lessonById.get(s.lesson_id)?.title_vi ?? s.lesson_id,
-        subjectId: lessonById.get(s.lesson_id)?.subject_id ?? "",
-        completedAt: s.ended_at ?? s.started_at,
-        correctCount: tally?.correct ?? 0,
-        attemptedCount: tally?.attempted ?? 0,
-      };
-    });
+    .slice(0, 10);
+  const completedSnapshots = await Promise.all(
+    completedSessionCandidates.map((s) =>
+      repo.findLessonVersion(context.env.DB, s.lesson_id, s.lesson_version),
+    ),
+  );
+  const completedSessions = completedSessionCandidates.map((s, idx) => {
+    const tally = perSession.get(s.id);
+    const snapshot = completedSnapshots[idx];
+    return {
+      sessionId: s.id,
+      lessonTitleVi: snapshot?.title_vi ?? lessonById.get(s.lesson_id)?.title_vi ?? s.lesson_id,
+      subjectId: lessonById.get(s.lesson_id)?.subject_id ?? "",
+      completedAt: s.ended_at ?? s.started_at,
+      correctCount: tally?.correct ?? 0,
+      attemptedCount: tally?.attempted ?? 0,
+    };
+  });
 
   return ok<LearnerHomeResponse>({
     learner: { id: learner.id, nickname: learner.nickname },
@@ -207,6 +225,9 @@ export const getLearnerHome: Handler = async (context) => {
 /** Subjects and their approved lessons. Inactive subjects are labelled as such. */
 export const listSubjectsForLearner: Handler = async (context) => {
   const resolved = await currentLearner(context);
+  if ("response" in resolved && resolved.explicitlyRequested) {
+    return resolved.response;
+  }
   const learnerId = "learner" in resolved ? resolved.learner.id : null;
 
   const [subjects, lessons, approvals, assignedOrgLessonIds, allOrgLessonIds] = await Promise.all([
@@ -270,23 +291,43 @@ export const startSession: Handler = async (context) => {
   const now = Date.now();
   const existing = await repo.findInProgressSessionForLearner(context.env.DB, learner.id);
 
-  // If there is an existing in_progress session for this lesson, check if it's within the continuation window
+  // If there is an existing in_progress session for this lesson, check if it's within the continuation window.
+  // If its continuation deadline has already expired, do NOT block starting a fresh session if the parent
+  // has re-approved the lesson; fall through to the new-session authorization check below, which will
+  // atomically mark `existing` as `abandoned` when starting the new authorized session. If the lesson is
+  // NOT currently approved, the new-session check below will reject with 403 Forbidden.
   if (existing && existing.lesson_id === lesson.id) {
-    if (existing.continuation_deadline !== null && existing.continuation_deadline !== undefined) {
-      if (now >= existing.continuation_deadline) {
+    const isExpired =
+      existing.continuation_deadline !== null &&
+      existing.continuation_deadline !== undefined &&
+      now >= existing.continuation_deadline;
+
+    if (!isExpired) {
+      const [rawSteps, versionSnapshot] = await Promise.all([
+        loadStepContexts(context.env.DB, existing.lesson_id, existing.lesson_version),
+        repo.findLessonVersion(context.env.DB, existing.lesson_id, existing.lesson_version),
+      ]);
+      const sessionSteps = toStepPayloads(rawSteps);
+      if (!sessionSteps) return serverError();
+
+      // Re-verify session status and continuation deadline right before returning resumed payload
+      const refreshed = await repo.findSession(context.env.DB, existing.id, context.parent.parentId);
+      const resumeDecisionNow = Date.now();
+      if (!refreshed || refreshed.status !== "in_progress") {
+        return forbidden("Phiên học đã kết thúc.");
+      }
+      if (refreshed.continuation_deadline !== null && resumeDecisionNow >= refreshed.continuation_deadline) {
         return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
       }
-    }
-    const sessionSteps = toStepPayloads(await loadStepContexts(context.env.DB, existing.lesson_id, existing.lesson_version));
-    if (!sessionSteps) return serverError();
 
-    return ok<StartSessionResponse>({
-      sessionId: existing.id,
-      lessonId: existing.lesson_id,
-      lessonTitleVi: lesson.title_vi,
-      subjectId: lesson.subject_id,
-      steps: sessionSteps,
-    });
+      return ok<StartSessionResponse>({
+        sessionId: existing.id,
+        lessonId: existing.lesson_id,
+        lessonTitleVi: versionSnapshot?.title_vi ?? lesson.title_vi,
+        subjectId: lesson.subject_id,
+        steps: sessionSteps,
+      });
+    }
   }
 
   // To start a NEW session (or start a different lesson): check strict approval for (learner.id, lesson.id, lesson.version)
@@ -314,7 +355,11 @@ export const startSession: Handler = async (context) => {
   }
 
   // Checked before any session row is written, so a broken lesson leaves nothing behind to resume.
-  const steps = toStepPayloads(await loadStepContexts(context.env.DB, lesson.id, lesson.version));
+  const [rawNewSteps, newVersionSnapshot] = await Promise.all([
+    loadStepContexts(context.env.DB, lesson.id, lesson.version),
+    repo.findLessonVersion(context.env.DB, lesson.id, lesson.version),
+  ]);
+  const steps = toStepPayloads(rawNewSteps);
   if (!steps) return serverError();
 
   const schoolYearId = await resolveSchoolYear(context, learner);
@@ -367,7 +412,7 @@ export const startSession: Handler = async (context) => {
   return ok<StartSessionResponse>({
     sessionId,
     lessonId: lesson.id,
-    lessonTitleVi: lesson.title_vi,
+    lessonTitleVi: newVersionSnapshot?.title_vi ?? lesson.title_vi,
     subjectId: lesson.subject_id,
     steps,
   });
@@ -572,7 +617,12 @@ export const finalizeSession: Handler = async (context) => {
     return forbidden("Phiên học không thuộc về người học này.");
   }
 
-  const now = Date.now();
+  if (session.continuation_deadline !== null && session.continuation_deadline !== undefined) {
+    if (Date.now() >= session.continuation_deadline) {
+      return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+    }
+  }
+
   const attempts = await repo.listAttemptsForSession(context.env.DB, session.id);
   const reviewRows = await repo.listReviewScheduleForLearner(context.env.DB, learner.id);
 
@@ -605,27 +655,42 @@ export const finalizeSession: Handler = async (context) => {
   let status = session.status;
   if (session.status === "in_progress") {
     status = "completed";
-    await context.env.DB.batch([
-      repo.finalizeSessionUpdate(context.env.DB, {
-        sessionId: session.id,
-        status,
-        stepsSeen: stepsCompleted,
-        endedAt: now,
-      }),
-      repo.auditInsert(context.env.DB, {
-        id: crypto.randomUUID(),
-        actor: `parent:${context.parent.parentId}`,
-        action: "session.completed",
-        subject: session.id,
-        detail: JSON.stringify({
-          lessonId: session.lesson_id,
-          attempted: attempts.length,
-          correct: correctCount,
-          assisted: assistedCount,
+    const commitNow = Date.now();
+    if (session.continuation_deadline !== null && commitNow >= session.continuation_deadline) {
+      return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+    }
+    try {
+      await context.env.DB.batch([
+        repo.finalizeSessionUpdateGuarded(context.env.DB, {
+          sessionId: session.id,
+          learnerId: learner.id,
+          status,
+          stepsSeen: stepsCompleted,
+          endedAt: commitNow,
+          decisionNow: commitNow,
         }),
-        now,
-      }),
-    ]);
+        repo.finalizeSessionAuditInsertGuarded(context.env.DB, {
+          id: crypto.randomUUID(),
+          actor: `parent:${context.parent.parentId}`,
+          sessionId: session.id,
+          learnerId: learner.id,
+          detail: JSON.stringify({
+            lessonId: session.lesson_id,
+            attempted: attempts.length,
+            correct: correctCount,
+            assisted: assistedCount,
+          }),
+          now: commitNow,
+          decisionNow: commitNow,
+        }),
+      ]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("NOT NULL constraint failed: audit_events.action")) {
+        return forbidden("Phiên học đã kết thúc hoặc đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+      }
+      return serverError();
+    }
   }
 
   return ok<FinalizeSessionResponse>({

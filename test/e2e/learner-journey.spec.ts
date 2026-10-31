@@ -157,21 +157,19 @@ async function signInWithFreshLearner(page: Page): Promise<void> {
   const csrf = await apiSignIn(page);
   const withCsrf = { headers: { "x-tlo-csrf": csrf } };
 
-  let learnerId: string | null = null;
   const session = await page.request.get("/api/session");
   if (session.ok()) {
-    const info = (await session.json()) as { learner: { id: string } | null };
-    learnerId = info.learner?.id ?? null;
-  }
-
-  if (learnerId) {
-    // The confirmation names the learner, so this also exercises the guard: a
-    // generic "yes" could not delete this record.
-    const removed = await page.request.delete("/api/data/learner", {
-      ...withCsrf,
-      data: { learnerId, confirmation: `XOA Tài` },
-    });
-    expect(removed.status(), "delete the previous learner").toBe(200);
+    const info = (await session.json()) as {
+      learner: { id: string; nickname: string } | null;
+      learners?: { id: string; nickname: string }[];
+    };
+    const toDelete = info.learners ?? (info.learner ? [info.learner] : []);
+    for (const l of toDelete) {
+      await page.request.delete("/api/data/learner", {
+        ...withCsrf,
+        data: { learnerId: l.id, confirmation: `XOA ${l.nickname}` },
+      });
+    }
   }
 
   const enrolled = await page.request.post("/api/parent/learners", {

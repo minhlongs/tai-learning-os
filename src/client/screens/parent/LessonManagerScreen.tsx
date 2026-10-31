@@ -33,6 +33,7 @@ import type {
   SetApprovalResponse,
 } from "../../../shared/api-contract";
 import type { ApprovalStatus } from "../../../shared/schemas/attempt";
+import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { useSessionContext } from "../../lib/SessionProvider";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
@@ -99,7 +100,7 @@ const STEP_KIND_LABELS: Record<string, string> = {
 };
 
 /** A refusal awaiting the parent's confirmation. One lesson at a time. */
-type PendingRefusal = { lessonId: string; titleVi: string };
+type PendingRefusal = { lessonId: string; titleVi: string; learnerId: string | null };
 
 export function LessonManagerScreen({
   onNavigate,
@@ -107,6 +108,15 @@ export function LessonManagerScreen({
   onNavigate: (to: string) => void;
 }): React.JSX.Element {
   const { session } = useSessionContext();
+  const mountedRef = useRef(true);
+  const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const [lessons, setLessons] = useState<readonly LessonRow[]>([]);
   const [listError, setListError] = useState<string | null>(null);
@@ -138,7 +148,16 @@ export function LessonManagerScreen({
   // ever has to CLEAR the spinner. Turning it on would setState synchronously
   // inside the effect, which React flags as a cascading-render risk.
   const loadLessons = useCallback(() => {
+    const seq = ++requestSeqRef.current;
+    const expectedLearnerId = session.learner?.id ?? readActiveLearnerId();
+    const isStale = () => {
+      if (!mountedRef.current || requestSeqRef.current !== seq) return true;
+      const currentActive = readActiveLearnerId();
+      return Boolean(expectedLearnerId && currentActive && currentActive !== expectedLearnerId);
+    };
+
     void api.get<LessonListResponse>(endpoints.lessons).then((result) => {
+      if (isStale()) return;
       if (result.ok) {
         setLessons(result.value.lessons);
         setListError(null);
@@ -148,15 +167,18 @@ export function LessonManagerScreen({
       setListLoading(false);
     });
     void api.get<LearnerConsentListResponse>(endpoints.consents).then((res) => {
+      if (isStale()) return;
       if (res.ok) setConsents(res.value.consents);
     });
     void api.get<{ organizations: { id: string; name: string }[] }>(endpoints.consentOrganizations).then((res) => {
+      if (isStale()) return;
       if (res.ok) setConsentOrgs(res.value.organizations);
     });
     void api.get<ClassroomLessonListResponse>(endpoints.classroomLessons).then((res) => {
+      if (isStale()) return;
       if (res.ok) setClassroomLessons(res.value.lessons);
     });
-  }, []);
+  }, [session.learner?.id]);
 
   useEffect(() => {
     loadLessons();
@@ -199,48 +221,54 @@ export function LessonManagerScreen({
    * echoes the status it stored, so the list stays truthful without a second
    * request that could race the first.
    */
-  const approve = useCallback((lesson: LessonRow) => {
-    setActionNote(null);
-    setBusyLessonId(lesson.id);
-    const body: SetApprovalRequest = { lessonId: lesson.id, status: "approved" };
-    void api.post<SetApprovalResponse>(endpoints.setApproval, body).then((result) => {
-      setBusyLessonId(null);
-      if (!result.ok) {
-        setActionNote({ tone: "error", text: failureMessage(result.failure) });
-        return;
-      }
-      const status = result.value.status;
-      setLessons((current) =>
-        current.map((row) =>
-          row.id === lesson.id
-            ? // An approval now covers the current content, so the stale flag
-              // is cleared with it. Deriving it here keeps the two consistent.
-              { ...row, approvalStatus: status, pendingReapproval: false }
-            : row,
-        ),
-      );
-      setActionNote({ tone: "ok", text: `Đã duyệt “${lesson.titleVi}”.` });
-    });
-  }, []);
+  const approve = useCallback(
+    (lesson: LessonRow) => {
+      const targetLearnerId = session.learner?.id ?? readActiveLearnerId();
+      setActionNote(null);
+      setBusyLessonId(lesson.id);
+      const body: SetApprovalRequest = {
+        lessonId: lesson.id,
+        status: "approved",
+        learnerId: targetLearnerId ?? undefined,
+        version: lesson.version,
+      };
+      void api.post<SetApprovalResponse>(endpoints.setApproval, body).then((result) => {
+        if (!mountedRef.current) return;
+        if (targetLearnerId && readActiveLearnerId() && readActiveLearnerId() !== targetLearnerId) return;
+        setBusyLessonId(null);
+        if (!result.ok) {
+          setActionNote({ tone: "error", text: failureMessage(result.failure) });
+          return;
+        }
+        const status = result.value.status;
+        setLessons((current) =>
+          current.map((row) =>
+            row.id === lesson.id
+              ? { ...row, approvalStatus: status, pendingReapproval: false }
+              : row,
+          ),
+        );
+        setActionNote({ tone: "ok", text: `Đã duyệt “${lesson.titleVi}”.` });
+      });
+    },
+    [session.learner?.id],
+  );
 
-  /**
-   * Refuse only after the inline confirmation panel is submitted.
-   *
-   * The note is optional at the API but requested here, because a refusal the
-   * parent cannot explain to themselves next week is a decision they will
-   * silently undo. It is not made a hard requirement.
-   */
   const submitRefusal = useCallback(
     (lessonId: string, status: ApprovalStatus, note: string) => {
       const title = refusal?.titleVi ?? "";
+      const targetLearnerId = refusal?.learnerId ?? session.learner?.id ?? readActiveLearnerId();
       setActionNote(null);
       setBusyLessonId(lessonId);
       const body: SetApprovalRequest = {
         lessonId,
         status,
+        learnerId: targetLearnerId ?? undefined,
         note: note.trim().length === 0 ? undefined : note.trim(),
       };
       void api.post<SetApprovalResponse>(endpoints.setApproval, body).then((result) => {
+        if (!mountedRef.current) return;
+        if (targetLearnerId && readActiveLearnerId() && readActiveLearnerId() !== targetLearnerId) return;
         setBusyLessonId(null);
         setRefusal(null);
         if (!result.ok) {
@@ -260,7 +288,7 @@ export function LessonManagerScreen({
         });
       });
     },
-    [refusal],
+    [refusal, session.learner?.id],
   );
 
   const handleGrantConsent = useCallback(
@@ -452,7 +480,11 @@ export function LessonManagerScreen({
                                   className="btn btn--danger"
                                   disabled={busy}
                                   onClick={() =>
-                                    setRefusal({ lessonId: lesson.id, titleVi: lesson.titleVi })
+                                    setRefusal({
+                                      lessonId: lesson.id,
+                                      titleVi: lesson.titleVi,
+                                      learnerId: session.learner?.id ?? readActiveLearnerId(),
+                                    })
                                   }
                                 >
                                   Từ chối
