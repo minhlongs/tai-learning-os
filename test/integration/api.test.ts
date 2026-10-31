@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { getPlatformProxy } from "wrangler";
 import { resetData } from "./reset-data";
+import { openTestDatabase, type TestProxy } from "./test-db";
 
 /**
  * The real Worker, driven through its real fetch handler, against a real D1.
@@ -30,7 +30,7 @@ const TEST_SECRET = "integration-only-not-a-real-secret-value";
 
 let worker: { fetch: typeof fetch };
 let env: { DB: D1Database };
-let proxy: Awaited<ReturnType<typeof getPlatformProxy>>;
+let proxy: TestProxy;
 
 let callSeq = 0;
 
@@ -98,8 +98,8 @@ async function login(password: string): Promise<Response> {
 }
 
 beforeAll(async () => {
-  proxy = await getPlatformProxy<{ DB: D1Database }>();
-  env = proxy.env;
+  proxy = await openTestDatabase();
+  env = proxy.env as unknown as { DB: D1Database };
   worker = (await import("../../src/worker/index")).default as unknown as {
     fetch: typeof fetch;
   };
@@ -107,7 +107,7 @@ beforeAll(async () => {
   // A known starting state. A parent row left over from an earlier run would
   // make the first-run bootstrap test pass for the wrong reason — it would be
   // proving the route refused, not that it created. Clearing the data (never the
-  // schema) makes the suite repeatable on the same local database.
+  // schema) makes the suite repeatable on the dedicated test database.
   await resetData(env.DB as unknown as D1Database);
 });
 

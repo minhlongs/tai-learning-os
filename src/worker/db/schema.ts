@@ -84,7 +84,9 @@ export type LessonStepRow = {
 
 export type ReviewApprovalRow = {
   id: string;
+  learner_id: string | null;
   lesson_id: string;
+  lesson_version: number;
   status: ApprovalStatus;
   decided_by: string;
   decided_at: number;
@@ -101,6 +103,7 @@ export type LearningSessionRow = {
   ended_at: number | null;
   status: SessionStatus;
   steps_seen: number;
+  continuation_deadline: number | null;
 };
 
 export type LearningAttemptRow = {
@@ -261,4 +264,86 @@ export type SessionReflectionRow = {
   note_vi: string | null;
   created_at: number;
 };
+
+export type OrganizationRole = "owner" | "admin" | "teacher";
+
+export type OrganizationRow = {
+  id: string;
+  slug: string;
+  name: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type OrganizationMemberRow = {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: OrganizationRole;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ClassroomRow = {
+  id: string;
+  organization_id: string;
+  name: string;
+  grade: number | null;
+  subject_id: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ClassroomTeacherRow = {
+  classroom_id: string;
+  teacher_id: string;
+  created_at: number;
+};
+
+export type ConsentStatus = "active" | "revoked";
+
+export type LearnerConsentRow = {
+  id: string;
+  organization_id: string;
+  learner_id: string;
+  granted_by: string;
+  status: ConsentStatus;
+  granted_at: number;
+  revoked_at: number | null;
+};
+
+export type EnrollmentStatus = "enrolled" | "withdrawn";
+
+export type ClassroomEnrollmentRow = {
+  id: string;
+  classroom_id: string;
+  learner_id: string;
+  status: EnrollmentStatus;
+  created_at: number;
+  updated_at: number;
+};
+
+export type CenterReviewStatus = "draft" | "submitted" | "org_approved" | "org_rejected";
+
+export type OrganizationLessonRow = {
+  lesson_id: string;
+  organization_id: string;
+  author_id: string;
+  review_status: CenterReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: number | null;
+  review_note: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ClassroomLessonAssignmentRow = {
+  id: string;
+  classroom_id: string;
+  lesson_id: string;
+  assigned_by: string;
+  assigned_at: number;
+  due_at: number | null;
+};
+
 

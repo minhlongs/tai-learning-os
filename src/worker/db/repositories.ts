@@ -11,6 +11,8 @@
  *  2. No `SELECT *`. Columns are named, so a schema change surfaces here.
  */
 
+import type { D1PreparedStatement } from "@cloudflare/workers-types";
+import { clampHelp } from "../../shared/schemas/answer";
 import type {
   ApprovalStatus,
   CompetencyState,
@@ -38,6 +40,12 @@ import type {
   LearningAttemptRow,
   LearningSessionRow,
   LearningGoalRow,
+  OrganizationRow,
+  OrganizationMemberRow,
+  OrganizationLessonRow,
+  ClassroomRow,
+  LearnerConsentRow,
+  OrganizationRole,
 } from "./schema";
 
 export type Db = D1Database;
@@ -130,6 +138,21 @@ export async function findFirstLearnerForParent(db: Db, parentId: string): Promi
   return row ?? null;
 }
 
+export async function findLearnerForParent(
+  db: Db,
+  learnerId: string,
+  parentId: string,
+): Promise<LearnerRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at, archived_at
+       FROM learners WHERE id = ?1 AND parent_id = ?2 AND archived_at IS NULL`,
+    )
+    .bind(learnerId, parentId)
+    .first<LearnerRow>();
+  return row ?? null;
+}
+
 export async function createLearner(
   db: Db,
   input: {
@@ -183,6 +206,9 @@ export async function deleteLearnerCascade(
   input: { learnerId: string; parentId: string },
 ): Promise<void> {
   const statements: D1PreparedStatement[] = [
+    db.prepare("DELETE FROM classroom_enrollments WHERE learner_id = ?1"),
+    db.prepare("DELETE FROM learner_consents WHERE learner_id = ?1"),
+    db.prepare("DELETE FROM review_approvals WHERE learner_id = ?1"),
     db.prepare("DELETE FROM session_reflections WHERE learner_id = ?1"),
     db.prepare("DELETE FROM learning_plan_items WHERE learner_id = ?1"),
     db.prepare("DELETE FROM baseline_assessments WHERE learner_id = ?1"),
@@ -318,23 +344,64 @@ export async function findLesson(db: Db, lessonId: string): Promise<LessonRow | 
   return row ?? null;
 }
 
-export async function listApprovalStatuses(db: Db): Promise<Record<string, ApprovalStatus>> {
-  const result = await db
-    .prepare("SELECT lesson_id, status FROM review_approvals")
-    .all<{ lesson_id: string; status: ApprovalStatus }>();
+export async function listApprovalStatuses(
+  db: Db,
+  decidedBy?: string,
+  learnerId?: string | null,
+): Promise<Record<string, ApprovalStatus>> {
+  if (learnerId === null || (learnerId !== undefined && learnerId.trim().length === 0)) {
+    return {};
+  }
+  let query = `
+    SELECT ra.lesson_id, ra.status, ra.learner_id
+    FROM review_approvals ra
+    JOIN lessons l ON l.id = ra.lesson_id AND ra.lesson_version = l.version
+    WHERE 1=1
+  `;
+  const binds: (string | number)[] = [];
+  if (decidedBy) {
+    binds.push(decidedBy);
+    query += ` AND ra.decided_by = ?${binds.length}`;
+  }
+  if (learnerId !== undefined) {
+    binds.push(learnerId);
+    query += ` AND ra.learner_id = ?${binds.length}`;
+  } else {
+    query += " AND ra.learner_id IS NOT NULL";
+  }
+  const result = binds.length > 0
+    ? await db.prepare(query).bind(...binds).all<{ lesson_id: string; status: ApprovalStatus; learner_id: string | null }>()
+    : await db.prepare(query).all<{ lesson_id: string; status: ApprovalStatus; learner_id: string | null }>();
   const map: Record<string, ApprovalStatus> = {};
-  for (const row of result.results ?? []) map[row.lesson_id] = row.status;
+  for (const row of result.results ?? []) {
+    map[row.lesson_id] = row.status;
+  }
   return map;
 }
 
-export async function listStepsForLesson(db: Db, lessonId: string): Promise<LessonStepRow[]> {
-  const result = await db
-    .prepare(
-      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
-       FROM lesson_steps WHERE lesson_id = ?1 ORDER BY position ASC`,
-    )
-    .bind(lessonId)
-    .all<LessonStepRow>();
+export async function listStepsForLesson(
+  db: Db,
+  lessonId: string,
+  contentVersion?: number,
+): Promise<LessonStepRow[]> {
+  const result = contentVersion !== undefined
+    ? await db
+        .prepare(
+          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
+           FROM lesson_steps WHERE lesson_id = ?1 AND content_version = ?2 ORDER BY position ASC`,
+        )
+        .bind(lessonId, contentVersion)
+        .all<LessonStepRow>()
+    : await db
+        .prepare(
+          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
+           FROM lesson_steps
+           WHERE lesson_id = ?1
+             AND content_version = (SELECT version FROM lessons WHERE id = ?1)
+           ORDER BY position ASC`,
+        )
+        .bind(lessonId)
+        .all<LessonStepRow>();
   return result.results ?? [];
 }
 
@@ -343,8 +410,10 @@ export async function findStepsForLessons(db: Db, lessonIds: readonly string[]):
   const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
   const result = await db
     .prepare(
-      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
-       FROM lesson_steps WHERE lesson_id IN (${placeholders}) ORDER BY lesson_id, position ASC`,
+      `SELECT ls.id, ls.lesson_id, ls.position, ls.kind, ls.content, ls.answer_key, ls.explanation_vi, ls.content_version
+       FROM lesson_steps ls
+       JOIN lessons l ON l.id = ls.lesson_id AND ls.content_version = l.version
+       WHERE ls.lesson_id IN (${placeholders}) ORDER BY ls.lesson_id, ls.position ASC`,
     )
     .bind(...lessonIds)
     .all<LessonStepRow>();
@@ -369,33 +438,195 @@ export async function listTransferStepIds(db: Db): Promise<Set<string>> {
   return new Set((result.results ?? []).map((r) => r.id));
 }
 
-export async function getApproval(db: Db, lessonId: string): Promise<ReviewApprovalRow | null> {
-  const row = await db
-    .prepare("SELECT id, lesson_id, status, decided_by, decided_at, note FROM review_approvals WHERE lesson_id = ?1")
-    .bind(lessonId)
-    .first<ReviewApprovalRow>();
+export async function getApproval(
+  db: Db,
+  lessonId: string,
+  options?: { learnerId?: string | null; version?: number },
+): Promise<ReviewApprovalRow | null> {
+  const learnerId = options?.learnerId !== undefined ? options.learnerId : undefined;
+  const version = options?.version;
+
+  let query = "SELECT id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note FROM review_approvals WHERE lesson_id = ?1";
+  const binds: (string | number)[] = [lessonId];
+
+  if (version !== undefined) {
+    binds.push(version);
+    query += ` AND lesson_version = ?${binds.length}`;
+  }
+
+  if (learnerId !== undefined) {
+    if (learnerId === null) {
+      query += " AND learner_id IS NULL";
+    } else {
+      binds.push(learnerId);
+      query += ` AND learner_id = ?${binds.length}`;
+    }
+  }
+
+  query += " ORDER BY lesson_version DESC LIMIT 1";
+
+  const row = await db.prepare(query).bind(...binds).first<ReviewApprovalRow>();
   return row ?? null;
+}
+
+export function setApprovalStatements(
+  db: Db,
+  input: {
+    id: string;
+    lessonId: string;
+    status: ApprovalStatus;
+    decidedBy: string;
+    note: string | null;
+    now: number;
+    learnerId?: string | null;
+    version?: number;
+  },
+): D1PreparedStatement[] {
+  const learnerId = input.learnerId ?? null;
+  const version = input.version ?? 1;
+
+  if (learnerId === null) {
+    return [
+      db
+        .prepare("DELETE FROM review_approvals WHERE lesson_id = ?1 AND lesson_version = ?2 AND learner_id IS NULL")
+        .bind(input.lessonId, version),
+      db
+        .prepare(
+          `INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
+           VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        )
+        .bind(input.id, input.lessonId, version, input.status, input.decidedBy, input.now, input.note),
+    ];
+  }
+
+  return [
+    db
+      .prepare(
+        `INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(learner_id, lesson_id, lesson_version) DO UPDATE SET
+           status = excluded.status,
+           decided_by = excluded.decided_by,
+           decided_at = excluded.decided_at,
+           note = excluded.note`,
+      )
+      .bind(input.id, learnerId, input.lessonId, version, input.status, input.decidedBy, input.now, input.note),
+  ];
 }
 
 export async function setApproval(
   db: Db,
-  input: { id: string; lessonId: string; status: ApprovalStatus; decidedBy: string; note: string | null; now: number },
+  input: {
+    id: string;
+    lessonId: string;
+    status: ApprovalStatus;
+    decidedBy: string;
+    note: string | null;
+    now: number;
+    learnerId?: string | null;
+    version?: number;
+  },
 ): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO review_approvals (id, lesson_id, status, decided_by, decided_at, note)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-       ON CONFLICT(lesson_id) DO UPDATE SET
-         status = excluded.status,
-         decided_by = excluded.decided_by,
-         decided_at = excluded.decided_at,
-         note = excluded.note`,
-    )
-    .bind(input.id, input.lessonId, input.status, input.decidedBy, input.now, input.note)
-    .run();
+  const stmts = setApprovalStatements(db, input);
+  if (stmts.length === 1) {
+    await stmts[0]!.run();
+  } else {
+    await db.batch(stmts);
+  }
 }
 
 /* ── Sessions ────────────────────────────────────────────────────────────── */
+
+export function createSessionInsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    lessonId: string;
+    lessonVersion: number;
+    schoolYearId: string | null;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO learning_sessions
+         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', 0)`,
+    )
+    .bind(input.id, input.learnerId, input.lessonId, input.lessonVersion, input.schoolYearId, input.now);
+}
+
+/**
+ * Concurrency-guarded session creation statement for `POST /api/learner/sessions`.
+ *
+ * Verifies at SQLite write time that:
+ *   1. The lesson is still at `input.lessonVersion`.
+ *   2. An explicit `approved` row in `review_approvals` exists for `(learnerId, lessonId, lessonVersion)`
+ *      decided by `input.parentId`.
+ *   3. If the lesson belongs to an organization (`organization_lessons`), its `review_status` is
+ *      `'org_approved'` and the learner has an active classroom assignment + active parent consent.
+ *
+ * If a concurrent revocation or version bump landed between the route's read check and the batch commit,
+ * `lesson_version` evaluates to `NULL` and aborts the batch with a `NOT NULL` constraint error.
+ */
+export function createSessionGuardedInsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    parentId: string;
+    lessonId: string;
+    lessonVersion: number;
+    schoolYearId: string | null;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO learning_sessions
+         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen)
+       VALUES (
+         ?1, ?2, ?3,
+         (
+           SELECT ?4
+           WHERE EXISTS (
+             SELECT 1 FROM lessons WHERE id = ?3 AND version = ?4
+           )
+           AND EXISTS (
+             SELECT 1 FROM review_approvals
+             WHERE learner_id = ?2
+               AND lesson_id = ?3
+               AND lesson_version = ?4
+               AND decided_by = ?7
+               AND status = 'approved'
+           )
+           AND (
+             NOT EXISTS (SELECT 1 FROM organization_lessons WHERE lesson_id = ?3)
+             OR EXISTS (
+               SELECT 1
+               FROM classroom_lesson_assignments cla
+               JOIN classrooms c ON c.id = cla.classroom_id
+               JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?2 AND ce.status = 'enrolled'
+               JOIN learner_consents lc ON lc.learner_id = ?2 AND lc.organization_id = c.organization_id AND lc.status = 'active'
+               JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'
+               WHERE cla.lesson_id = ?3
+             )
+           )
+         ),
+         ?5, ?6, 'in_progress', 0
+       )`,
+    )
+    .bind(
+      input.id,
+      input.learnerId,
+      input.lessonId,
+      input.lessonVersion,
+      input.schoolYearId,
+      input.now,
+      input.parentId,
+    );
+}
 
 export async function createSession(
   db: Db,
@@ -408,14 +639,7 @@ export async function createSession(
     now: number;
   },
 ): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO learning_sessions
-         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', 0)`,
-    )
-    .bind(input.id, input.learnerId, input.lessonId, input.lessonVersion, input.schoolYearId, input.now)
-    .run();
+  await createSessionInsert(db, input).run();
 }
 
 export async function findSession(
@@ -426,7 +650,7 @@ export async function findSession(
   const row = await db
     .prepare(
       `SELECT s.id, s.learner_id, s.lesson_id, s.lesson_version, s.school_year_id,
-              s.started_at, s.ended_at, s.status, s.steps_seen, l.parent_id
+              s.started_at, s.ended_at, s.status, s.steps_seen, s.continuation_deadline, l.parent_id
        FROM learning_sessions s
        JOIN learners l ON l.id = s.learner_id
        WHERE s.id = ?1 AND l.parent_id = ?2`,
@@ -442,7 +666,7 @@ export async function findInProgressSessionForLearner(
 ): Promise<LearningSessionRow | null> {
   const row = await db
     .prepare(
-      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline
        FROM learning_sessions WHERE learner_id = ?1 AND status = 'in_progress'
        ORDER BY started_at DESC LIMIT 1`,
     )
@@ -451,14 +675,20 @@ export async function findInProgressSessionForLearner(
   return row ?? null;
 }
 
+export function finalizeSessionUpdate(
+  db: Db,
+  input: { sessionId: string; status: SessionStatus; stepsSeen: number; endedAt: number },
+): D1PreparedStatement {
+  return db
+    .prepare("UPDATE learning_sessions SET status = ?1, steps_seen = ?2, ended_at = ?3 WHERE id = ?4")
+    .bind(input.status, input.stepsSeen, input.endedAt, input.sessionId);
+}
+
 export async function finalizeSession(
   db: Db,
   input: { sessionId: string; status: SessionStatus; stepsSeen: number; endedAt: number },
 ): Promise<void> {
-  await db
-    .prepare("UPDATE learning_sessions SET status = ?1, steps_seen = ?2, ended_at = ?3 WHERE id = ?4")
-    .bind(input.status, input.stepsSeen, input.endedAt, input.sessionId)
-    .run();
+  await finalizeSessionUpdate(db, input).run();
 }
 
 export async function listSessionsForLearner(
@@ -468,12 +698,107 @@ export async function listSessionsForLearner(
 ): Promise<LearningSessionRow[]> {
   const result = await db
     .prepare(
-      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline
        FROM learning_sessions WHERE learner_id = ?1 ORDER BY started_at DESC LIMIT ?2`,
     )
     .bind(learnerId, limit)
     .all<LearningSessionRow>();
   return result.results ?? [];
+}
+
+export const SESSION_CONTINUATION_GRACE_MS = 30 * 60 * 1000;
+
+/**
+ * Monotonically clamp the continuation_deadline on active sessions when authorization is lost.
+ * Never extends an existing deadline.
+ */
+export async function clampSessionContinuationDeadlines(
+  db: Db,
+  sessionIds: string[],
+  revokedAt: number,
+): Promise<void> {
+  if (sessionIds.length === 0) return;
+  const deadline = revokedAt + SESSION_CONTINUATION_GRACE_MS;
+  const placeholders = sessionIds.map((_, i) => `?${i + 2}`).join(",");
+  await db
+    .prepare(
+      `UPDATE learning_sessions
+       SET continuation_deadline = CASE
+         WHEN continuation_deadline IS NULL THEN ?1
+         WHEN continuation_deadline > ?1 THEN ?1
+         ELSE continuation_deadline
+       END
+       WHERE id IN (${placeholders}) AND status = 'in_progress'`,
+    )
+    .bind(deadline, ...sessionIds)
+    .run();
+}
+
+export function clampContinuationDeadlinesForLearnerLessonStatement(
+  db: Db,
+  input: { learnerId?: string | null; lessonId: string; revokedAt: number },
+): D1PreparedStatement {
+  const deadline = input.revokedAt + SESSION_CONTINUATION_GRACE_MS;
+  if (input.learnerId) {
+    return db
+      .prepare(
+        `UPDATE learning_sessions
+         SET continuation_deadline = CASE
+           WHEN continuation_deadline IS NULL THEN ?1
+           WHEN continuation_deadline > ?1 THEN ?1
+           ELSE continuation_deadline
+         END
+         WHERE learner_id = ?2 AND lesson_id = ?3 AND status = 'in_progress'`,
+      )
+      .bind(deadline, input.learnerId, input.lessonId);
+  }
+  return db
+    .prepare(
+      `UPDATE learning_sessions
+       SET continuation_deadline = CASE
+         WHEN continuation_deadline IS NULL THEN ?1
+         WHEN continuation_deadline > ?1 THEN ?1
+         ELSE continuation_deadline
+       END
+       WHERE lesson_id = ?2 AND status = 'in_progress'`,
+    )
+    .bind(deadline, input.lessonId);
+}
+
+export async function clampContinuationDeadlinesForLearnerLesson(
+  db: Db,
+  input: { learnerId?: string | null; lessonId: string; revokedAt: number },
+): Promise<void> {
+  await clampContinuationDeadlinesForLearnerLessonStatement(db, input).run();
+}
+
+export function clampContinuationDeadlinesForLearnerOrgStatement(
+  db: Db,
+  input: { learnerId: string; organizationId: string; revokedAt: number },
+): D1PreparedStatement {
+  const deadline = input.revokedAt + SESSION_CONTINUATION_GRACE_MS;
+  return db
+    .prepare(
+      `UPDATE learning_sessions
+       SET continuation_deadline = CASE
+         WHEN continuation_deadline IS NULL THEN ?1
+         WHEN continuation_deadline > ?1 THEN ?1
+         ELSE continuation_deadline
+       END
+       WHERE learner_id = ?2
+         AND status = 'in_progress'
+         AND lesson_id IN (
+           SELECT lesson_id FROM organization_lessons WHERE organization_id = ?3
+         )`,
+    )
+    .bind(deadline, input.learnerId, input.organizationId);
+}
+
+export async function clampContinuationDeadlinesForLearnerOrg(
+  db: Db,
+  input: { learnerId: string; organizationId: string; revokedAt: number },
+): Promise<void> {
+  await clampContinuationDeadlinesForLearnerOrgStatement(db, input).run();
 }
 
 /* ── Attempts ────────────────────────────────────────────────────────────── */
@@ -496,7 +821,34 @@ export async function recordAttempt(
     now: number;
   },
 ): Promise<void> {
-  await db
+  await attemptInsert(db, input).run();
+}
+
+/**
+ * The attempt INSERT as a bound statement, for composing into `db.batch`.
+ *
+ * Kept beside `recordAttempt` so the two can never drift: the batch path and the
+ * single-statement path must write the same columns in the same order.
+ */
+export function attemptInsert(
+  db: Db,
+  input: {
+    id: string;
+    sessionId: string;
+    learnerId: string;
+    lessonId: string;
+    stepId: string;
+    stepVersion: number;
+    skillId: string | null;
+    submitted: string;
+    outcome: "correct" | "incorrect" | "partial";
+    helpLevel: number;
+    evidenceKind: "observed" | "assisted" | "parent_correction";
+    attemptNo: number;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO learning_attempts
          (id, session_id, learner_id, lesson_id, step_id, step_version, skill_id,
@@ -517,8 +869,131 @@ export async function recordAttempt(
       input.evidenceKind,
       input.attemptNo,
       input.now,
+    );
+}
+
+/**
+ * Concurrency-guarded attempt INSERT for composing into `db.batch`.
+ *
+ * Enforces three invariants at the SQLite/D1 statement execution point:
+ *   1. Gap-safe attempt numbering: `COALESCE(MAX(attempt_no), 0) + 1` for
+ *      `(learner_id, step_id)` must still equal `input.attemptNo`, and
+ *      `COUNT(*)` must still equal `input.expectedStepAttemptCount`.
+ *   2. Hint-floor linearization: no `hint.requested` audit row for
+ *      `(learner_id, step_id)` may have been committed since the snapshot
+ *      (`COUNT(*) = input.expectedHintAuditCount`) or carry a numeric `level`
+ *      greater than `input.helpLevel`.
+ *   3. Same-skill cross-step serialization: when `input.skillId` is present,
+ *      `COUNT(*)` of attempts for `(learner_id, skill_id)` must still equal
+ *      `input.expectedSkillAttemptCount`.
+ *
+ * If any concurrent request (same-step attempt, cross-step same-skill attempt,
+ * or hint disclosure) committed between snapshot read and batch execution, the
+ * `WHERE` clause evaluates to 0 rows, `attempt_no` becomes `NULL`, and SQLite
+ * aborts the entire `db.batch` with `NOT NULL constraint failed: learning_attempts.attempt_no`.
+ */
+export function attemptInsertGuarded(
+  db: Db,
+  input: {
+    id: string;
+    sessionId: string;
+    learnerId: string;
+    lessonId: string;
+    stepId: string;
+    stepVersion: number;
+    skillId: string | null;
+    submitted: string;
+    outcome: "correct" | "incorrect" | "partial";
+    helpLevel: number;
+    evidenceKind: "observed" | "assisted" | "parent_correction";
+    attemptNo: number;
+    now: number;
+    expectedStepAttemptCount: number;
+    expectedHintAuditCount: number;
+    expectedSkillAttemptCount: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO learning_attempts
+         (id, session_id, learner_id, lesson_id, step_id, step_version, skill_id,
+          submitted, outcome, help_level, evidence_kind, attempt_no, created_at)
+       VALUES (
+         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+         (
+           SELECT ?12
+           WHERE (
+             SELECT COALESCE(MAX(attempt_no), 0) + 1
+             FROM learning_attempts
+             WHERE learner_id = ?3 AND step_id = ?5
+           ) = ?12
+           AND (
+             SELECT COUNT(*)
+             FROM learning_attempts
+             WHERE learner_id = ?3 AND step_id = ?5
+           ) = ?14
+           AND (
+             SELECT COUNT(*)
+             FROM audit_events
+             WHERE action = 'hint.requested'
+               AND subject = ?5
+               AND actor = 'learner:' || ?3
+           ) = ?15
+           AND NOT EXISTS (
+             SELECT 1
+             FROM audit_events
+             WHERE action = 'hint.requested'
+               AND subject = ?5
+               AND actor = 'learner:' || ?3
+               AND json_valid(detail) = 1
+               AND json_type(detail, '$.level') IN ('integer', 'real')
+               AND MIN(4, MAX(0, CAST(json_extract(detail, '$.level') AS INTEGER))) > ?10
+           )
+           AND (
+             ?7 IS NULL
+             OR (
+               SELECT COUNT(*)
+               FROM learning_attempts
+               WHERE learner_id = ?3 AND skill_id = ?7
+             ) = ?16
+           )
+           AND (
+             -- Keep missing-lesson errors on the native FOREIGN KEY path rather
+             -- than tripping the NOT NULL attempt_no retry sentinel.
+             NOT EXISTS (SELECT 1 FROM lessons WHERE id = ?4)
+             OR EXISTS (
+               SELECT 1
+               FROM learning_sessions
+               WHERE id = ?2
+                 AND learner_id = ?3
+                 AND lesson_id = ?4
+                 AND lesson_version = ?6
+                 AND status = 'in_progress'
+                 AND (continuation_deadline IS NULL OR ?13 < continuation_deadline)
+             )
+           )
+         ),
+         ?13
+       )`,
     )
-    .run();
+    .bind(
+      input.id,
+      input.sessionId,
+      input.learnerId,
+      input.lessonId,
+      input.stepId,
+      input.stepVersion,
+      input.skillId,
+      input.submitted,
+      input.outcome,
+      input.helpLevel,
+      input.evidenceKind,
+      input.attemptNo,
+      input.now,
+      input.expectedStepAttemptCount,
+      input.expectedHintAuditCount,
+      input.expectedSkillAttemptCount,
+    );
 }
 
 export async function listAttemptsForSession(db: Db, sessionId: string): Promise<LearningAttemptRow[]> {
@@ -557,6 +1032,66 @@ export async function countAttemptsForStepInSession(
   return row?.n ?? 0;
 }
 
+export async function countAttemptsForStepForLearner(
+  db: Db,
+  learnerId: string,
+  stepId: string,
+): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM learning_attempts WHERE learner_id = ?1 AND step_id = ?2")
+    .bind(learnerId, stepId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * Gap-safe attempt numbering and prior-attempt check for `(learnerId, stepId)`.
+ *
+ * Uses `COALESCE(MAX(attempt_no), 0) + 1` rather than `COUNT(*) + 1` so imported
+ * or legacy history with non-contiguous numbering (e.g. an existing row with
+ * `attempt_no = 2` and no `attempt_no = 1`) never collides on `attempt_no` and
+ * still reports `priorAttemptCount > 0` so the next attempt is never marked `observed`.
+ */
+export async function getStepAttemptSummaryForLearner(
+  db: Db,
+  learnerId: string,
+  stepId: string,
+): Promise<{ nextAttemptNo: number; priorAttemptCount: number }> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count, COALESCE(MAX(attempt_no), 0) AS max_no
+       FROM learning_attempts
+       WHERE learner_id = ?1 AND step_id = ?2`,
+    )
+    .bind(learnerId, stepId)
+    .first<{ count: number; max_no: number }>();
+  const priorAttemptCount = Number(row?.count ?? 0);
+  const maxNo = Number(row?.max_no ?? 0);
+  return {
+    nextAttemptNo: Math.max(maxNo, priorAttemptCount) + 1,
+    priorAttemptCount,
+  };
+}
+
+/**
+ * Preflight diagnostic check for duplicate `(learner_id, step_id, attempt_no)`
+ * tuples before applying migration 0004 (`idx_attempts_learner_step_attempt`).
+ */
+export async function findDuplicateStepAttemptNumbers(
+  db: Db,
+): Promise<{ learner_id: string; step_id: string; attempt_no: number; duplicate_count: number }[]> {
+  const result = await db
+    .prepare(
+      `SELECT learner_id, step_id, attempt_no, COUNT(*) AS duplicate_count
+       FROM learning_attempts
+       GROUP BY learner_id, step_id, attempt_no
+       HAVING COUNT(*) > 1
+       ORDER BY learner_id ASC, step_id ASC, attempt_no ASC`,
+    )
+    .all<{ learner_id: string; step_id: string; attempt_no: number; duplicate_count: number }>();
+  return result.results ?? [];
+}
+
 /* ── Skill evidence & review schedule ────────────────────────────────────── */
 
 export async function listSkillEvidenceForLearner(
@@ -591,7 +1126,28 @@ export async function upsertSkillEvidence(
     now: number;
   },
 ): Promise<void> {
-  await db
+  await skillEvidenceUpsert(db, input).run();
+}
+
+/** The skill_evidence upsert as a bound statement, for composing into `db.batch`. */
+export function skillEvidenceUpsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    skillId: string;
+    state: CompetencyState;
+    independentCount: number;
+    assistedCount: number;
+    correctCount: number;
+    lastIndependentAt: number | null;
+    lastObservedAt: number | null;
+    source: "derived" | "parent_correction";
+    correctionNote: string | null;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO skill_evidence
          (id, learner_id, skill_id, state, independent_count, assisted_count, correct_count,
@@ -621,8 +1177,7 @@ export async function upsertSkillEvidence(
       input.source,
       input.correctionNote,
       input.now,
-    )
-    .run();
+    );
 }
 
 export async function listReviewScheduleForLearner(
@@ -654,7 +1209,25 @@ export async function upsertReviewSchedule(
     now: number;
   },
 ): Promise<void> {
-  await db
+  await reviewScheduleUpsert(db, input).run();
+}
+
+/** The review_schedule upsert as a bound statement, for composing into `db.batch`. */
+export function reviewScheduleUpsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    skillId: string;
+    dueAt: number;
+    intervalDays: number;
+    lastResult: "passed" | "failed";
+    lastAttemptAt: number;
+    failureStreak: number;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO review_schedule
          (id, learner_id, skill_id, due_at, interval_days, last_result, last_attempt_at,
@@ -678,8 +1251,7 @@ export async function upsertReviewSchedule(
       input.lastAttemptAt,
       input.failureStreak,
       input.now,
-    )
-    .run();
+    );
 }
 
 /* ── Goals ───────────────────────────────────────────────────────────────── */
@@ -722,12 +1294,81 @@ export async function recordAudit(
   db: Db,
   input: { id: string; actor: string; action: string; subject: string | null; detail: string | null; now: number },
 ): Promise<void> {
-  await db
+  await auditInsert(db, input).run();
+}
+
+/**
+ * The audit INSERT as a bound statement, for composing into `db.batch`.
+ *
+ * `audit_events` is an append-only ledger guarded by a database trigger, so the
+ * only write that can ever exist here is an INSERT. Anything this builder does
+ * not produce cannot be batched against the ledger.
+ */
+export function auditInsert(
+  db: Db,
+  input: { id: string; actor: string; action: string; subject: string | null; detail: string | null; now: number },
+): D1PreparedStatement {
+  return db
     .prepare(
       "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
-    .bind(input.id, input.actor, input.action, input.subject, input.detail, input.now)
-    .run();
+    .bind(input.id, input.actor, input.action, input.subject, input.detail, input.now);
+}
+
+/**
+ * Guarded hint audit INSERT that verifies at write time that the session is still
+ * `in_progress`, belongs to the learner and lesson version, and has not reached
+ * `continuation_deadline`. If the session was finalized or expired concurrently,
+ * `action` evaluates to `NULL` and aborts with a `NOT NULL` constraint failure.
+ */
+export function hintAuditInsertGuarded(
+  db: Db,
+  input: {
+    id: string;
+    sessionId: string;
+    learnerId: string;
+    lessonId: string;
+    lessonVersion: number;
+    stepId: string;
+    detail: string;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
+       VALUES (
+         ?1,
+         ?2,
+         (
+           SELECT 'hint.requested'
+           WHERE EXISTS (
+             SELECT 1
+             FROM learning_sessions
+             WHERE id = ?3
+               AND learner_id = ?4
+               AND lesson_id = ?5
+               AND lesson_version = ?6
+               AND status = 'in_progress'
+               AND (continuation_deadline IS NULL OR ?9 < continuation_deadline)
+           )
+         ),
+         ?7,
+         ?8,
+         ?9
+       )`,
+    )
+    .bind(
+      input.id,
+      `learner:${input.learnerId}`,
+      input.sessionId,
+      input.learnerId,
+      input.lessonId,
+      input.lessonVersion,
+      input.stepId,
+      input.detail,
+      input.now,
+    );
 }
 
 export async function listAudit(db: Db, limit: number): Promise<AuditEventRow[]> {
@@ -738,10 +1379,21 @@ export async function listAudit(db: Db, limit: number): Promise<AuditEventRow[]>
   return result.results ?? [];
 }
 
-export async function findMaxDisclosedHintLevel(
+/**
+ * Highest hint level ever disclosed to this learner on this step, across every
+ * session (including legacy `hint.requested` rows recorded before `sessionId`
+ * became required). Once a step's hint has been shown to a learner, opening a
+ * fresh session cannot return that step to unassisted.
+ *
+ * Output is normalized through `clampHelp` (`0..4`) so malformed or out-of-range
+ * legacy detail JSON cannot produce `NaN`, negative numbers, or values > 4 that
+ * would break the `CHECK (help_level >= 0 AND help_level <= 4)` constraint on
+ * `learning_attempts`.
+ */
+export async function getDisclosedHintState(
   db: Db,
-  input: { learnerId: string; sessionId: string; stepId: string },
-): Promise<number> {
+  input: { learnerId: string; stepId: string },
+): Promise<{ maxLevel: number; auditCount: number }> {
   const result = await db
     .prepare(
       `SELECT detail FROM audit_events
@@ -752,23 +1404,31 @@ export async function findMaxDisclosedHintLevel(
     .bind(input.stepId, `learner:${input.learnerId}`)
     .all<{ detail: string | null }>();
 
+  const rows = result.results ?? [];
   let maxLevel = 0;
-  for (const row of result.results ?? []) {
+  for (const row of rows) {
     if (!row.detail) continue;
     try {
-      const parsed = JSON.parse(row.detail) as { sessionId?: string; level?: number };
-      if (
-        (parsed.sessionId === undefined || parsed.sessionId === input.sessionId) &&
-        typeof parsed.level === "number" &&
-        parsed.level > maxLevel
-      ) {
-        maxLevel = parsed.level;
+      const parsed = JSON.parse(row.detail) as { level?: unknown };
+      if (typeof parsed?.level === "number" && Number.isFinite(parsed.level)) {
+        const clamped = clampHelp(parsed.level);
+        if (clamped > maxLevel) {
+          maxLevel = clamped;
+        }
       }
     } catch {
       // Ignore malformed detail
     }
   }
-  return maxLevel;
+  return { maxLevel: clampHelp(maxLevel), auditCount: rows.length };
+}
+
+export async function findMaxDisclosedHintLevel(
+  db: Db,
+  input: { learnerId: string; stepId: string },
+): Promise<number> {
+  const state = await getDisclosedHintState(db, input);
+  return state.maxLevel;
 }
 
 /* ── Auth throttles ─────────────────────────────────────────────────────────
@@ -1396,3 +2056,587 @@ export async function listSessionReflectionsForLearner(
     .all<SessionReflectionRow>();
   return result.results ?? [];
 }
+
+/* ── Organizations, Classrooms & Consent Grants ─────────────────────────── */
+
+export async function createOrganization(
+  db: Db,
+  input: { id: string; slug: string; name: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO organizations (id, slug, name, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?4)`,
+    )
+    .bind(input.id, input.slug, input.name, input.now)
+    .run();
+}
+
+export async function findOrganizationById(db: Db, id: string): Promise<OrganizationRow | null> {
+  const row = await db
+    .prepare("SELECT id, slug, name, created_at, updated_at FROM organizations WHERE id = ?1")
+    .bind(id)
+    .first<OrganizationRow>();
+  return row ?? null;
+}
+
+export async function findOrganizationBySlug(db: Db, slug: string): Promise<OrganizationRow | null> {
+  const row = await db
+    .prepare("SELECT id, slug, name, created_at, updated_at FROM organizations WHERE slug = ?1")
+    .bind(slug)
+    .first<OrganizationRow>();
+  return row ?? null;
+}
+
+export async function addOrganizationMember(
+  db: Db,
+  input: { id: string; organizationId: string; userId: string; role: OrganizationRole; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO organization_members (id, organization_id, user_id, role, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+       ON CONFLICT(organization_id, user_id) DO UPDATE SET
+         role = excluded.role,
+         updated_at = excluded.updated_at`,
+    )
+    .bind(input.id, input.organizationId, input.userId, input.role, input.now)
+    .run();
+}
+
+export async function findMemberRole(
+  db: Db,
+  organizationId: string,
+  userId: string,
+): Promise<OrganizationRole | null> {
+  const row = await db
+    .prepare("SELECT role FROM organization_members WHERE organization_id = ?1 AND user_id = ?2")
+    .bind(organizationId, userId)
+    .first<{ role: OrganizationRole }>();
+  return row?.role ?? null;
+}
+
+export async function listOrganizationMembers(
+  db: Db,
+  organizationId: string,
+): Promise<(OrganizationMemberRow & { displayName: string })[]> {
+  const result = await db
+    .prepare(
+      `SELECT om.id, om.organization_id, om.user_id, om.role, om.created_at, om.updated_at, p.display_name AS displayName
+       FROM organization_members om
+       JOIN parents p ON p.id = om.user_id
+       WHERE om.organization_id = ?1
+       ORDER BY om.created_at ASC`,
+    )
+    .bind(organizationId)
+    .all<OrganizationMemberRow & { displayName: string }>();
+  return result.results ?? [];
+}
+
+export async function createClassroom(
+  db: Db,
+  input: { id: string; organizationId: string; name: string; grade: number | null; subjectId: string | null; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO classrooms (id, organization_id, name, grade, subject_id, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`,
+    )
+    .bind(input.id, input.organizationId, input.name, input.grade, input.subjectId, input.now)
+    .run();
+}
+
+export async function listClassroomsForOrganization(
+  db: Db,
+  organizationId: string,
+  teacherId?: string,
+): Promise<ClassroomRow[]> {
+  if (teacherId) {
+    const result = await db
+      .prepare(
+        `SELECT c.id, c.organization_id, c.name, c.grade, c.subject_id, c.created_at, c.updated_at
+         FROM classrooms c
+         JOIN classroom_teachers ct ON ct.classroom_id = c.id
+         WHERE c.organization_id = ?1 AND ct.teacher_id = ?2
+         ORDER BY c.created_at ASC`,
+      )
+      .bind(organizationId, teacherId)
+      .all<ClassroomRow>();
+    return result.results ?? [];
+  }
+  const result = await db
+    .prepare(
+      `SELECT id, organization_id, name, grade, subject_id, created_at, updated_at
+       FROM classrooms WHERE organization_id = ?1 ORDER BY created_at ASC`,
+    )
+    .bind(organizationId)
+    .all<ClassroomRow>();
+  return result.results ?? [];
+}
+
+export async function assignClassroomTeacher(
+  db: Db,
+  input: { classroomId: string; teacherId: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO classroom_teachers (classroom_id, teacher_id, created_at)
+       VALUES (?1, ?2, ?3)`,
+    )
+    .bind(input.classroomId, input.teacherId, input.now)
+    .run();
+}
+
+export async function isTeacherAssignedToClassroom(
+  db: Db,
+  classroomId: string,
+  teacherId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT 1 AS ok FROM classroom_teachers WHERE classroom_id = ?1 AND teacher_id = ?2")
+    .bind(classroomId, teacherId)
+    .first<{ ok: number }>();
+  return (row?.ok ?? 0) === 1;
+}
+
+export async function grantLearnerConsent(
+  db: Db,
+  input: { id: string; organizationId: string; learnerId: string; grantedBy: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO learner_consents (id, organization_id, learner_id, granted_by, status, granted_at, revoked_at)
+       VALUES (?1, ?2, ?3, ?4, 'active', ?5, NULL)
+       ON CONFLICT(organization_id, learner_id) DO UPDATE SET
+         status = 'active',
+         granted_by = excluded.granted_by,
+         granted_at = excluded.granted_at,
+         revoked_at = NULL`,
+    )
+    .bind(input.id, input.organizationId, input.learnerId, input.grantedBy, input.now)
+    .run();
+}
+
+export function revokeLearnerConsentStatement(
+  db: Db,
+  input: { organizationId: string; learnerId: string; revokedBy: string; now: number },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE learner_consents
+       SET status = 'revoked', revoked_at = ?1
+       WHERE organization_id = ?2 AND learner_id = ?3 AND granted_by = ?4`,
+    )
+    .bind(input.now, input.organizationId, input.learnerId, input.revokedBy);
+}
+
+export async function revokeLearnerConsent(
+  db: Db,
+  input: { organizationId: string; learnerId: string; revokedBy: string; now: number },
+): Promise<void> {
+  await revokeLearnerConsentStatement(db, input).run();
+}
+
+export async function findActiveConsent(
+  db: Db,
+  organizationId: string,
+  learnerId: string,
+): Promise<LearnerConsentRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, organization_id, learner_id, granted_by, status, granted_at, revoked_at
+       FROM learner_consents
+       WHERE organization_id = ?1 AND learner_id = ?2 AND status = 'active'`,
+    )
+    .bind(organizationId, learnerId)
+    .first<LearnerConsentRow>();
+  return row ?? null;
+}
+
+export async function listConsentsForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<(LearnerConsentRow & { organizationName: string })[]> {
+  const result = await db
+    .prepare(
+      `SELECT lc.id, lc.organization_id, lc.learner_id, lc.granted_by, lc.status, lc.granted_at, lc.revoked_at, o.name AS organizationName
+       FROM learner_consents lc
+       JOIN organizations o ON o.id = lc.organization_id
+       WHERE lc.learner_id = ?1
+       ORDER BY lc.granted_at DESC`,
+    )
+    .bind(learnerId)
+    .all<LearnerConsentRow & { organizationName: string }>();
+  return result.results ?? [];
+}
+
+export async function enrollLearnerInClassroom(
+  db: Db,
+  input: { id: string; classroomId: string; learnerId: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO classroom_enrollments (id, classroom_id, learner_id, status, created_at, updated_at)
+       VALUES (?1, ?2, ?3, 'enrolled', ?4, ?4)
+       ON CONFLICT(classroom_id, learner_id) DO UPDATE SET
+         status = 'enrolled',
+         updated_at = excluded.updated_at`,
+    )
+    .bind(input.id, input.classroomId, input.learnerId, input.now)
+    .run();
+}
+
+export async function listEnrolledLearnersInClassroom(
+  db: Db,
+  classroomId: string,
+): Promise<(LearnerRow & { enrollmentId: string; enrolledAt: number })[]> {
+  const result = await db
+    .prepare(
+      `SELECT l.id, l.parent_id, l.nickname, l.birth_year, l.grade, l.timezone, l.created_at, l.updated_at, l.archived_at,
+              ce.id AS enrollmentId, ce.created_at AS enrolledAt
+       FROM classroom_enrollments ce
+       JOIN classrooms c ON c.id = ce.classroom_id
+       JOIN learner_consents lc ON lc.learner_id = ce.learner_id AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN learners l ON l.id = ce.learner_id AND l.archived_at IS NULL
+       WHERE ce.classroom_id = ?1 AND ce.status = 'enrolled'
+       ORDER BY ce.created_at ASC`,
+    )
+    .bind(classroomId)
+    .all<LearnerRow & { enrollmentId: string; enrolledAt: number }>();
+  return result.results ?? [];
+}
+
+export async function listEnrollmentsForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<
+  {
+    enrollmentId: string;
+    classroomId: string;
+    classroomName: string;
+    organization_id: string;
+    organizationName: string;
+    status: string;
+    created_at: number;
+  }[]
+> {
+  const result = await db
+    .prepare(
+      `SELECT ce.id AS enrollmentId, ce.classroom_id AS classroomId, c.name AS classroomName,
+              c.organization_id, o.name AS organizationName, ce.status, ce.created_at
+       FROM classroom_enrollments ce
+       JOIN classrooms c ON c.id = ce.classroom_id
+       JOIN organizations o ON o.id = c.organization_id
+       WHERE ce.learner_id = ?1 AND ce.status = 'enrolled'
+       ORDER BY ce.created_at ASC`,
+    )
+    .bind(learnerId)
+    .all<{
+      enrollmentId: string;
+      classroomId: string;
+      classroomName: string;
+      organization_id: string;
+      organizationName: string;
+      status: string;
+      created_at: number;
+    }>();
+  return result.results ?? [];
+}
+
+/**
+ * Access check for center staff: returns true if the staff member is authorized
+ * to view the learner's evidence.
+ *
+ * Rules:
+ *  - An active consent MUST exist between the learner and the organization.
+ *  - If staff is owner or admin of the organization -> authorized.
+ *  - If staff is teacher -> must be assigned to at least one classroom where
+ *    the learner is actively enrolled in that organization.
+ */
+export async function canStaffAccessLearner(
+  db: Db,
+  input: { organizationId: string; staffUserId: string; learnerId: string },
+): Promise<boolean> {
+  const consent = await findActiveConsent(db, input.organizationId, input.learnerId);
+  if (!consent) return false;
+
+  const role = await findMemberRole(db, input.organizationId, input.staffUserId);
+  if (!role) return false;
+
+  if (role === "owner" || role === "admin") return true;
+
+  if (role === "teacher") {
+    const row = await db
+      .prepare(
+        `SELECT 1 AS ok
+         FROM classroom_teachers ct
+         JOIN classrooms c ON c.id = ct.classroom_id AND c.organization_id = ?1
+         JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?2 AND ce.status = 'enrolled'
+         WHERE ct.teacher_id = ?3
+         LIMIT 1`,
+      )
+      .bind(input.organizationId, input.learnerId, input.staffUserId)
+      .first<{ ok: number }>();
+    return (row?.ok ?? 0) === 1;
+  }
+
+  return false;
+}
+
+/* ── M2: Teacher Lesson Authoring & Multi-Tier Approvals ─────────────────── */
+
+export async function createOrganizationLesson(
+  db: Db,
+  input: {
+    lesson: LessonRow;
+    steps: {
+      id: string;
+      position: number;
+      kind: string;
+      content: string;
+      answerKey: string;
+      explanationVi: string;
+    }[];
+    organizationId: string;
+    authorId: string;
+    now: number;
+  },
+): Promise<void> {
+  const statements: D1PreparedStatement[] = [];
+
+  // 1. Insert lesson
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)`,
+      )
+      .bind(
+        input.lesson.id,
+        input.lesson.subject_id,
+        input.lesson.skill_id,
+        input.lesson.title_vi,
+        input.lesson.title_en,
+        input.lesson.objective_vi,
+        input.lesson.objective_en,
+        input.lesson.grade_from,
+        input.lesson.grade_to,
+        input.now,
+      ),
+  );
+
+  // 2. Insert steps
+  for (const step of input.steps) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO lesson_steps (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)`,
+        )
+        .bind(
+          step.id,
+          input.lesson.id,
+          step.position,
+          step.kind,
+          step.content,
+          step.answerKey,
+          step.explanationVi,
+        ),
+    );
+  }
+
+  // 3. Insert organization_lessons link (draft)
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO organization_lessons (lesson_id, organization_id, author_id, review_status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'draft', ?4, ?4)`,
+      )
+      .bind(input.lesson.id, input.organizationId, input.authorId, input.now),
+  );
+
+  await db.batch(statements);
+}
+
+export async function findOrganizationLesson(
+  db: Db,
+  lessonId: string,
+): Promise<OrganizationLessonRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT lesson_id, organization_id, author_id, review_status, reviewed_by, reviewed_at, review_note, created_at, updated_at
+       FROM organization_lessons WHERE lesson_id = ?1`,
+    )
+    .bind(lessonId)
+    .first<OrganizationLessonRow>();
+  return row ?? null;
+}
+
+export async function submitOrganizationLessonForReview(
+  db: Db,
+  input: { lessonId: string; organizationId: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE organization_lessons
+       SET review_status = 'submitted', updated_at = ?1
+       WHERE lesson_id = ?2 AND organization_id = ?3`,
+    )
+    .bind(input.now, input.lessonId, input.organizationId)
+    .run();
+}
+
+export function reviewOrganizationLessonStatement(
+  db: Db,
+  input: {
+    lessonId: string;
+    organizationId: string;
+    decision: "org_approved" | "org_rejected";
+    reviewedBy: string;
+    note: string | null;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE organization_lessons
+       SET review_status = ?1, reviewed_by = ?2, reviewed_at = ?3, review_note = ?4, updated_at = ?3
+       WHERE lesson_id = ?5 AND organization_id = ?6`,
+    )
+    .bind(
+      input.decision,
+      input.reviewedBy,
+      input.now,
+      input.note,
+      input.lessonId,
+      input.organizationId,
+    );
+}
+
+export async function reviewOrganizationLesson(
+  db: Db,
+  input: {
+    lessonId: string;
+    organizationId: string;
+    decision: "org_approved" | "org_rejected";
+    reviewedBy: string;
+    note: string | null;
+    now: number;
+  },
+): Promise<void> {
+  await reviewOrganizationLessonStatement(db, input).run();
+}
+
+export async function assignLessonToClassroom(
+  db: Db,
+  input: {
+    id: string;
+    classroomId: string;
+    lessonId: string;
+    assignedBy: string;
+    dueAt: number | null;
+    now: number;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO classroom_lesson_assignments (id, classroom_id, lesson_id, assigned_by, assigned_at, due_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(classroom_id, lesson_id) DO UPDATE SET
+         due_at = excluded.due_at,
+         assigned_at = excluded.assigned_at`,
+    )
+    .bind(input.id, input.classroomId, input.lessonId, input.assignedBy, input.now, input.dueAt)
+    .run();
+}
+
+export async function listClassroomAssignedLessons(
+  db: Db,
+  classroomId: string,
+): Promise<
+  {
+    assignmentId: string;
+    classroomId: string;
+    lessonId: string;
+    titleVi: string;
+    subjectId: string;
+    gradeFrom: number;
+    gradeTo: number;
+    assignedAt: number;
+    dueAt: number | null;
+    orgReviewStatus: string;
+  }[]
+> {
+  const result = await db
+    .prepare(
+      `SELECT cla.id AS assignmentId, cla.classroom_id AS classroomId, cla.lesson_id AS lessonId,
+              l.title_vi AS titleVi, l.subject_id AS subjectId, l.grade_from AS gradeFrom, l.grade_to AS gradeTo,
+              cla.assigned_at AS assignedAt, cla.due_at AS dueAt,
+              ol.review_status AS orgReviewStatus
+       FROM classroom_lesson_assignments cla
+       JOIN classrooms c ON c.id = cla.classroom_id
+       JOIN lessons l ON l.id = cla.lesson_id
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
+       WHERE cla.classroom_id = ?1
+       ORDER BY cla.assigned_at DESC`,
+    )
+    .bind(classroomId)
+    .all<{
+      assignmentId: string;
+      classroomId: string;
+      lessonId: string;
+      titleVi: string;
+      subjectId: string;
+      gradeFrom: number;
+      gradeTo: number;
+      assignedAt: number;
+      dueAt: number | null;
+      orgReviewStatus: string;
+    }>();
+  return result.results ?? [];
+}
+
+export async function isLessonAssignedToLearner(
+  db: Db,
+  input: { learnerId: string; lessonId: string },
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS ok
+       FROM classroom_lesson_assignments cla
+       JOIN classrooms c ON c.id = cla.classroom_id
+       JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
+       JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'
+       WHERE cla.lesson_id = ?2
+       LIMIT 1`,
+    )
+    .bind(input.learnerId, input.lessonId)
+    .first<{ ok: number }>();
+  return (row?.ok ?? 0) === 1;
+}
+
+export async function listAssignedOrgLessonIdsForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<Set<string>> {
+  const result = await db
+    .prepare(
+      `SELECT cla.lesson_id
+       FROM classroom_lesson_assignments cla
+       JOIN classrooms c ON c.id = cla.classroom_id
+       JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
+       JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'`,
+    )
+    .bind(learnerId)
+    .all<{ lesson_id: string }>();
+  return new Set((result.results ?? []).map((r) => r.lesson_id));
+}
+
+export async function listAllOrgLessonIds(db: Db): Promise<Set<string>> {
+  const result = await db.prepare("SELECT lesson_id FROM organization_lessons").all<{ lesson_id: string }>();
+  return new Set((result.results ?? []).map((r) => r.lesson_id));
+}
+
+

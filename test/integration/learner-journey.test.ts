@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { getPlatformProxy } from "wrangler";
 import { deriveForTest, PBKDF2_ITERATIONS } from "../../src/shared/crypto/password";
 import { leaksAnswer } from "../../src/shared/schemas/exercise";
 import { resetData } from "./reset-data";
+import { openTestDatabase, reopenTestDatabase, type TestProxy } from "./test-db";
 
 /**
  * The learner journey, end to end through the real Worker.
@@ -29,7 +29,7 @@ type Env = { DB: D1Database; SESSION_SECRET: string; ENVIRONMENT?: string };
 
 let worker: { fetch: typeof fetch };
 let env: Env;
-let proxy: Awaited<ReturnType<typeof getPlatformProxy>>;
+let proxy: TestProxy;
 
 interface Jar {
   cookies: Record<string, string>;
@@ -85,12 +85,12 @@ async function login(): Promise<void> {
 }
 
 beforeAll(async () => {
-  proxy = await getPlatformProxy<{ DB: D1Database }>();
+  proxy = await openTestDatabase();
   // `ENVIRONMENT: "development"` is what the shipped wrangler.jsonc sets, and it
   // is what lets first-run bootstrap work without a pre-seeded password hash.
   // The test env mirrors the shipped one so the gate under test is the real one.
   env = {
-    DB: proxy.env.DB,
+    DB: proxy.env.DB as unknown as D1Database,
     SESSION_SECRET: TEST_SECRET,
     ENVIRONMENT: "development",
   } as Env;
@@ -267,6 +267,16 @@ describe("attempts are persisted and stay honest", () => {
       .bind(stepId)
       .first<{ n: number }>();
     expect(attempts!.n).toBe(2);
+
+    // A submitted attempt is a security-relevant event: the audit trail must
+    // record who did what, or a tampered evidence ledger cannot be detected.
+    const audited = await env.DB.prepare(
+      "select actor, action, subject from audit_events where action = 'attempt.submitted' and subject = ?",
+    )
+      .bind(stepId)
+      .all<{ actor: string; action: string; subject: string }>();
+    expect(audited.results?.length).toBe(2);
+    expect(audited.results?.[0]?.actor).toMatch(/^learner:/);
   });
 
   it("prevents client from spoofing helpLevel 0 after server-side hint level 3 disclosure", async () => {
@@ -391,6 +401,77 @@ describe("attempts are persisted and stay honest", () => {
       { help_level: 2, evidence_kind: "assisted" },
     ]);
   });
+
+  it("prevents session churn from resetting attempt count across sessions for the same step", async () => {
+    const lessons = await (await call("/api/parent/lessons")).json() as {
+      lessons: { id: string }[];
+    };
+    const lessonId = lessons.lessons[0]!.id;
+
+    await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, status: "approved" },
+    });
+
+    // Session 1: Learner starts session and fails the step
+    const session1 = await (await call("/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId },
+    })).json() as StartSessionResponse;
+    const stepId = session1.steps[0]!.id;
+    const key = await answerKeyFor(stepId);
+    const options = (session1.steps[0]!.content as { choices?: { id: string }[] })?.choices?.map((c) => c.id) ?? [];
+
+    const wrongAttempt = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: session1.sessionId,
+        stepId,
+        submission: { kind: "choice", choiceId: wrongChoice(options, key!) },
+        helpLevel: 0,
+      },
+    });
+    expect(wrongAttempt.status).toBe(200);
+    const wrongData = (await wrongAttempt.json()) as { attemptNo: number; outcome: string };
+    expect(wrongData.attemptNo, "wrongData.attemptNo").toBe(1);
+    expect(wrongData.outcome).toBe("incorrect");
+
+    // Learner abandons Session 1 and starts Session 2 on the same lesson/step
+    const session2 = await (await call("/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId },
+    })).json() as StartSessionResponse;
+
+    // Learner now answers correctly with helpLevel 0 in Session 2
+    const rightAttempt = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: session2.sessionId,
+        stepId,
+        submission: { kind: "choice", choiceId: key! },
+        helpLevel: 0,
+      },
+    });
+    expect(rightAttempt.status).toBe(200);
+    const rightData = (await rightAttempt.json()) as { attemptNo: number; outcome: string };
+
+    // Gate A2: attemptNo must count cumulatively across sessions for this learner & step (attemptNo = 2).
+    // Because attemptNo > 1, evidenceKind MUST be 'assisted', NOT 'observed' (INDEPENDENT).
+    expect(rightData.attemptNo, "rightData.attemptNo").toBe(2);
+
+    const storedAll = await env.DB.prepare(
+      "select id, session_id, attempt_no, evidence_kind, created_at from learning_attempts where step_id = ? order by created_at asc",
+    )
+      .bind(stepId)
+      .all<{ id: string; session_id: string; attempt_no: number; evidence_kind: string }>();
+
+    expect(storedAll.results?.length).toBe(2);
+    expect(storedAll.results?.[0]?.session_id).toBe(session1.sessionId);
+    expect(storedAll.results?.[0]?.attempt_no).toBe(1);
+    expect(storedAll.results?.[1]?.session_id).toBe(session2.sessionId);
+    expect(storedAll.results?.[1]?.attempt_no, `stored attempts: ${JSON.stringify(storedAll.results)}`).toBe(2);
+    expect(storedAll.results?.[1]?.evidence_kind).toBe("assisted");
+  });
 });
 
 describe("restart recovery — data survives the process that wrote it", () => {
@@ -414,8 +495,8 @@ describe("restart recovery — data survives the process that wrote it", () => {
     // A new proxy, a new Worker instance: nothing carried over in memory. If the
     // session and its attempts did not reach disk, these reads come back empty
     // and the test fails for the right reason.
-    const reopened = await getPlatformProxy<{ DB: D1Database }>();
-    const rows = await reopened.env.DB.prepare(
+    const reopened = await reopenTestDatabase();
+    const rows = await (reopened.env.DB as D1Database).prepare(
       "select id, status from learning_sessions where id = ?",
     )
       .bind(started.sessionId)

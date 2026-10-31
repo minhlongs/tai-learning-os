@@ -40,6 +40,12 @@ export type AttemptEvidence = {
   /** True when this attempt answered a scheduled review. */
   isReview: boolean;
   createdAt: number;
+  /**
+   * When `evidenceKind === "parent_correction"`, the competency state the parent
+   * set at `createdAt`. This is the floor: derived state may rise above it via
+   * learner evidence, but must not fall below it while the correction is present.
+   */
+  correctedState?: CompetencyState;
 };
 
 export type CompetencyDerivation = {
@@ -62,20 +68,31 @@ export function isIndependentAttempt(evidence: AttemptEvidence): boolean {
   return true;
 }
 
+export const COMPETENCY_STATE_RANKS: Readonly<Record<CompetencyState, number>> = {
+  NOT_OBSERVED: 0,
+  SUPPORTED: 1,
+  INDEPENDENT: 2,
+  RETAINED: 3,
+  TRANSFERRED: 4,
+};
+
 /**
  * Derive the competency state for one skill from its attempt history.
  *
  * Deterministic and total: the same attempts always yield the same state.
+ * A `parent_correction` row never counts toward attempt counts or satisfies
+ * transfer/review promotion; when it carries `correctedState`, the latest such
+ * correction establishes a floor that subsequent learner evidence may rise above.
  */
 export function deriveCompetency(attempts: readonly AttemptEvidence[]): CompetencyDerivation {
   const relevant = attempts.filter((a) => a.skillId.length > 0);
+  const learnerAttempts = relevant.filter((a) => a.evidenceKind !== "parent_correction");
 
-  const correct = relevant.filter((a) => a.outcome === "correct");
-  const independent = relevant.filter(isIndependentAttempt);
-  const assisted = relevant.filter(
+  const correct = learnerAttempts.filter((a) => a.outcome === "correct");
+  const independent = learnerAttempts.filter(isIndependentAttempt);
+  const assisted = learnerAttempts.filter(
     (a) =>
       (a.outcome === "correct" || a.outcome === "partial") &&
-      a.evidenceKind !== "parent_correction" &&
       !isIndependentAttempt(a),
   );
 
@@ -102,69 +119,74 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
     };
   }
 
+  let rawState: CompetencyState = "NOT_OBSERVED";
+  let rawReasonVi = `Em đã thử ${correctCount === 0 ? "nhưng chưa" : ""} làm đúng lần nào một cách độc lập.`;
+
   // TRANSFERRED: an independent correct answer to a transfer question, after the
   // skill has already been demonstrated independently at least once, and with no
   // failed scheduled review after the latest independent transfer/review solve.
-  const transferIndependentWins = relevant.filter((a) => a.isTransfer && isIndependentAttempt(a));
+  const transferIndependentWins = learnerAttempts.filter((a) => a.isTransfer && isIndependentAttempt(a));
   const lastTransferWinAt = transferIndependentWins.reduce(
     (max, a) => (a.createdAt > max ? a.createdAt : max),
     -Infinity,
   );
-  const reviewIndependentWins = relevant.filter((a) => a.isReview && isIndependentAttempt(a));
+  const reviewIndependentWins = learnerAttempts.filter((a) => a.isReview && isIndependentAttempt(a));
   const lastReviewWinAt = reviewIndependentWins.reduce(
     (max, a) => (a.createdAt > max ? a.createdAt : max),
     -Infinity,
   );
   const lastHighRungWinAt = Math.max(lastTransferWinAt, lastReviewWinAt);
-  const hasLaterFailedReview = relevant.some(
+  const hasLaterFailedReview = learnerAttempts.some(
     (a) => a.isReview && !isIndependentAttempt(a) && a.createdAt > lastHighRungWinAt,
   );
   const transferSolved =
     transferIndependentWins.length > 0 &&
     !hasLaterFailedReview &&
     independentCount >= COMPETENCY_CONFIG.independentMinCorrect;
-  if (transferSolved) {
-    return {
-      ...base,
-      state: "TRANSFERRED",
-      reason_vi: "Em đã tự áp dụng kỹ năng vào một tình huống mới.",
-    };
-  }
 
-  // RETAINED: an independent correct answer on a scheduled review, with no
-  // failed review attempt after the latest independent review solve.
   const reviewSolved =
     reviewIndependentWins.length > 0 &&
     !hasLaterFailedReview &&
     independentCount >= COMPETENCY_CONFIG.independentMinCorrect;
-  if (reviewSolved) {
-    return {
-      ...base,
-      state: "RETAINED",
-      reason_vi: "Em vẫn nhớ kỹ năng này sau thời gian chờ ôn tập.",
-    };
+
+  if (transferSolved) {
+    rawState = "TRANSFERRED";
+    rawReasonVi = "Em đã tự áp dụng kỹ năng vào một tình huống mới.";
+  } else if (reviewSolved) {
+    rawState = "RETAINED";
+    rawReasonVi = "Em vẫn nhớ kỹ năng này sau thời gian chờ ôn tập.";
+  } else if (independentCount >= COMPETENCY_CONFIG.independentMinCorrect) {
+    rawState = "INDEPENDENT";
+    rawReasonVi = `Em tự làm đúng ${independentCount} lần (cần tối thiểu ${COMPETENCY_CONFIG.independentMinCorrect}).`;
+  } else if (assistedCount > 0) {
+    rawState = "SUPPORTED";
+    rawReasonVi = `Em làm đúng khi được gợi ý ${assistedCount} lần. Cần thêm bài tự luyện.`;
   }
 
-  if (independentCount >= COMPETENCY_CONFIG.independentMinCorrect) {
-    return {
-      ...base,
-      state: "INDEPENDENT",
-      reason_vi: `Em tự làm đúng ${independentCount} lần (cần tối thiểu ${COMPETENCY_CONFIG.independentMinCorrect}).`,
-    };
-  }
-
-  if (assistedCount > 0) {
-    return {
-      ...base,
-      state: "SUPPORTED",
-      reason_vi: `Em làm đúng khi được gợi ý ${assistedCount} lần. Cần thêm bài tự luyện.`,
-    };
+  // Fold the latest parent correction with a specified floor state: derived state
+  // may rise above the floor with learner evidence, but must not fall below it.
+  const corrections = relevant.filter(
+    (a): a is AttemptEvidence & { correctedState: CompetencyState } =>
+      a.evidenceKind === "parent_correction" && a.correctedState !== undefined,
+  );
+  if (corrections.length > 0) {
+    const latestCorrection = corrections.reduce((latest, candidate) =>
+      candidate.createdAt >= latest.createdAt ? candidate : latest,
+    );
+    const floorState = latestCorrection.correctedState;
+    if (COMPETENCY_STATE_RANKS[floorState] > COMPETENCY_STATE_RANKS[rawState]) {
+      return {
+        ...base,
+        state: floorState,
+        reason_vi: `Trạng thái được duy trì theo điều chỉnh của phụ huynh (${describeState(floorState)}).`,
+      };
+    }
   }
 
   return {
     ...base,
-    state: "NOT_OBSERVED",
-    reason_vi: `Em đã thử ${correctCount === 0 ? "nhưng chưa" : ""} làm đúng lần nào một cách độc lập.`,
+    state: rawState,
+    reason_vi: rawReasonVi,
   };
 }
 

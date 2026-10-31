@@ -101,7 +101,12 @@ export type LessonStepPayload = {
   explanationVi: string | null;
 };
 
-export type RequestHintRequest = { stepId: string; currentLevel: number };
+export type RequestHintRequest = {
+  stepId: string;
+  /** The session the learner is working in. Required: a disclosure is recorded against it. */
+  sessionId: string;
+  currentLevel: number;
+};
 export type RequestHintResponse = { level: number; hintVi: string | null };
 
 export type SubmitAttemptRequest = {
@@ -261,8 +266,14 @@ export type LessonDetailResponse = {
   steps: (LessonStepPayload & { answerKey: unknown })[];
 };
 
-export type SetApprovalRequest = { lessonId: string; status: ApprovalStatus; note?: string };
-export type SetApprovalResponse = { lessonId: string; status: ApprovalStatus };
+export type SetApprovalRequest = {
+  lessonId: string;
+  status: ApprovalStatus;
+  note?: string;
+  learnerId?: string;
+  version?: number;
+};
+export type SetApprovalResponse = { lessonId: string; status: ApprovalStatus; learnerId?: string; version?: number };
 
 export type UpdateContentRequest = {
   lessonId: string;
@@ -505,6 +516,216 @@ export type SubmitReflectionResponse = {
   sessionId: string;
   feeling: SessionFeeling;
   noteVi: string | null;
+};
+
+// --- Organization & Consent Grants ----------------------------------------
+
+export type OrganizationRoleContract = "owner" | "admin" | "teacher";
+export type ConsentStatusContract = "active" | "revoked";
+export type EnrollmentStatusContract = "enrolled" | "withdrawn";
+
+export type CreateOrganizationRequest = {
+  slug: string;
+  name: string;
+};
+
+export type CreateOrganizationResponse = {
+  organization: {
+    id: string;
+    slug: string;
+    name: string;
+    createdAt: number;
+  };
+};
+
+export type AddOrganizationMemberRequest = {
+  organizationId: string;
+  userId: string;
+  role: OrganizationRoleContract;
+};
+
+export type AddOrganizationMemberResponse = {
+  success: boolean;
+};
+
+export type OrganizationMemberListResponse = {
+  members: {
+    id: string;
+    userId: string;
+    displayName: string;
+    role: OrganizationRoleContract;
+    createdAt: number;
+  }[];
+};
+
+export type CreateClassroomRequest = {
+  organizationId: string;
+  name: string;
+  grade?: number | null;
+  subjectId?: string | null;
+};
+
+export type CreateClassroomResponse = {
+  classroom: {
+    id: string;
+    organizationId: string;
+    name: string;
+    grade: number | null;
+    subjectId: string | null;
+    createdAt: number;
+  };
+};
+
+export type ClassroomListResponse = {
+  classrooms: {
+    id: string;
+    organizationId: string;
+    name: string;
+    grade: number | null;
+    subjectId: string | null;
+    createdAt: number;
+  }[];
+};
+
+export type AssignClassroomTeacherRequest = {
+  classroomId: string;
+  teacherId: string;
+};
+
+export type AssignClassroomTeacherResponse = {
+  success: boolean;
+};
+
+export type EnrollLearnerRequest = {
+  classroomId: string;
+  learnerId: string;
+};
+
+export type EnrollLearnerResponse = {
+  success: boolean;
+  enrollmentId: string;
+};
+
+export type GrantLearnerConsentRequest = {
+  organizationId: string;
+  learnerId: string;
+};
+
+export type GrantLearnerConsentResponse = {
+  id: string;
+  organizationId: string;
+  learnerId: string;
+  status: ConsentStatusContract;
+  grantedAt: number;
+};
+
+export type RevokeLearnerConsentRequest = {
+  organizationId: string;
+  learnerId: string;
+};
+
+export type RevokeLearnerConsentResponse = {
+  success: boolean;
+  revokedAt: number;
+};
+
+export type LearnerConsentListResponse = {
+  consents: {
+    id: string;
+    organizationId: string;
+    organizationName: string;
+    learnerId: string;
+    status: ConsentStatusContract;
+    grantedAt: number;
+    revokedAt: number | null;
+  }[];
+};
+
+export type ClassroomLearnersResponse = {
+  learners: {
+    id: string;
+    nickname: string;
+    grade: number | null;
+    enrolledAt: number;
+  }[];
+};
+
+// --- M2: Teacher Lesson Authoring & Classroom Assignments -----------------
+
+export type CenterReviewStatusContract = "draft" | "submitted" | "org_approved" | "org_rejected";
+
+export type CreateDraftLessonStep = {
+  position: number;
+  kind: LessonStepKind;
+  content: ExerciseSpec;
+  answerKey: unknown;
+  explanationVi: string;
+};
+
+export type CreateOrgLessonRequest = {
+  organizationId: string;
+  subjectId: string;
+  skillId?: string | null;
+  titleVi: string;
+  titleEn?: string;
+  objectiveVi: string;
+  objectiveEn?: string;
+  gradeFrom: number;
+  gradeTo: number;
+  steps: CreateDraftLessonStep[];
+};
+
+export type CreateOrgLessonResponse = {
+  lessonId: string;
+  organizationId: string;
+  reviewStatus: CenterReviewStatusContract;
+};
+
+export type SubmitOrgLessonReviewRequest = {
+  lessonId: string;
+  organizationId: string;
+};
+
+export type SubmitOrgLessonReviewResponse = {
+  success: boolean;
+  reviewStatus: "submitted";
+};
+
+export type ReviewOrgLessonRequest = {
+  lessonId: string;
+  organizationId: string;
+  decision: "org_approved" | "org_rejected";
+  note?: string;
+};
+
+export type ReviewOrgLessonResponse = {
+  success: boolean;
+  reviewStatus: "org_approved" | "org_rejected";
+};
+
+export type AssignClassroomLessonRequest = {
+  classroomId: string;
+  lessonId: string;
+  dueAt?: number | null;
+};
+
+export type AssignClassroomLessonResponse = {
+  success: boolean;
+  assignmentId: string;
+};
+
+export type ClassroomLessonListResponse = {
+  lessons: {
+    lessonId: string;
+    classroomId: string;
+    titleVi: string;
+    subjectId: string;
+    gradeFrom: number;
+    gradeTo: number;
+    assignedAt: number;
+    dueAt: number | null;
+    isParentApproved: boolean;
+  }[];
 };
 
 // --- Errors ---------------------------------------------------------------

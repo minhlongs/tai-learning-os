@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { getPlatformProxy } from "wrangler";
 import { resetData } from "./reset-data";
+import { openTestDatabase, type TestProxy } from "./test-db";
 import { TRANSFER_FORMAT_VERSION } from "../../src/shared/schemas/transfer";
 
 /**
@@ -30,7 +30,7 @@ const TEST_SECRET = "integration-only-not-a-real-secret-value";
 
 let worker: { fetch: typeof fetch };
 let env: { DB: D1Database; SESSION_SECRET: string; ENVIRONMENT?: string };
-let proxy: Awaited<ReturnType<typeof getPlatformProxy>>;
+let proxy: TestProxy;
 
 interface Jar {
   cookies: Record<string, string>;
@@ -161,9 +161,9 @@ async function makeEvidence(): Promise<{ sessionId: string; stepId: string }> {
 }
 
 beforeAll(async () => {
-  proxy = await getPlatformProxy<{ DB: D1Database }>();
+  proxy = await openTestDatabase();
   env = {
-    DB: proxy.env.DB,
+    DB: proxy.env.DB as unknown as D1Database,
     SESSION_SECRET: TEST_SECRET,
     ENVIRONMENT: "development",
   };
@@ -378,6 +378,267 @@ describe("export/import round trip restores the record from the file", () => {
 
     const count = await env.DB.prepare("select count(*) as n from learners").first<{ n: number }>();
     expect(count!.n).toBe(0);
+  });
+
+  it("scopes exported auditEvents, reviewApprovals, and dynamic schemaVersions strictly to the exported learner and rejects deleted/other-learner events", async () => {
+    const { sessionId } = await makeEvidence();
+
+    // Seed a second parent + learner + approval + audit events + deleted learner audit event
+    const otherParentId = crypto.randomUUID();
+    const otherLearnerId = crypto.randomUUID();
+    const deletedLearnerId = crypto.randomUUID();
+    const now = Date.now();
+
+    await env.DB.prepare(
+      "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, 'Parent B', 'hash', ?2, ?2)",
+    )
+      .bind(otherParentId, now)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES (?1, ?2, 'Bé Khác', 2016, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)",
+    )
+      .bind(otherLearnerId, otherParentId, now)
+      .run();
+
+    const otherLessonRow = await env.DB.prepare("SELECT id FROM lessons ORDER BY id DESC LIMIT 1").first<{ id: string }>();
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO review_approvals (id, lesson_id, status, decided_by, decided_at, note) VALUES (?1, ?2, 'approved', ?3, ?4, 'Other parent approval')",
+    )
+      .bind(crypto.randomUUID(), otherLessonRow!.id, otherParentId, now)
+      .run();
+
+    // Unrelated audit events: another learner's hint, a previously deleted learner's events, and a parent auth failure
+    await env.DB.prepare(
+      `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
+       VALUES
+         (?1, ?2, 'hint.requested', 'step-other', '{"level":3}', ?5),
+         (?3, ?4, 'learner.deleted', ?6, '{"reason":"erased"}', ?5),
+         (?7, 'anonymous', 'session.login_failed', 'unknown-user', '{"ip":"127.0.0.1"}', ?5)`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        `learner:${otherLearnerId}`,
+        crypto.randomUUID(),
+        `parent:${otherParentId}`,
+        now,
+        deletedLearnerId,
+        crypto.randomUUID(),
+      )
+      .run();
+
+    const exportResponse = await call("/api/data/export", { method: "POST" });
+    expect(exportResponse.status).toBe(200);
+    const exported = (await exportResponse.json()) as {
+      data: {
+        reviewApprovals: { decidedBy: string }[];
+        auditEvents: { actor: string; action: string; subject: string; detail: string | null }[];
+        schemaVersions: { version: number; description: string }[];
+      };
+    };
+
+    // 1. Dynamic schemaVersions: the export mirrors whatever schema_versions rows exist,
+    //    ascending, with a description per row — never a hard-coded list in the app.
+    const expectedVersions = (
+      await env.DB.prepare("SELECT version, description FROM schema_versions ORDER BY version ASC").all<{
+        version: number;
+        description: string;
+      }>()
+    ).results!;
+    expect(expectedVersions.length).toBeGreaterThanOrEqual(3);
+    expect(exported.data.schemaVersions).toEqual(expectedVersions);
+
+    // 2. reviewApprovals contains only the current parent's approvals, never otherParentId's
+    expect(exported.data.reviewApprovals.length).toBeGreaterThanOrEqual(1);
+    for (const approval of exported.data.reviewApprovals) {
+      expect(approval.decidedBy).not.toBe(otherParentId);
+    }
+
+    // 3. auditEvents contains only events linked to learnerId (or its sessions/attempts), never otherLearnerId, deletedLearnerId, or login_failed
+    expect(exported.data.auditEvents.length).toBeGreaterThanOrEqual(2);
+    const serializedAudits = JSON.stringify(exported.data.auditEvents);
+    expect(serializedAudits).not.toContain(otherLearnerId);
+    expect(serializedAudits).not.toContain(deletedLearnerId);
+    expect(serializedAudits).not.toContain("session.login_failed");
+    expect(serializedAudits).toContain(sessionId);
+  });
+
+  it("preserves the disclosed hint floor across export -> delete -> import so a post-import first attempt on that step is still floored to assisted", async () => {
+    const lessons = (await (await call("/api/parent/lessons")).json()) as {
+      lessons: { id: string }[];
+    };
+    const lessonId = lessons.lessons[0]!.id;
+
+    await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, status: "approved" },
+    });
+
+    const sessionA = (await (
+      await call("/api/learner/sessions", {
+        method: "POST",
+        json: { lessonId },
+      })
+    ).json()) as { sessionId: string; steps: { id: string }[] };
+    const stepId = sessionA.steps[0]!.id;
+    const correctChoice = await answerKeyFor(stepId);
+
+    // Disclose a level-2 hint on stepId without submitting an attempt yet
+    const hintRes = await call("/api/learner/hints", {
+      method: "POST",
+      json: {
+        sessionId: sessionA.sessionId,
+        stepId,
+        currentLevel: 2,
+      },
+    });
+    expect(hintRes.status).toBe(200);
+
+    // Export the learner record (which includes the hint.requested audit event)
+    const exportRes = await call("/api/data/export", { method: "POST" });
+    expect(exportRes.status).toBe(200);
+    const exported = await exportRes.json();
+
+    // Delete the learner profile
+    const deleteRes = await call("/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: `XOA ${LEARNER_NICKNAME}` },
+    });
+    expect(deleteRes.status).toBe(200);
+
+    // Import the backup; learner gets a new remapped ID
+    const importRes = await call("/api/data/import", {
+      method: "POST",
+      json: exported,
+    });
+    expect(importRes.status).toBe(200);
+    const importBody = (await importRes.json()) as {
+      ok: boolean;
+      errors: string[];
+      warnings: string[];
+      counts: Record<string, number>;
+    };
+    expect(importBody.ok).toBe(true);
+    expect(importBody.errors).toEqual([]);
+
+    // The import response reports counts, not identifiers: the restored learner's
+    // id is minted server-side and must be read back from D1.
+    const restoredLearnerId = await env.DB.prepare("SELECT id FROM learners")
+      .first<{ id: string }>();
+    expect(restoredLearnerId, "import rebuilds exactly one learner").toBeTruthy();
+    expect(restoredLearnerId!.id).not.toBe(learnerId);
+
+    // Start a session for the restored learner and submit a correct answer on stepId with client helpLevel: 0
+    const sessionB = (await (
+      await call("/api/learner/sessions", {
+        method: "POST",
+        json: { lessonId },
+      })
+    ).json()) as { sessionId: string };
+
+    const attemptRes = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: sessionB.sessionId,
+        stepId,
+        submission: { kind: "choice", choiceId: correctChoice! },
+        helpLevel: 0,
+      },
+    });
+    expect(attemptRes.status).toBe(200);
+
+    const restoredAttempt = await env.DB.prepare(
+      "SELECT help_level, evidence_kind, attempt_no FROM learning_attempts WHERE learner_id = ?1 AND step_id = ?2",
+    )
+      .bind(restoredLearnerId!.id, stepId)
+      .first<{ help_level: number; evidence_kind: string; attempt_no: number }>();
+
+    // Because the disclosed hint floor survived export/delete/import and was remapped to the new learnerId,
+    // the attempt is floored to help_level = 2 and evidence_kind = 'assisted'.
+    expect(restoredAttempt).toEqual({
+      help_level: 2,
+      evidence_kind: "assisted",
+      attempt_no: 1,
+    });
+  });
+
+  it("rejects tampered import payloads that forge observed attempts or inflate derived skillEvidence without matching independent attempts", async () => {
+    const { stepId } = await makeEvidence();
+
+    const exportRes = await call("/api/data/export", { method: "POST" });
+    expect(exportRes.status).toBe(200);
+    const exported = (await exportRes.json()) as {
+      data: {
+        learningAttempts: {
+          id: string;
+          stepId: string;
+          outcome: string;
+          helpLevel: number;
+          evidenceKind: string;
+          attemptNo: number;
+        }[];
+        skillEvidence: {
+          skillId: string;
+          state: string;
+          independentCount: number;
+          source: string;
+        }[];
+      };
+    };
+
+    await call("/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: `XOA ${LEARNER_NICKNAME}` },
+    });
+
+    // Case 1: Tamper with attempt 2 (a retry on stepId) to claim evidenceKind = "observed"
+    const tamperedRetryObserved = structuredClone(exported);
+    tamperedRetryObserved.data.learningAttempts[1]!.evidenceKind = "observed";
+
+    const res1 = await call("/api/data/import", {
+      method: "POST",
+      json: tamperedRetryObserved,
+    });
+    expect(res1.status).toBe(400);
+
+    // Case 2: Tamper with derived skillEvidence to claim a high independentCount
+    // using a valid enum state, so the rejection comes from the provenance
+    // cross-check (independentCount > observed correct attempts) rather than
+    // from an unrelated enum rejection.
+    const tamperedSkillEvidence = structuredClone(exported);
+    tamperedSkillEvidence.data.skillEvidence[0]!.state = "TRANSFERRED";
+    tamperedSkillEvidence.data.skillEvidence[0]!.independentCount = 3;
+    tamperedSkillEvidence.data.skillEvidence[0]!.independentCount = 3;
+
+    const res2 = await call("/api/data/import", {
+      method: "POST",
+      json: tamperedSkillEvidence,
+    });
+    expect(res2.status).toBe(400);
+
+    // Case 3: Include a hint.requested audit row for stepId at level 2 while claiming an observed attempt with helpLevel: 0
+    const tamperedHintBypass = structuredClone(exported);
+    tamperedHintBypass.data.learningAttempts = [
+      {
+        ...tamperedHintBypass.data.learningAttempts[1]!,
+        attemptNo: 1,
+        helpLevel: 0,
+        evidenceKind: "observed",
+      },
+    ];
+    (tamperedHintBypass.data as unknown as { auditEvents: unknown[] }).auditEvents.push({
+      id: "forged-hint-audit",
+      actor: `learner:${exported.data.learners[0]!.id}`,
+      action: "hint.requested",
+      subject: stepId,
+      detail: { level: 2, sessionId: exported.data.learningSessions[0]!.id },
+      createdAt: Date.now(),
+    });
+
+    const res3 = await call("/api/data/import", {
+      method: "POST",
+      json: tamperedHintBypass,
+    });
+    expect(res3.status).toBe(400);
   });
 });
 

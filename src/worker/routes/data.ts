@@ -67,6 +67,7 @@ export const exportRecord: Handler = async (context) => {
     baselineAssessments,
     learningPlanItems,
     sessionReflections,
+    schemaVersionsResult,
   ] =
     await Promise.all([
       db
@@ -80,11 +81,17 @@ export const exportRecord: Handler = async (context) => {
       repo.listSkills(db),
       repo.listLessons(db),
       db
-        .prepare("SELECT id, lesson_id, status, decided_by, decided_at, note FROM review_approvals ORDER BY decided_at ASC")
+        .prepare(
+          `SELECT id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note
+           FROM review_approvals
+           WHERE decided_by = ?1 AND (learner_id = ?2 OR learner_id IS NULL)
+           ORDER BY decided_at ASC`,
+        )
+        .bind(context.parent.parentId, learner.id)
         .all<Record<string, unknown>>(),
       db
         .prepare(
-          `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen
+          `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline
            FROM learning_sessions WHERE learner_id = ?1 ORDER BY started_at ASC`,
         )
         .bind(learner.id)
@@ -94,7 +101,13 @@ export const exportRecord: Handler = async (context) => {
       repo.listReviewScheduleForLearner(db, learner.id),
       repo.listGoalsForLearner(db, learner.id),
       db
-        .prepare("SELECT id, actor, action, subject, detail, created_at FROM audit_events ORDER BY created_at ASC")
+        .prepare(
+          `SELECT id, actor, action, subject, detail, created_at
+           FROM audit_events
+           WHERE actor = ?1 OR actor = ?2
+           ORDER BY created_at ASC`,
+        )
+        .bind(`learner:${learner.id}`, `parent:${context.parent.parentId}`)
         .all<Record<string, unknown>>(),
       db.prepare("SELECT skill_id, prerequisite_id FROM skill_prerequisites").all<Record<string, unknown>>(),
       repo.listCurriculumObjectives(db),
@@ -103,6 +116,9 @@ export const exportRecord: Handler = async (context) => {
       repo.listBaselineAssessmentsForLearner(db, learner.id),
       repo.listLearningPlanItemsForLearner(db, learner.id),
       repo.listSessionReflectionsForLearner(db, learner.id),
+      db
+        .prepare("SELECT version, description FROM schema_versions ORDER BY version ASC")
+        .all<{ version: number; description: string }>(),
     ]);
 
   const lessonIds = lessons.map((l) => l.id);
@@ -184,7 +200,9 @@ export const exportRecord: Handler = async (context) => {
     lessonSteps,
     reviewApprovals: (approvals.results ?? []).map((row) => ({
       id: String(row.id),
+      learnerId: (row.learner_id as string | null) ?? null,
       lessonId: String(row.lesson_id),
+      lessonVersion: typeof row.lesson_version === "number" ? row.lesson_version : 1,
       status: String(row.status) as ExportBody["reviewApprovals"][number]["status"],
       decidedBy: String(row.decided_by),
       decidedAt: Number(row.decided_at),
@@ -200,6 +218,7 @@ export const exportRecord: Handler = async (context) => {
       endedAt: row.ended_at as number | null,
       status: String(row.status) as ExportBody["learningSessions"][number]["status"],
       stepsSeen: Number(row.steps_seen),
+      continuationDeadline: (row.continuation_deadline as number | null) ?? null,
     })),
     learningAttempts: attempts.map((a) => ({
       id: a.id,
@@ -332,18 +351,21 @@ export const exportRecord: Handler = async (context) => {
       noteVi: r.note_vi,
       createdAt: r.created_at,
     })),
-    auditEvents: (auditEvents.results ?? []).map((row) => ({
-      id: String(row.id),
-      actor: String(row.actor),
-      action: String(row.action),
-      subject: row.subject as string | null,
-      detail: safeJson(row.detail as string | null),
-      createdAt: Number(row.created_at),
+    auditEvents: filterExportedAuditEvents(
+      auditEvents.results ?? [],
+      {
+        learnerId: learner.id,
+        parentId: context.parent.parentId,
+        sessionIds: new Set((sessions.results ?? []).map((r) => String(r.id))),
+        goalIds: new Set(goals.map((g) => g.id)),
+        planItemIds: new Set(learningPlanItems.map((p) => p.id)),
+        baselineIds: new Set(baselineAssessments.map((b) => b.id)),
+      },
+    ),
+    schemaVersions: (schemaVersionsResult.results ?? []).map((row) => ({
+      version: Number(row.version),
+      description: String(row.description),
     })),
-    schemaVersions: [
-      { version: 1, description: "Initial schema" },
-      { version: 3, description: "Curriculum foundation, persistent auth throttles, baseline assessments, 4-week planner, reflections" },
-    ],
   };
 
   const now = Date.now();
@@ -430,6 +452,11 @@ export const importRecord: Handler = async (context) => {
         ...row,
         learnerId: retarget(learnerIds, row.learnerId),
       })),
+      reviewApprovals: data.reviewApprovals.map((row) => ({
+        ...row,
+        learnerId: row.learnerId ? retarget(learnerIds, row.learnerId) : null,
+        decidedBy: context.parent.parentId,
+      })),
       learningAttempts: data.learningAttempts.map((row) => ({
         ...row,
         learnerId: retarget(learnerIds, row.learnerId),
@@ -449,6 +476,12 @@ export const importRecord: Handler = async (context) => {
         learnerId: retarget(learnerIds, row.learnerId),
       })),
       learningGoals: data.learningGoals.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
+      auditEvents: data.auditEvents.map((row) => ({
+        ...row,
+        actor: row.actor.startsWith("learner:")
+          ? `learner:${retarget(learnerIds, row.actor.slice("learner:".length))}`
+          : row.actor,
+      })),
     });
 
     const counts: Record<string, number> = {};
@@ -510,7 +543,7 @@ export const deleteLearner: Handler = async (context) => {
     actor: `parent:${context.parent.parentId}`,
     action: "learner.deleted",
     subject: learner.id,
-    detail: JSON.stringify({ nickname: learner.nickname }),
+    detail: JSON.stringify({ grade: learner.grade }),
     now,
   });
 
@@ -601,23 +634,50 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
       .run();
   }
 
+  const approvedLearnerLessonVersions = new Set<string>();
   for (const approval of data.reviewApprovals) {
+    const version =
+      typeof approval.lessonVersion === "number" && Number.isInteger(approval.lessonVersion) && approval.lessonVersion >= 1
+        ? approval.lessonVersion
+        : 1;
+    const learnerId = approval.learnerId ?? null;
     await repo.setApproval(db, {
       id: approval.id,
+      learnerId,
       lessonId: approval.lessonId,
+      version,
       status: approval.status,
       decidedBy: approval.decidedBy,
       note: approval.note,
       now: approval.decidedAt,
     });
+    if (approval.status === "approved" && learnerId) {
+      approvedLearnerLessonVersions.add(`${learnerId}::${approval.lessonId}::${version}`);
+    }
   }
 
   for (const session of data.learningSessions) {
+    const hasVerifiedApproval = approvedLearnerLessonVersions.has(
+      `${session.learnerId}::${session.lessonId}::${session.lessonVersion}`,
+    );
+    const explicitDeadline =
+      typeof session.continuationDeadline === "number" && Number.isFinite(session.continuationDeadline)
+        ? session.continuationDeadline
+        : null;
+    // Fail-closed: an imported in_progress session without verified per-learner, per-version approval
+    // provenance does not automatically receive continuation (clamped to startedAt).
+    const continuationDeadline =
+      session.status === "in_progress" && !hasVerifiedApproval
+        ? explicitDeadline !== null
+          ? Math.min(explicitDeadline, session.startedAt)
+          : session.startedAt
+        : explicitDeadline;
+
     await db
       .prepare(
         `INSERT OR IGNORE INTO learning_sessions
-           (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+           (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
       )
       .bind(
         session.id,
@@ -629,6 +689,7 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
         session.endedAt,
         session.status,
         session.stepsSeen,
+        continuationDeadline,
       )
       .run();
   }
@@ -814,9 +875,154 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
       now: refl.createdAt,
     });
   }
+
+  // Restore hint disclosure floors so an export -> delete -> import round-trip
+  // never resets a step's hint provenance back to zero. Arbitrary security/admin
+  // audit events from the untrusted import file are NOT inserted; instead we
+  // compute the monotonic max hint level per (learnerId, stepId) from validated
+  // `hint.requested` entries and `learningAttempts.helpLevel`, and record a
+  // single server-minted `hint.requested` provenance row per disclosed step.
+  const restoredHintFloor = new Map<
+    string,
+    { learnerId: string; stepId: string; level: number; sessionId: string | null; createdAt: number }
+  >();
+
+  for (const audit of data.auditEvents) {
+    if (audit.action !== "hint.requested") continue;
+    if (!audit.actor.startsWith("learner:")) continue;
+    const learnerId = audit.actor.slice("learner:".length);
+    if (!learnerId || typeof audit.subject !== "string" || !audit.subject) continue;
+    const detailObj =
+      typeof audit.detail === "object" && audit.detail !== null && !Array.isArray(audit.detail)
+        ? (audit.detail as Record<string, unknown>)
+        : null;
+    const rawLevel = detailObj?.level;
+    if (typeof rawLevel !== "number" || !Number.isInteger(rawLevel) || rawLevel < 1 || rawLevel > 4) {
+      continue;
+    }
+    const sessionId = typeof detailObj?.sessionId === "string" ? detailObj.sessionId : null;
+    const key = `${learnerId}::${audit.subject}`;
+    const prev = restoredHintFloor.get(key);
+    if (!prev || rawLevel > prev.level) {
+      restoredHintFloor.set(key, {
+        learnerId,
+        stepId: audit.subject,
+        level: rawLevel,
+        sessionId,
+        createdAt: audit.createdAt,
+      });
+    }
+  }
+
+  for (const attempt of data.learningAttempts) {
+    if (attempt.helpLevel >= 1 && attempt.helpLevel <= 4) {
+      const key = `${attempt.learnerId}::${attempt.stepId}`;
+      const prev = restoredHintFloor.get(key);
+      if (!prev || attempt.helpLevel > prev.level) {
+        restoredHintFloor.set(key, {
+          learnerId: attempt.learnerId,
+          stepId: attempt.stepId,
+          level: attempt.helpLevel,
+          sessionId: attempt.sessionId,
+          createdAt: attempt.createdAt,
+        });
+      }
+    }
+  }
+
+  for (const entry of restoredHintFloor.values()) {
+    await repo.recordAudit(db, {
+      id: crypto.randomUUID(),
+      actor: `learner:${entry.learnerId}`,
+      action: "hint.requested",
+      subject: entry.stepId,
+      detail: JSON.stringify({
+        sessionId: entry.sessionId,
+        level: entry.level,
+        restoredFromImport: true,
+      }),
+      now: entry.createdAt,
+    });
+  }
 }
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
+
+interface AuditFilterScope {
+  learnerId: string;
+  parentId: string;
+  sessionIds: Set<string>;
+  goalIds: Set<string>;
+  planItemIds: Set<string>;
+  baselineIds: Set<string>;
+}
+
+const LEARNER_SUBJECT_ACTIONS = new Set([
+  "learner.created",
+  "curriculum.intake_updated",
+  "planner.generated",
+  "data.exported",
+]);
+
+function filterExportedAuditEvents(
+  rows: Record<string, unknown>[],
+  scope: AuditFilterScope,
+): ExportBody["auditEvents"] {
+  const expectedLearnerActor = `learner:${scope.learnerId}`;
+  const expectedParentActor = `parent:${scope.parentId}`;
+  const out: ExportBody["auditEvents"] = [];
+
+  for (const row of rows) {
+    const actor = String(row.actor);
+    const action = String(row.action);
+    const subject = (row.subject as string | null) ?? null;
+    const detail = safeJson(row.detail as string | null);
+
+    let matchesLearner = false;
+    if (actor === expectedLearnerActor) {
+      matchesLearner = true;
+    } else if (actor === expectedParentActor) {
+      if (subject !== null && LEARNER_SUBJECT_ACTIONS.has(action) && subject === scope.learnerId) {
+        matchesLearner = true;
+      } else if (action === "competency.corrected") {
+        const detailLearnerId =
+          typeof detail === "object" && detail !== null && !Array.isArray(detail)
+            ? (detail as Record<string, unknown>).learnerId
+            : undefined;
+        if (detailLearnerId === scope.learnerId) {
+          matchesLearner = true;
+        }
+      } else if (action === "goal.created" && subject !== null && scope.goalIds.has(subject)) {
+        matchesLearner = true;
+      } else if (
+        action.startsWith("planner.item_") &&
+        subject !== null &&
+        scope.planItemIds.has(subject)
+      ) {
+        matchesLearner = true;
+      } else if (
+        action === "baseline.evaluated" &&
+        subject !== null &&
+        scope.baselineIds.has(subject)
+      ) {
+        matchesLearner = true;
+      }
+    }
+
+    if (!matchesLearner) continue;
+
+    out.push({
+      id: String(row.id),
+      actor,
+      action,
+      subject,
+      detail,
+      createdAt: Number(row.created_at),
+    });
+  }
+
+  return out;
+}
 
 function retarget(map: Map<string, string>, exportedId: string): string {
   return map.get(exportedId) ?? exportedId;

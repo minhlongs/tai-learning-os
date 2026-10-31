@@ -40,15 +40,15 @@ Grouped by role. All 15 tables in `0001_initial_schema.sql`, in declaration orde
 
 | Table | Purpose | Notable columns |
 |---|---|---|
-| `lessons` | A container of ordered steps. | `title_vi`, `title_en`, `objective_vi`, `objective_en`, `grade_from`, `grade_to`, `version`, `content_version` (see below) |
-| `lesson_steps` | One ordered step within a lesson. | `position`, `kind` CHECK in `('concept','visual','guided','independent','transfer')`, `content` (JSON, validated against `src/shared/schemas/exercise.ts`), `answer_key` (JSON), `explanation_vi` (shown only after the attempt), `content_version`, UNIQUE `(lesson_id, position)` |
-| `review_approvals` | **Parent approval gate.** Only `status = 'approved'` makes a lesson visible in learner mode. | `status` CHECK in `('draft','approved','rejected')`, `decided_by` → `parents(id)`, `decided_at`, `note`, UNIQUE `(lesson_id)` |
+| `lessons` | A container of ordered steps. | `title_vi`, `title_en`, `objective_vi`, `objective_en`, `grade_from`, `grade_to`, `version` (see below) |
+| `lesson_steps` | One ordered step within a lesson, snapshotted per version so re-authoring cannot rewrite what an earlier attempt answered. | `position`, `kind` CHECK in `('concept','visual','guided','independent','transfer')`, `content` (JSON, validated against `src/shared/schemas/exercise.ts`), `answer_key` (JSON), `explanation_vi` (shown only after the attempt), `content_version`, UNIQUE `(lesson_id, content_version, position)` |
+| `review_approvals` | **Parent approval gate.** Only `status = 'approved'` makes a lesson visible in learner mode — and only for the learner and version it names. | `learner_id` → `learners(id)` ON DELETE CASCADE (NULL = not yet bound to a specific learner), `lesson_version`, `status` CHECK in `('draft','approved','rejected')`, `decided_by` → `parents(id)`, `decided_at`, `note`, UNIQUE `(learner_id, lesson_id, lesson_version)` |
 
 ### Learner record (evidence)
 
 | Table | Purpose | Notable columns |
 |---|---|---|
-| `learning_sessions` | One completed lesson run. | `lesson_version`, `school_year_id` (ON DELETE SET NULL), `started_at`, `ended_at` (null while in progress), `status` CHECK in `('in_progress','completed','abandoned')`, `steps_seen`; index `idx_sessions_learner` |
+| `learning_sessions` | One completed lesson run. | `lesson_version` (the IMMUTABLE version the session was authorised against), `school_year_id` (ON DELETE SET NULL), `started_at`, `ended_at` (null while in progress), `status` CHECK in `('in_progress','completed','abandoned')`, `steps_seen`, `continuation_deadline` (monotonic bound on how long a revoked-but-valid session may keep running; NULL = never revoked); index `idx_sessions_learner` |
 | `learning_attempts` | **The atomic evidence record. One row per submitted answer attempt.** | `submitted` (JSON), `outcome` CHECK in `('correct','incorrect','partial')`, `help_level` CHECK `0..4`, `evidence_kind` CHECK in `('observed','assisted','parent_correction')`, `attempt_no`, `step_version`; indexes `idx_attempts_session`, `idx_attempts_skill`, `idx_attempts_learner` |
 | `skill_evidence` | **Derived** competency state per skill. Always recomputed from attempts. | `state` CHECK in `('NOT_OBSERVED','SUPPORTED','INDEPENDENT','RETAINED','TRANSFERRED')`, `independent_count`, `assisted_count`, `correct_count`, `last_independent_at`, `last_observed_at`, `source` CHECK in `('derived','parent_correction')`, `correction_note`; UNIQUE `(learner_id, skill_id)` |
 | `review_schedule` | Spaced-review queue. Interval days are **config-driven**, not magic numbers. | `due_at`, `interval_days` DEFAULT 1, `last_result` CHECK in `('passed','failed')`, `last_attempt_at`, `failure_streak` (+1 per failure, so scheduling stays explainable); index `idx_review_due` |
@@ -125,9 +125,15 @@ The `actor` vocabulary (`parent:<id>` | `system` | `learner:<id>`) means an even
 always names *which kind of principal* acted, so a parent correcting a record can
 be distinguished from the system deriving one.
 
-> **Status: Implemented.** `repo.recordAudit` in `src/worker/db/repositories.ts` writes
-> audit records for parent logins, learner enrollment, lesson approvals, data exports,
-> imports, and learner deletion cascades.
+> **Status: Implemented.** `repo.recordAudit` and `repo.auditInsert` in `src/worker/db/repositories.ts`
+> write audit records for parent logins, learner enrollment, lesson approvals, hint requests,
+> attempt submissions (committed atomically inside `db.batch` alongside `learning_attempts`,
+> `skill_evidence`, and `review_schedule`), data exports, imports, and learner deletion cascades.
+> Migration `0004_evidence_integrity.sql` enforces append-only DML semantics via SQLite triggers
+> (`audit_events_no_update` and `audit_events_no_delete`). Note the threat-model boundary:
+> these triggers block `UPDATE` and `DELETE` DML within the active schema, but do not protect
+> against `DROP TRIGGER`, `DROP TABLE`, schema replacement, direct SQLite file replacement,
+> or a privileged database administrator.
 
 ---
 
@@ -192,15 +198,41 @@ The full minimization table, and the controls that keep these fields out, are in
 
 Two independent version columns exist because they answer different questions:
 
-- `lessons.version` — the **lesson** changed (title, objective, step order).
-- `lesson_steps.content_version` — a **single question** changed. The comment is
-  explicit: *"version lets an edited question be distinguished from an earlier
-  one when interpreting old attempts."*
+- `lessons.version` — the **lesson** changed (title, objective, step order, or any
+  step content). Bumping it publishes a new immutable snapshot and invalidates
+  every approval of the previous version.
+- `lesson_steps.content_version` — a **single question** changed. The rows are
+  snapshotted per version, so an edited question is distinguishable from an
+  earlier one when interpreting old attempts.
 
 `learning_attempts.step_version` records which version the learner actually
 answered. Without it, re-authoring a question would silently rewrite the meaning
 of every historical attempt against it. With it, an old attempt stays
 interpretable as evidence about the version that was asked.
+
+This is why `lesson_steps` is UNIQUE on `(lesson_id, content_version, position)`
+rather than `(lesson_id, position)`: several versions of the same step position
+coexist, and an in-progress session reads **only** the steps matching its own
+`learning_sessions.lesson_version`. Authoring a new version never deletes or
+mutates the steps a running session is still answering.
+
+### Approval is scoped to a learner AND a version
+
+`review_approvals` is UNIQUE on `(learner_id, lesson_id, lesson_version)` rather
+than `(lesson_id)`. An approval therefore answers one precise question — *may
+**this** learner run **this** version of the lesson* — and nothing else follows
+from it:
+
+- A second sibling under the same parent gets **no** approval: `learner_id` is
+  part of the key, so a row naming one child cannot stand in for another.
+- Another family cannot inherit an approval at all: every read is owner-scoped by
+  `decided_by = <parent>` and `learner_id`.
+- Re-authoring a lesson bumps `lessons.version`, so the approved version and the
+  current version diverge and the learner sees the lesson as unapproved until the
+  parent re-approves the new version.
+
+A legacy row migrated with `learner_id = NULL` is not bound to any child and is
+never read as one learner's approval.
 
 ---
 
@@ -210,14 +242,16 @@ interpretable as evidence about the version that was asked.
 [`src/shared/crypto/password.ts`](../src/shared/crypto/password.ts):
 
 - Format: `pbkdf2-sha256:<iterations>$<saltB64Url>$<hashB64Url>`
-- **60,000** iterations, SHA-256.
+- **600,000** iterations for every newly created hash, SHA-256.
 - Fresh **16-byte random salt** per password, so identical passwords hash
   differently and precomputation is not reusable.
 - Constant-time verification (`timing-safe-equal.ts`), so a wrong password is not
   distinguishable from a right one by how long the check takes.
 - **Minimum 10 characters** (`MIN_PASSWORD_LENGTH`), maximum 200.
-- The iteration count is stored **with** the hash, so it can be raised later
-  without invalidating the parent. `needsRehash` detects a weaker stored record.
+- The iteration count is stored **with** the hash: `verifyPassword` derives against
+  the stored record's iteration count, and `needsRehash` detects legacy records
+  (such as 100,000-iteration hashes) so they are transparently upgraded to
+  600,000 iterations after a successful login.
 - `verifyPassword` **fails closed** on a malformed record.
 
 **⚠ Two stale comments.** `migrations/0001_initial_schema.sql` lines 24 and 27

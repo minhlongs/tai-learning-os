@@ -13,7 +13,7 @@ TAI LEARNING OS operates as a local-first system serving a household. Its threat
 | Threat Category | Potential Vector | Mitigation Implemented |
 |---|---|---|
 | **Learner tampering** | Tampering with client-side code / devtools to bypass steps or fake scores | Answer keys and grading are completely withheld from the browser. Correctness is evaluated exclusively by Worker code; explanations are unlocked only upon a valid, server-verified attempt. Server-side `hint.requested` audit records prevent `helpLevel: 0` spoofing after viewing hints, and `attemptNo === 1` prevents brute-force guessing from counting as independent mastery. |
-| **Credential guessing & brute-force** | Repeated brute-force login attempts against parent account | Rate limiter `AUTH_RATE_LIMITER` restricts failed auth calls to 5 attempts per 60 seconds per IP-bound client bucket (`auth:<hash32(ip)>`), preventing header-rotation bypass. Passwords hashed using PBKDF2-SHA256 (100,000 iterations) with automatic rehash upgrade on login. |
+| **Credential guessing & brute-force** | Repeated brute-force login attempts against parent account | Rate limiter `AUTH_RATE_LIMITER` restricts failed auth calls to 5 attempts per 60 seconds per IP-bound client bucket (`auth:<hash32(ip)>`), preventing header-rotation bypass. Passwords hashed using PBKDF2-SHA256 (600,000 iterations) with automatic rehash upgrade on login. |
 | **Parent vs. Child privilege escalation** | Child navigating to `/parent` or calling parent/data endpoints from a shared browser | Server-enforced privilege boundary (`parentRoute`): switching to child mode (`POST /api/session/mode` with `{ mode: "learner" }`) mints a signed session token with `mode: "learner"`. All `/api/parent/*` and `/api/data/*` routes reject `mode === "learner"` with `403 Forbidden`. Re-entering parent mode requires verifying the parent password on the server. |
 | **Cross-Site Request Forgery (CSRF)** | Malicious third-party tabs executing mutating actions via ambient cookies | Double-submit CSRF mechanism plus `Origin` header validation: mutating endpoints (`POST`, `PUT`, `PATCH`, `DELETE`) require a matching `Origin` host and the `x-tlo-csrf` header matching the HMAC-derived token tied to the current session's `tokenId`. |
 | **Cross-Site Scripting (XSS)** | Injection of malicious scripts in exercise content or learner notes | React 19 auto-escapes string content. Strict Content-Type headers (`application/json; charset=utf-8`). Session cookie is marked `HttpOnly` and `SameSite=Strict`. |
@@ -26,7 +26,7 @@ TAI LEARNING OS operates as a local-first system serving a household. Its threat
 
 ### 2.1 Password Hashing
 - **Algorithm**: PBKDF2 with HMAC-SHA256.
-- **Iteration Count**: 100,000 iterations (encoded into the serialized string `pbkdf2-sha256:100000$<salt>$<hash>` for forward compatibility and automatic rehashing on login).
+- **Iteration Count**: 600,000 iterations for every new hash, encoded into the serialized record `pbkdf2-sha256:600000$<salt>$<hash>`. Verification reads the iteration count from the stored record and rehashes with that number, so a legacy record still verifies against the cost it was written at. A legacy 100,000-iteration record is upgraded to 600,000 on the next successful login (`needsRehash`), so the cost rises without ever asking the parent to reset a password.
 - **Salt**: 16 bytes cryptographically strong random salt generated per password via `crypto.getRandomValues`.
 - **Timing-Attack Resistance**: Verification uses constant-time string comparison (`timingSafeEqual`) to prevent side-channel timing disclosures.
 - **Constraints**: Minimum 10 characters, maximum 200 characters.
@@ -52,8 +52,10 @@ TAI LEARNING OS operates as a local-first system serving a household. Its threat
    - Database lives in local Cloudflare D1 (SQLite) under the user's local operating system profile.
    - No remote analytics, telemetry beacons, crash reporting pings, or AI training pipelines exist.
 3. **Audit Trail**:
-   - `audit_events` stores an append-only log of critical lifecycle events (`parent.login`, `lesson.approve`, `data.exported`, `learner.enrolled`, `learner.deleted`).
-   - Audit details contain only non-sensitive structured metadata.
+   - `audit_events` stores an append-only log of critical lifecycle events (`parent.login`, `lesson.approve`, `hint.requested`, `attempt.submitted`, `data.exported`, `learner.enrolled`, `learner.deleted`).
+   - Audit details contain only non-sensitive structured metadata (never answers, passwords, cookies, or session tokens).
+   - Database-level `BEFORE UPDATE` (`audit_events_no_update`) and `BEFORE DELETE` (`audit_events_no_delete`) triggers in `migrations/0004_evidence_integrity.sql` abort any `UPDATE` or `DELETE` DML against `audit_events`.
+   - **Boundary of Trigger Enforcement**: SQLite triggers enforce append-only DML within the active schema against application-level mutations; they do not defend against `DROP TRIGGER`, `DROP TABLE`, schema replacement, raw SQLite file replacement on disk, or an actor with privileged database administration access. Cryptographic hash chaining is not yet implemented.
 
 ---
 

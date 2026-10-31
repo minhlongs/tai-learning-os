@@ -25,6 +25,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  RequestHintRequest,
   StartSessionResponse,
   SubmitAttemptRequest,
   SubmitAttemptResponse,
@@ -150,14 +151,15 @@ export function LessonScreen({
 
   const onRequestHint = useCallback(
     (level: number) => {
-      if (!step) return;
+      if (!step || !start) return;
       if (state.helpLevel >= level) return;
+      const body: RequestHintRequest = {
+        stepId: step.id,
+        currentLevel: level,
+        sessionId: start.sessionId,
+      };
       void api
-        .post<{ level: number; hintVi: string | null }>(endpoints.requestHint, {
-          stepId: step.id,
-          currentLevel: level,
-          sessionId: start?.sessionId,
-        })
+        .post<{ level: number; hintVi: string | null }>(endpoints.requestHint, body)
         .then((result) => {
           if (!result.ok) {
             setError(failureMessage(result.failure));
@@ -172,7 +174,7 @@ export function LessonScreen({
           });
         });
     },
-    [patchStep, start?.sessionId, state.helpLevel, state.hints, step],
+    [patchStep, start, state.helpLevel, state.hints, step],
   );
 
   const onAnswer = useCallback(

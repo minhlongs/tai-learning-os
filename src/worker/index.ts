@@ -47,6 +47,30 @@ import {
   upsertCurriculumSetup,
 } from "./routes/parent";
 import { deleteLearner, exportRecord, importRecord } from "./routes/data";
+import {
+  grantConsent,
+  listConsentableOrganizations,
+  listConsents,
+  revokeConsent,
+} from "./routes/consents";
+import {
+  addOrganizationMemberRoute,
+  assignClassroomTeacherRoute,
+  createClassroomRoute,
+  createOrganizationRoute,
+  enrollLearnerRoute,
+  listClassroomLearnersRoute,
+  listClassroomsRoute,
+  listOrganizationMembersRoute,
+} from "./routes/organization";
+import {
+  assignClassroomLessonRoute,
+  createOrgDraftLessonRoute,
+  listClassroomAssignedLessonsRoute,
+  listParentClassroomLessonsRoute,
+  reviewOrgLessonRoute,
+  submitOrgLessonReviewRoute,
+} from "./routes/organization-lessons";
 
 /**
  * Every route, in match order.
@@ -86,6 +110,30 @@ const ROUTES: readonly Route[] = [
   parentRoute("POST", /^\/api\/parent\/skills\/correct$/, correctSkillEvidence),
   parentRoute("POST", /^\/api\/parent\/learners$/, createLearnerProfile),
   parentRoute("PATCH", /^\/api\/parent\/learners\/profile$/, updateLearnerProfile),
+
+  // Parent Consent routes
+  parentRoute("GET", /^\/api\/parent\/consents$/, listConsents),
+  parentRoute("POST", /^\/api\/parent\/consents\/grant$/, grantConsent),
+  parentRoute("POST", /^\/api\/parent\/consents\/revoke$/, revokeConsent),
+  parentRoute("GET", /^\/api\/parent\/consents\/organizations$/, listConsentableOrganizations),
+
+  // Organization & Classroom routes
+  parentRoute("POST", /^\/api\/org\/create$/, createOrganizationRoute),
+  parentRoute("GET", /^\/api\/org\/members$/, listOrganizationMembersRoute),
+  parentRoute("POST", /^\/api\/org\/members$/, addOrganizationMemberRoute),
+  parentRoute("GET", /^\/api\/org\/classrooms$/, listClassroomsRoute),
+  parentRoute("POST", /^\/api\/org\/classrooms$/, createClassroomRoute),
+  parentRoute("POST", /^\/api\/org\/classrooms\/teachers$/, assignClassroomTeacherRoute),
+  parentRoute("POST", /^\/api\/org\/classrooms\/enroll$/, enrollLearnerRoute),
+  parentRoute("GET", /^\/api\/org\/classrooms\/learners$/, listClassroomLearnersRoute),
+
+  // Organization Lesson Authoring & Classroom Assignments
+  parentRoute("POST", /^\/api\/org\/lessons\/draft$/, createOrgDraftLessonRoute),
+  parentRoute("POST", /^\/api\/org\/lessons\/submit$/, submitOrgLessonReviewRoute),
+  parentRoute("POST", /^\/api\/org\/lessons\/review$/, reviewOrgLessonRoute),
+  parentRoute("POST", /^\/api\/org\/classrooms\/assign-lesson$/, assignClassroomLessonRoute),
+  parentRoute("GET", /^\/api\/org\/classrooms\/assigned-lessons$/, listClassroomAssignedLessonsRoute),
+  parentRoute("GET", /^\/api\/parent\/classroom-lessons$/, listParentClassroomLessonsRoute),
 
   parentRoute("POST", /^\/api\/data\/export$/, exportRecord),
   parentRoute("POST", /^\/api\/data\/import$/, importRecord),

@@ -47,8 +47,8 @@ import {
   type SkillCandidate,
 } from "../../shared/engine/planner";
 import * as repo from "../db/repositories";
-import { badRequest, conflict, notFound, ok, readJsonBody, serverError } from "../http/response";
-import type { Handler, HandlerContext } from "../http/middleware";
+import { badRequest, forbidden, notFound, ok, readJsonBody, serverError } from "../http/response";
+import type { Handler } from "../http/middleware";
 import { recordParentCorrection } from "../services/session-service";
 
 /* ── GET /api/parent/dashboard ─────────────────────────────────────────────── */
@@ -205,18 +205,66 @@ export const getParentDashboard: Handler = async (context) => {
  * learner mode.
  */
 export const listLessons: Handler = async (context) => {
-  const lessons = await repo.listLessons(context.env.DB);
-  const [approvalsResult, steps, metadataRows] = await Promise.all([
-    context.env.DB
-      .prepare("SELECT lesson_id, status, decided_at FROM review_approvals")
-      .all<{ lesson_id: string; status: ApprovalStatus; decided_at: number }>(),
-    repo.findStepsForLessons(context.env.DB, lessons.map((l) => l.id)),
-    repo.listLessonMetadata(context.env.DB),
-  ]);
+  const queryLearnerId = context.url.searchParams.get("learnerId");
+  const targetLearner = queryLearnerId
+    ? await repo.findLearnerForParent(context.env.DB, queryLearnerId, context.parent.parentId)
+    : await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
 
+  const lessons = await repo.listLessons(context.env.DB);
+  const [approvalsResult, steps, metadataRows, orgLessonsResult, parentMemberships, parentLearners] =
+    await Promise.all([
+      targetLearner
+        ? context.env.DB
+            .prepare(
+              `SELECT ra.lesson_id, ra.status, ra.decided_at, ra.lesson_version, ra.learner_id
+               FROM review_approvals ra
+               WHERE ra.decided_by = ?1 AND ra.learner_id = ?2
+               ORDER BY ra.decided_at DESC`,
+            )
+            .bind(context.parent.parentId, targetLearner.id)
+            .all<{ lesson_id: string; status: ApprovalStatus; decided_at: number; lesson_version: number; learner_id: string | null }>()
+        : Promise.resolve({ results: [] as { lesson_id: string; status: ApprovalStatus; decided_at: number; lesson_version: number; learner_id: string | null }[] }),
+      repo.findStepsForLessons(context.env.DB, lessons.map((l) => l.id)),
+      repo.listLessonMetadata(context.env.DB),
+      context.env.DB
+        .prepare("SELECT lesson_id, organization_id, review_status FROM organization_lessons")
+        .all<{ lesson_id: string; organization_id: string; review_status: string }>(),
+      context.env.DB
+        .prepare("SELECT organization_id FROM organization_members WHERE user_id = ?1")
+        .bind(context.parent.parentId)
+        .all<{ organization_id: string }>(),
+      repo.listLearnersForParent(context.env.DB, context.parent.parentId),
+    ]);
+
+  const memberOrgIds = new Set((parentMemberships.results ?? []).map((m) => m.organization_id));
+  const orgLessonMap = new Map((orgLessonsResult.results ?? []).map((ol) => [ol.lesson_id, ol]));
+
+  const assignedOrgLessonsForChildren = new Set<string>();
+  for (const learner of parentLearners) {
+    const ids = await repo.listAssignedOrgLessonIdsForLearner(context.env.DB, learner.id);
+    for (const id of ids) assignedOrgLessonsForChildren.add(id);
+  }
+
+  const visibleLessons = lessons.filter((lesson) => {
+    const orgLesson = orgLessonMap.get(lesson.id);
+    if (!orgLesson) return true; // Platform lesson
+    if (memberOrgIds.has(orgLesson.organization_id)) return true; // Parent is member/staff of this center
+    if (assignedOrgLessonsForChildren.has(lesson.id)) return true; // Assigned to this parent's child
+    return false; // Other center's private draft/unassigned lesson
+  });
+
+  const lessonVersionMap = new Map(lessons.map((l) => [l.id, l.version]));
   const approvalByLesson = new Map<string, { status: ApprovalStatus; decidedAt: number }>();
+  const staleApprovedLessons = new Set<string>();
   for (const row of approvalsResult.results ?? []) {
-    approvalByLesson.set(row.lesson_id, { status: row.status, decidedAt: row.decided_at });
+    const currentVersion = lessonVersionMap.get(row.lesson_id);
+    if (row.lesson_version === currentVersion) {
+      if (!approvalByLesson.has(row.lesson_id)) {
+        approvalByLesson.set(row.lesson_id, { status: row.status, decidedAt: row.decided_at });
+      }
+    } else if (row.status === "approved" && currentVersion !== undefined && row.lesson_version < currentVersion) {
+      staleApprovedLessons.add(row.lesson_id);
+    }
   }
 
   const stepCountByLesson = new Map<string, number>();
@@ -227,11 +275,12 @@ export const listLessons: Handler = async (context) => {
   const metadataByLesson = new Map(metadataRows.map((m) => [m.lesson_id, m]));
 
   return ok<LessonListResponse>({
-    lessons: lessons.map((lesson) => {
+    lessons: visibleLessons.map((lesson) => {
       const approval = approvalByLesson.get(lesson.id);
       const status = approval?.status ?? "draft";
       const pendingReapproval =
-        status === "approved" && approval !== undefined && lesson.updated_at > approval.decidedAt;
+        (status === "approved" && approval !== undefined && lesson.updated_at > approval.decidedAt) ||
+        (status === "draft" && staleApprovedLessons.has(lesson.id));
       const meta = metadataByLesson.get(lesson.id);
       return {
         id: lesson.id,
@@ -269,9 +318,43 @@ export const getLessonDetail: Handler = async (context) => {
   const lesson = await repo.findLesson(context.env.DB, lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
+  // Tenant / visibility check parity: if org lesson, caller must be org member or parent of enrolled/assigned learner
+  const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
+  if (orgLesson) {
+    const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
+    if (!role) {
+      const parentLearners = await repo.listLearnersForParent(context.env.DB, context.parent.parentId);
+      let isAssignedToChild = false;
+      for (const learner of parentLearners) {
+        const assigned = await repo.isLessonAssignedToLearner(context.env.DB, {
+          learnerId: learner.id,
+          lessonId: lesson.id,
+        });
+        if (assigned) {
+          isAssignedToChild = true;
+          break;
+        }
+      }
+      if (!isAssignedToChild) {
+        return forbidden("Bạn không có quyền truy cập bài học của trung tâm này.");
+      }
+    }
+  }
+
+  const queryLearnerId = context.url.searchParams.get("learnerId");
+  const queryVersion = context.url.searchParams.get("version");
+  const targetVersion = queryVersion ? parseInt(queryVersion, 10) : lesson.version;
+
+  const targetLearner = queryLearnerId
+    ? await repo.findLearnerForParent(context.env.DB, queryLearnerId, context.parent.parentId)
+    : await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+
   const [steps, approval] = await Promise.all([
-    repo.listStepsForLesson(context.env.DB, lesson.id),
-    repo.getApproval(context.env.DB, lesson.id),
+    repo.listStepsForLesson(context.env.DB, lesson.id, targetVersion),
+    repo.getApproval(context.env.DB, lesson.id, {
+      learnerId: targetLearner?.id,
+      version: targetVersion,
+    }),
   ]);
 
   const payload: LessonDetailResponse["steps"] = [];
@@ -324,28 +407,68 @@ export const setLessonApproval: Handler = async (context) => {
   const lesson = await repo.findLesson(context.env.DB, body.lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
+  // Resolve target learner
+  let learnerId: string | null;
+  if (body.learnerId) {
+    const learner = await repo.findLearnerForParent(context.env.DB, body.learnerId, context.parent.parentId);
+    if (!learner) return notFound("Không tìm thấy hồ sơ người học.");
+    learnerId = learner.id;
+  } else {
+    const firstLearner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+    learnerId = firstLearner?.id ?? null;
+  }
+
+  const version = typeof body.version === "number" ? body.version : lesson.version;
   const now = Date.now();
   const note = typeof body.note === "string" ? body.note.slice(0, 500) : null;
 
-  await repo.setApproval(context.env.DB, {
-    id: crypto.randomUUID(),
+  const statements: D1PreparedStatement[] = [
+    ...repo.setApprovalStatements(context.env.DB, {
+      id: crypto.randomUUID(),
+      learnerId,
+      lessonId: lesson.id,
+      version,
+      status: body.status,
+      decidedBy: context.parent.parentId,
+      note,
+      now,
+    }),
+  ];
+
+  // If status is not approved, clamp in-progress sessions for this lesson to 30 min max
+  if (body.status !== "approved") {
+    statements.push(
+      repo.clampContinuationDeadlinesForLearnerLessonStatement(context.env.DB, {
+        learnerId,
+        lessonId: lesson.id,
+        revokedAt: now,
+      }),
+    );
+  }
+
+  statements.push(
+    repo.auditInsert(context.env.DB, {
+      id: crypto.randomUUID(),
+      actor: `parent:${context.parent.parentId}`,
+      action: `lesson.approval.${body.status}`,
+      subject: lesson.id,
+      detail: JSON.stringify({
+        note: note === null ? null : note.length,
+        learnerId,
+        version,
+      }),
+      now,
+    }),
+  );
+
+  await context.env.DB.batch(statements);
+
+  return ok<SetApprovalResponse>({
     lessonId: lesson.id,
     status: body.status,
-    decidedBy: context.parent.parentId,
-    note,
-    now,
+    learnerId: learnerId ?? undefined,
+    version,
   });
-
-  await repo.recordAudit(context.env.DB, {
-    id: crypto.randomUUID(),
-    actor: `parent:${context.parent.parentId}`,
-    action: `lesson.approval.${body.status}`,
-    subject: lesson.id,
-    detail: JSON.stringify({ note: note === null ? null : note.length }),
-    now,
-  });
-
-  return ok<SetApprovalResponse>({ lessonId: lesson.id, status: body.status });
 };
 
 /* ── POST /api/parent/lessons/content ─────────────────────────────────────── */
@@ -366,10 +489,13 @@ export const updateLessonContent: Handler = async (context) => {
   const lesson = await repo.findLesson(context.env.DB, body.lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
-  if (body.steps !== undefined) {
-    const validated = validateStepSet(body.steps);
-    if (!validated.ok) return badRequest(validated.error);
-    await replaceSteps(context, lesson.id, body.steps);
+  // If the lesson belongs to an organization, only an authorized member (owner/admin or authoring teacher) may edit it.
+  const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
+  if (orgLesson) {
+    const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
+    if (!role || (role === "teacher" && orgLesson.author_id !== context.parent.parentId)) {
+      return forbidden("Bạn không có quyền chỉnh sửa nội dung bài học của tổ chức này.");
+    }
   }
 
   if (body.titleVi !== undefined && (typeof body.titleVi !== "string" || body.titleVi.trim().length === 0)) {
@@ -382,21 +508,103 @@ export const updateLessonContent: Handler = async (context) => {
     return badRequest("Mục tiêu bài học không hợp lệ.");
   }
 
+  if (body.steps !== undefined) {
+    const validated = validateStepSet(body.steps);
+    if (!validated.ok) return badRequest(validated.error);
+  }
+
   const now = Date.now();
   const nextVersion = lesson.version + 1;
-  await bumpLesson(context, lesson.id, body, nextVersion, now);
+  const statements: D1PreparedStatement[] = [];
 
-  await repo.recordAudit(context.env.DB, {
-    id: crypto.randomUUID(),
-    actor: `parent:${context.parent.parentId}`,
-    action: "lesson.content_updated",
-    subject: lesson.id,
-    detail: JSON.stringify({
-      version: nextVersion,
-      steps: body.steps?.length ?? null,
+  if (body.steps !== undefined) {
+    for (const step of body.steps) {
+      statements.push(
+        context.env.DB
+          .prepare(
+            `INSERT INTO lesson_steps
+               (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(lesson_id, content_version, position) DO UPDATE SET
+               kind = excluded.kind,
+               content = excluded.content,
+               answer_key = excluded.answer_key,
+               explanation_vi = excluded.explanation_vi`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            lesson.id,
+            step.position,
+            step.kind,
+            JSON.stringify(step.content),
+            JSON.stringify(step.answerKey),
+            step.explanationVi,
+            nextVersion,
+          ),
+      );
+    }
+  } else {
+    const existingSteps = await repo.listStepsForLesson(context.env.DB, lesson.id, lesson.version);
+    for (const step of existingSteps) {
+      statements.push(
+        context.env.DB
+          .prepare(
+            `INSERT INTO lesson_steps
+               (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(lesson_id, content_version, position) DO UPDATE SET
+               kind = excluded.kind,
+               content = excluded.content,
+               answer_key = excluded.answer_key,
+               explanation_vi = excluded.explanation_vi`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            lesson.id,
+            step.position,
+            step.kind,
+            step.content,
+            step.answer_key,
+            step.explanation_vi,
+            nextVersion,
+          ),
+      );
+    }
+  }
+
+  statements.push(
+    context.env.DB
+      .prepare(
+        `UPDATE lessons
+         SET title_vi = ?1, objective_vi = ?2, version = ?3, updated_at = ?4
+         WHERE id = ?5 AND version = ?6`,
+      )
+      .bind(
+        typeof body.titleVi === "string" ? body.titleVi : lesson.title_vi,
+        typeof body.objectiveVi === "string" ? body.objectiveVi : lesson.objective_vi,
+        nextVersion,
+        now,
+        lesson.id,
+        lesson.version,
+      ),
+    repo.clampContinuationDeadlinesForLearnerLessonStatement(context.env.DB, {
+      lessonId: lesson.id,
+      revokedAt: now,
     }),
-    now,
-  });
+    repo.auditInsert(context.env.DB, {
+      id: crypto.randomUUID(),
+      actor: `parent:${context.parent.parentId}`,
+      action: "lesson.content_updated",
+      subject: lesson.id,
+      detail: JSON.stringify({
+        version: nextVersion,
+        steps: body.steps?.length ?? null,
+      }),
+      now,
+    }),
+  );
+
+  await context.env.DB.batch(statements);
 
   return ok<UpdateContentResponse>({ lessonId: lesson.id, version: nextVersion });
 };
@@ -495,11 +703,6 @@ export const createLearnerProfile: Handler = async (context) => {
   const timezone = typeof body.timezone === "string" && body.timezone.length > 0 ? body.timezone : "Asia/Ho_Chi_Minh";
   if (timezone.length > 64) return badRequest("Múi giờ không hợp lệ.");
 
-  const existing = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
-  if (existing) {
-    return conflict(`Máy này đã có hồ sơ người học (${existing.nickname}).`);
-  }
-
   const now = Date.now();
   const learner = {
     id: crypto.randomUUID(),
@@ -529,7 +732,7 @@ export const createLearnerProfile: Handler = async (context) => {
     actor: `parent:${context.parent.parentId}`,
     action: "learner.enrolled",
     subject: learner.id,
-    detail: JSON.stringify({ nickname: learner.nickname, grade: learner.grade }),
+    detail: JSON.stringify({ grade: learner.grade }),
     now,
   });
 
@@ -583,7 +786,7 @@ export const updateLearnerProfile: Handler = async (context) => {
     actor: `parent:${context.parent.parentId}`,
     action: "learner.updated",
     subject: learner.id,
-    detail: JSON.stringify({ from: learner.nickname, to: nickname, grade }),
+    detail: JSON.stringify({ grade }),
     now,
   });
 
@@ -1257,67 +1460,6 @@ function validateStepSet(
     return { ok: false, error: "Bài học cần ít nhất một bước kiểm tra vận dụng." };
   }
   return { ok: true };
-}
-
-async function replaceSteps(
-  context: HandlerContext,
-  lessonId: string,
-  steps: readonly StepDraft[],
-): Promise<void> {
-  const existing = await repo.listStepsForLesson(context.env.DB, lessonId);
-  const nextVersion = (existing[0]?.content_version ?? 0) + 1;
-  for (const step of steps) {
-    // Already validated by `validateStepSet` before this runs.
-    const content = step.content;
-    await context.env.DB
-      .prepare(
-        `INSERT INTO lesson_steps
-           (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-         ON CONFLICT(lesson_id, position) DO UPDATE SET
-           kind = excluded.kind,
-           content = excluded.content,
-           answer_key = excluded.answer_key,
-           explanation_vi = excluded.explanation_vi,
-           content_version = excluded.content_version`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        lessonId,
-        step.position,
-        step.kind,
-        JSON.stringify(content),
-        JSON.stringify(step.answerKey),
-        step.explanationVi,
-        nextVersion,
-      )
-      .run();
-  }
-}
-
-async function bumpLesson(
-  context: HandlerContext,
-  lessonId: string,
-  body: UpdateContentRequest,
-  nextVersion: number,
-  now: number,
-): Promise<void> {
-  const lesson = await repo.findLesson(context.env.DB, lessonId);
-  if (!lesson) return;
-  await context.env.DB
-    .prepare(
-      `UPDATE lessons
-       SET title_vi = ?1, objective_vi = ?2, version = ?3, updated_at = ?4
-       WHERE id = ?5`,
-    )
-    .bind(
-      typeof body.titleVi === "string" ? body.titleVi : lesson.title_vi,
-      typeof body.objectiveVi === "string" ? body.objectiveVi : lesson.objective_vi,
-      nextVersion,
-      now,
-      lessonId,
-    )
-    .run();
 }
 
 function toEngineEvidence(
