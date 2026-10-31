@@ -22,14 +22,17 @@
  * confirmation string the parent has to type. It is not repeated in headings.
  */
 
-import { useCallback, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import type {
+  CreateLearnerRequest,
+  CreateLearnerResponse,
   DeleteLearnerRequest,
   DeleteLearnerResponse,
   ExportResponse,
   ImportResponse,
 } from "../../../shared/api-contract";
 import { TRANSFER_FORMAT_VERSION, type ExportBody } from "../../../shared/schemas/transfer";
+import { setActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { useSessionContext } from "../../lib/SessionProvider";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
@@ -196,8 +199,49 @@ export function DataControlScreen({
 }: {
   onNavigate: (to: string) => void;
 }): React.JSX.Element {
-  const { session } = useSessionContext();
+  const { session, reload } = useSessionContext();
   const learner = session.learner;
+  const learners = session.learners ?? (learner ? [{ id: learner.id, nickname: learner.nickname, grade: 4 }] : []);
+
+  /* Multi-learner household enrolment -------------------------------------- */
+  const [newNickname, setNewNickname] = useState("");
+  const [newGrade, setNewGrade] = useState("4");
+  const [enrolBusy, setEnrolBusy] = useState(false);
+  const [enrolError, setEnrolError] = useState<string | null>(null);
+  const [enrolSuccess, setEnrolSuccess] = useState<string | null>(null);
+
+  const onCreateLearner = useCallback(
+    (event: FormEvent) => {
+      event.preventDefault();
+      const trimmed = newNickname.trim();
+      if (!trimmed) {
+        setEnrolError("Vui lòng nhập biệt danh cho bé.");
+        return;
+      }
+      setEnrolBusy(true);
+      setEnrolError(null);
+      setEnrolSuccess(null);
+      const parsedGrade = Number.parseInt(newGrade, 10);
+      const body: CreateLearnerRequest = {
+        nickname: trimmed,
+        birthYear: null,
+        grade: Number.isInteger(parsedGrade) ? parsedGrade : 4,
+        timezone: "Asia/Ho_Chi_Minh",
+      };
+      void api.post<CreateLearnerResponse>(endpoints.createLearner, body).then((result) => {
+        setEnrolBusy(false);
+        if (!result.ok) {
+          setEnrolError(failureMessage(result.failure));
+          return;
+        }
+        setNewNickname("");
+        setEnrolSuccess(`Đã thêm hồ sơ bé "${result.value.learner.nickname}".`);
+        setActiveLearnerId(result.value.learner.id);
+        reload();
+      });
+    },
+    [newNickname, newGrade, reload],
+  );
 
   /* Export ------------------------------------------------------------------ */
   const [exportBusy, setExportBusy] = useState(false);
@@ -347,6 +391,95 @@ export function DataControlScreen({
             ra tệp, phục hồi từ tệp, hoặc xóa hoàn toàn.
           </p>
         </header>
+
+        {/* ── 0. Household learners ─────────────────────────────────────── */}
+        <section className="card data-control__section" aria-labelledby="household-learners-title">
+          <h2 className="card__title" id="household-learners-title">
+            Hồ sơ các bé trong gia đình
+          </h2>
+          <p className="card__note">
+            Mỗi bé có bài học được duyệt, tiến độ và lịch ôn tập độc lập. Phụ huynh có thể thêm
+            hồ sơ mới hoặc chuyển đổi giữa các bé ngay tại đây.
+          </p>
+
+          {learners.length > 0 ? (
+            <ul className="data-control__counts" data-testid="household-learners-list">
+              {learners.map((item) => {
+                const isActive = item.id === learner?.id;
+                return (
+                  <li className="data-control__count" key={item.id}>
+                    <span className="data-control__count-label">
+                      <strong>{item.nickname}</strong>
+                      {item.grade ? ` · Lớp ${item.grade}` : ""}
+                      {isActive ? " (Đang chọn)" : ""}
+                    </span>
+                    {!isActive ? (
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        onClick={() => {
+                          setActiveLearnerId(item.id);
+                          reload();
+                        }}
+                      >
+                        Chọn hồ sơ này
+                      </button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+
+          <form onSubmit={onCreateLearner} style={{ marginTop: "1rem" }} data-testid="add-learner-form">
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+              <div className="field" style={{ flex: "1 1 200px", marginBottom: 0 }}>
+                <label className="field__label" htmlFor="new-learner-nickname">
+                  Biệt danh bé mới
+                </label>
+                <input
+                  id="new-learner-nickname"
+                  className="input"
+                  type="text"
+                  maxLength={40}
+                  placeholder="Ví dụ: Bé Minh"
+                  value={newNickname}
+                  onChange={(e) => setNewNickname(e.target.value)}
+                  disabled={enrolBusy}
+                />
+              </div>
+              <div className="field" style={{ width: "140px", marginBottom: 0 }}>
+                <label className="field__label" htmlFor="new-learner-grade">
+                  Khối lớp
+                </label>
+                <select
+                  id="new-learner-grade"
+                  className="select"
+                  value={newGrade}
+                  onChange={(e) => setNewGrade(e.target.value)}
+                  disabled={enrolBusy}
+                >
+                  <option value="3">Lớp 3</option>
+                  <option value="4">Lớp 4</option>
+                  <option value="5">Lớp 5</option>
+                </select>
+              </div>
+              <button type="submit" className="btn btn--secondary" disabled={enrolBusy}>
+                {enrolBusy ? "Đang thêm…" : "Thêm hồ sơ bé"}
+              </button>
+            </div>
+            {enrolError ? (
+              <p className="data-control__notice data-control__notice--error" role="alert">
+                {enrolError}
+              </p>
+            ) : null}
+            {enrolSuccess ? (
+              <p className="data-control__notice data-control__notice--ok" role="status">
+                {enrolSuccess}
+              </p>
+            ) : null}
+          </form>
+        </section>
 
         {/* ── 1. Export ─────────────────────────────────────────────────── */}
         <section className="card data-control__section" aria-labelledby="export-title">

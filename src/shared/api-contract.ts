@@ -21,6 +21,8 @@ export type SessionInfo = {
   parentDisplayName: string | null;
   /** Learner the parent manages, or null when none is enrolled yet. */
   learner: { id: string; nickname: string } | null;
+  /** All active learners enrolled under this parent account. */
+  learners?: { id: string; nickname: string; grade: number | null }[];
   csrfToken: string | null;
   /** Active privilege boundary: "parent" unlocks parent/data routes; "learner" restricts to learner routes. */
   mode?: "parent" | "learner" | null;
@@ -60,6 +62,9 @@ export type LearnerHomeResponse = {
     subjectId: string;
     dueAt: number;
     daysOverdue: number;
+    /** Approved lesson matching this skill, if one is currently available to the learner. */
+    lessonId?: string | null;
+    lessonTitleVi?: string | null;
   }[];
   /** The lesson the learner can continue, if a session is in progress. */
   continueLesson: {
@@ -290,6 +295,19 @@ export type UpdateContentRequest = {
   }[];
 };
 export type UpdateContentResponse = { lessonId: string; version: number };
+
+export type CorrectSkillRequest = {
+  skillId: string;
+  state: CompetencyState;
+  note: string;
+  learnerId?: string;
+};
+
+export type CorrectSkillResponse = {
+  skillId: string;
+  state: CompetencyState;
+  learnerId?: string;
+};
 
 // --- Data control ---------------------------------------------------------
 

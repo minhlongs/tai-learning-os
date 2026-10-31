@@ -297,12 +297,14 @@ export const listClassroomAssignedLessonsRoute: Handler = async (context) => {
 /* ── GET /api/parent/classroom-lessons ────────────────────────────────────── */
 
 export const listParentClassroomLessonsRoute: Handler = async (context) => {
-  const learnerId = context.url.searchParams.get("learnerId");
-  if (!learnerId) {
-    return badRequest("Thiếu tham số learnerId.");
-  }
-
-  const learner = await repo.findLearnerForParent(context.env.DB, learnerId, context.parent.parentId);
+  const candidate =
+    context.url.searchParams.get("learnerId")?.trim() ||
+    context.request.headers.get("x-tlo-learner-id")?.trim() ||
+    "";
+  const learner =
+    candidate.length > 0
+      ? await repo.findLearnerForParent(context.env.DB, candidate, context.parent.parentId)
+      : await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
   if (!learner) {
     return notFound("Không tìm thấy hồ sơ người học.");
   }

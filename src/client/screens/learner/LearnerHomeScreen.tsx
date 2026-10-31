@@ -118,6 +118,13 @@ export function LearnerHomeScreen({
                 <ReviewDueList
                   entries={data.reviewDue}
                   subjectName={(id) => subjectName(data.subjects, id)}
+                  onStartReview={(entry) => {
+                    if (entry.lessonId) {
+                      onNavigate(`/lessons/${entry.lessonId}`);
+                    } else {
+                      onNavigate(`/subjects/${entry.subjectId}`);
+                    }
+                  }}
                 />
               </section>
             ) : null}

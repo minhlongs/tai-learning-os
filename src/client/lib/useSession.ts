@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { SessionInfo } from "../../shared/api-contract";
+import { clearActiveLearnerId, readActiveLearnerId, setActiveLearnerId } from "./active-learner-store";
 import { api, type ApiFailure } from "./api";
 import { clearCsrfToken, setCsrfToken } from "./csrf-store";
 
@@ -14,6 +15,7 @@ const ANONYMOUS: SessionInfo = {
   authenticated: false,
   parentDisplayName: null,
   learner: null,
+  learners: [],
   csrfToken: null,
 };
 
@@ -25,13 +27,25 @@ export type SessionState = {
   updateSession: (info: SessionInfo) => void;
 };
 
+function syncLearnerStore(info: SessionInfo): void {
+  if (!info.authenticated) return;
+  const current = readActiveLearnerId();
+  const list = info.learners ?? [];
+  if (current && list.some((l) => l.id === current)) {
+    return;
+  }
+  setActiveLearnerId(info.learner?.id ?? null);
+}
+
 /** Remember a session the server just issued (login / bootstrap). */
 export function adoptSession(info: SessionInfo): void {
   setCsrfToken(info.csrfToken);
+  syncLearnerStore(info);
 }
 
 export function forgetSession(): void {
   clearCsrfToken();
+  clearActiveLearnerId();
 }
 
 export function useSession(): SessionState {
@@ -49,6 +63,7 @@ export function useSession(): SessionState {
       if (result.ok) {
         setSession(result.value);
         setCsrfToken(result.value.csrfToken);
+        syncLearnerStore(result.value);
         setError(null);
       } else {
         // An unauthenticated result still tells us the app is reachable.
@@ -70,6 +85,7 @@ export function useSession(): SessionState {
   const updateSession = useCallback((info: SessionInfo) => {
     setSession(info);
     setCsrfToken(info.csrfToken);
+    syncLearnerStore(info);
     setError(null);
   }, []);
 

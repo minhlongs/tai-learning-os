@@ -13,9 +13,11 @@ type Entry = LearnerHomeResponse["reviewDue"][number];
 export function ReviewDueList({
   entries,
   subjectName,
+  onStartReview,
 }: {
   entries: Entry[];
   subjectName: (subjectId: string) => string;
+  onStartReview?: (entry: Entry) => void;
 }): React.JSX.Element {
   return (
     <ul className="rows">
@@ -24,13 +26,26 @@ export function ReviewDueList({
           <span className="row__main">
             <span className="row__title">{entry.skillNameVi}</span>
             <br />
-            <span className="row__meta">{subjectName(entry.subjectId)}</span>
+            <span className="row__meta">
+              {subjectName(entry.subjectId)}
+              {entry.lessonTitleVi ? ` · Bài: ${entry.lessonTitleVi}` : ""}
+            </span>
           </span>
-          <span className="row__aside">
+          <span className="row__aside" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span className="pill pill--attention">
               <span aria-hidden="true">!</span>
               {overdueLabel(entry.daysOverdue, entry.dueAt)}
             </span>
+            {onStartReview && entry.lessonId ? (
+              <button
+                type="button"
+                className="btn btn--primary"
+                data-testid={`review-now-${entry.skillId}`}
+                onClick={() => onStartReview(entry)}
+              >
+                Ôn tập ngay
+              </button>
+            ) : null}
           </span>
         </li>
       ))}

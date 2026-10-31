@@ -78,13 +78,14 @@ export async function getSessionInfo(context: {
     });
   }
 
-  const learner = await repo.findFirstLearnerForParent(env.DB, parent.id);
+  const { learner, learners } = await resolveSessionLearners(env.DB, parent.id, request);
   const csrfToken = await csrfTokenFor(secret, verified.tokenId);
 
   return ok<SessionInfo>({
     authenticated: true,
     parentDisplayName: parent.display_name,
     learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
+    learners,
     csrfToken,
     mode: verified.mode ?? "parent",
   });
@@ -169,7 +170,7 @@ export async function switchSessionMode(context: {
   if (!issued.ok) return serverError();
 
   const csrfToken = await csrfTokenFor(secret, issued.claims.tokenId);
-  const learner = await repo.findFirstLearnerForParent(env.DB, parent.id);
+  const { learner, learners } = await resolveSessionLearners(env.DB, parent.id, request);
 
   await repo.recordAudit(env.DB, {
     id: crypto.randomUUID(),
@@ -184,6 +185,7 @@ export async function switchSessionMode(context: {
     authenticated: true,
     parentDisplayName: parent.display_name,
     learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
+    learners,
     csrfToken,
     mode: targetMode,
   });
@@ -263,7 +265,7 @@ export async function login(context: { request: Request; env: AppEnv }): Promise
     }
   }
 
-  const learner = await repo.findFirstLearnerForParent(env.DB, parent.id);
+  const { learner, learners } = await resolveSessionLearners(env.DB, parent.id, request);
   const token = await createSessionToken(secret, parent.id, parent.display_name, now);
   // Derive the CSRF token from the freshly issued session's own token id, so
   // the header a client must send is cryptographically bound to this login.
@@ -275,6 +277,7 @@ export async function login(context: { request: Request; env: AppEnv }): Promise
     authenticated: true,
     parentDisplayName: parent.display_name,
     learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
+    learners,
     csrfToken,
     mode: "parent",
   };
@@ -383,6 +386,35 @@ export async function bootstrapParent(context: { request: Request; env: AppEnv }
 }
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
+
+async function resolveSessionLearners(
+  db: D1Database,
+  parentId: string,
+  request: Request,
+): Promise<{
+  learner: { id: string; nickname: string } | null;
+  learners: { id: string; nickname: string; grade: number | null }[];
+}> {
+  const rows = await repo.listLearnersForParent(db, parentId);
+  const learners = rows.map((row) => ({
+    id: row.id,
+    nickname: row.nickname,
+    grade: row.grade,
+  }));
+  const url = new URL(request.url);
+  const requestedId =
+    url.searchParams.get("learnerId")?.trim() ??
+    request.headers.get("x-tlo-learner-id")?.trim() ??
+    "";
+  const matched =
+    requestedId.length > 0
+      ? rows.find((row) => row.id === requestedId) ?? rows[0] ?? null
+      : rows[0] ?? null;
+  return {
+    learner: matched ? { id: matched.id, nickname: matched.nickname } : null,
+    learners,
+  };
+}
 
 function readCookie(header: string, name: string): string | null {
   for (const part of header.split(";")) {
