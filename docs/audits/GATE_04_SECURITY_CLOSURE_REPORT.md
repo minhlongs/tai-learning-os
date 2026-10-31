@@ -47,20 +47,26 @@ All gates passed cleanly with zero errors:
 
 ### 3.3 Fail-Closed Data Import & Legacy Migration
 - **Downgrade of Imported Approvals**: In `src/worker/routes/data.ts`, imported `reviewApprovals` are downgraded to `status: 'draft'`, preventing forged backup files from restoring live learner access.
-- **Clamped Continuation Deadline**: In-progress sessions in imported JSON have `continuation_deadline` clamped to `started_at` (now expired), preventing unverified session continuation.
+- **Clamped Continuation Deadline & Transition to Abandoned**: In-progress sessions in imported JSON have `continuation_deadline` clamped to `Math.min(explicitDeadline, session.startedAt, now)` and their status safely transitioned to `'abandoned'`, preventing unverified session continuation even if `startedAt` is crafted in the future.
+- **Validation of Future Timestamps & Timings**: In `src/shared/schemas/transfer.ts`, `validateExportEnvelope` rejects backup files with `exportedAt` or `learningSessions[].startedAt` in the future beyond 5 minutes clock skew tolerance (HTTP 400), and rejects sessions where `endedAt < startedAt`.
 - **Forged Skill Evidence Rejection**: `validateExportEnvelope` in `src/shared/schemas/transfer.ts` rejects any envelope claiming `INDEPENDENT`, `RETAINED`, or `TRANSFERRED` states without observed correct attempts (HTTP 400).
 - **FK-Safe v6 → v9 Migration Rebuild**: In `migrations/0007_learner_version_approvals_and_session_continuation.sql`, table rebuild of `lesson_steps` preserves existing `learning_attempts` via `_tmp_learning_attempts`, verified with `PRAGMA foreign_key_check` returning 0 violations.
 
 ### 3.4 M4 Browser Verification Suite
-- Implemented `test/e2e/m4-browser-verification.spec.ts` executing 8 end-to-end tests across Chromium Desktop, Tablet, and Mobile (24 test runs total):
-  1. Learner switcher updates view context and isolates learner progress.
+- Implemented `test/e2e/m4-browser-verification.spec.ts` executing 8 end-to-end tests across Chromium Desktop, Tablet, and Mobile:
+  1. Learner switcher updates view context and isolates learner progress (unconditional selector assertion).
   2. Learner switcher rapid selection converges to final chosen learner.
-  3. Approval badges are isolated per learner.
-  4. Parent skill correction modal updates state correctly.
-  5. Consent management workflow grants and revokes organization consent.
-  6. Classroom assigned lessons require parent approval before learner can access.
-  7. Spaced review due CTA navigates to matching lesson.
-  8. Bounded continuation deadline enforces 30-minute cutoff on revoked session.
+  3. Approval badges are isolated per learner (unconditional table row assertion).
+  4. Parent skill correction modal updates state correctly via interactive DOM form (`data-testid="skill-correction-form-*"`).
+  5. Consent management workflow grants and revokes organization consent via interactive DOM buttons (`data-testid="grant-consent-*"` and `data-testid="revoke-consent-*"`).
+  6. Classroom assigned lessons require parent approval before learner can access (403 Forbidden).
+  7. Spaced review due CTA navigates to matching lesson (unconditional CTA element assertion).
+  8. Bounded continuation deadline enforces 30-minute grace window during active session and cutoff upon finalization.
+
+### 3.5 Verification Boundaries & Honest Limitations
+- **Pedagogical Quality vs Schema Validity**: The `validate:lessons` script verifies schema correctness, presence of explanations, answer structure, and absence of answer keys in learner payloads. It does not certify human pedagogical quality across the entire GDPT 2018 curriculum.
+- **Backfill Provenance**: Historical snapshots backfilled during migration `0009` reflect the state of lessons at migration execution time; historical provenance is bounded by when snapshots were introduced.
+- **Local Isolation**: Browser and integration tests operate exclusively against local in-memory/temporary SQLite state and local dev servers. Remote Cloudflare D1 and production environments remain untouched and blocked from deployment.
 
 ---
 

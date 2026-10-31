@@ -369,6 +369,15 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
   if (typeof candidate.exportedAt !== "number" || !Number.isFinite(candidate.exportedAt)) {
     errors.push("Thiếu thời điểm xuất dữ liệu.");
   }
+  // Clock skew tolerance: exportedAt cannot be in the future beyond 5 minutes
+  const CLOCK_TOLERANCE_MS = 5 * 60 * 1000;
+  if (
+    typeof candidate.exportedAt === "number" &&
+    Number.isFinite(candidate.exportedAt) &&
+    candidate.exportedAt > Date.now() + CLOCK_TOLERANCE_MS
+  ) {
+    errors.push("Thời điểm xuất dữ liệu nằm trong tương lai bất thường.");
+  }
   if (
     candidate.source !== "manual_export" &&
     candidate.source !== "backup_restore" &&
@@ -459,6 +468,23 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
   for (const session of data.learningSessions) {
     if (!SESSION_STATUSES.includes(session.status)) {
       errors.push(`Trạng thái phiên học không hợp lệ: ${String(session.status)}`);
+    }
+    if (typeof session.startedAt !== "number" || !Number.isFinite(session.startedAt)) {
+      errors.push("Phiên học thiếu thời điểm bắt đầu hợp lệ.");
+    } else {
+      if (candidate.exportedAt && session.startedAt > candidate.exportedAt + CLOCK_TOLERANCE_MS) {
+        errors.push(`Phiên học ${session.id} có thời điểm bắt đầu lớn hơn thời điểm xuất tệp.`);
+      }
+      if (session.startedAt > Date.now() + CLOCK_TOLERANCE_MS) {
+        errors.push(`Phiên học ${session.id} có thời điểm bắt đầu nằm trong tương lai bất thường.`);
+      }
+    }
+    if (session.endedAt !== null && session.endedAt !== undefined) {
+      if (typeof session.endedAt !== "number" || !Number.isFinite(session.endedAt)) {
+        errors.push(`Phiên học ${session.id} có thời điểm kết thúc không hợp lệ.`);
+      } else if (typeof session.startedAt === "number" && session.endedAt < session.startedAt) {
+        errors.push(`Phiên học ${session.id} có thời điểm kết thúc trước thời điểm bắt đầu.`);
+      }
     }
   }
   for (const attempt of data.learningAttempts) {

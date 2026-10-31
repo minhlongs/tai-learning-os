@@ -299,7 +299,9 @@ describe("export/import round trip restores the record from the file", () => {
       .all<{ id: string; status: string; lesson_id: string }>();
     expect(restoredSessions.results).toHaveLength(1);
     expect(restoredSessions.results[0]!.id).toBe(sessionId);
-    expect(restoredSessions.results[0]!.status).toBe("in_progress");
+    // Under SC10 fail-closed import policy, imported in_progress sessions transition to 'abandoned'
+    // with continuation_deadline clamped, preventing unverified session resumption from imported backup JSON
+    expect(restoredSessions.results[0]!.status).toBe("abandoned");
 
     const restoredAttempts = await env.DB.prepare(
       "select step_id, outcome, help_level from learning_attempts where learner_id = ? order by created_at asc",
