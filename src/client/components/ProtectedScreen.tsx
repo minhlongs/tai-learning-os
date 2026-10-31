@@ -9,6 +9,7 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 import type { SessionInfo, SwitchSessionModeRequest } from "../../shared/api-contract";
+import { setActiveLearnerId } from "../lib/active-learner-store";
 import { api, failureMessage } from "../lib/api";
 import { clearCsrfToken } from "../lib/csrf-store";
 import { endpoints } from "../lib/endpoints";
@@ -33,7 +34,15 @@ export function ProtectedScreen({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [pendingTarget, setPendingTarget] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
-  const { updateSession } = useSessionContext();
+  const { updateSession, reload } = useSessionContext();
+
+  const handleSelectLearner = useCallback(
+    (learnerId: string) => {
+      setActiveLearnerId(learnerId);
+      reload();
+    },
+    [reload],
+  );
 
   const onNavigate = useCallback(
     (to: string) => {
@@ -53,6 +62,7 @@ export function ProtectedScreen({
     setSigningOut(true);
     void api.post<{ loggedOut: true }>("/api/session/logout").then(() => {
       clearCsrfToken();
+      setActiveLearnerId(null);
       navigate("/login");
     });
   }, []);
@@ -101,6 +111,9 @@ export function ProtectedScreen({
       mode={session.mode}
       parentName={session.parentDisplayName}
       learnerNickname={session.learner?.nickname ?? null}
+      activeLearnerId={session.learner?.id ?? null}
+      learners={session.learners}
+      onSelectLearner={handleSelectLearner}
       onNavigate={onNavigate}
       onEnterChildMode={session.mode !== "learner" ? handleEnterChildMode : undefined}
       // Disable, don't hide: a second click during sign-out must not fire twice.
@@ -152,7 +165,7 @@ export function ProtectedScreen({
           </form>
         </div>
       ) : (
-        children
+        <div key={session.learner?.id ?? "no-learner"}>{children}</div>
       )}
     </AppShell>
   );

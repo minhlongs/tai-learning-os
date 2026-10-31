@@ -26,7 +26,8 @@
     "hash:password": "node scripts/hash-parent-password.mjs",
     "unlock:parent": "node scripts/unlock-parent.mjs",
     "export:learner": "node scripts/export-learner.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "validate:lessons": "node scripts/validate-lessons.mjs",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run validate:lessons && npm run build"
   },
   "dependencies": {
     "react": "19.3.1",

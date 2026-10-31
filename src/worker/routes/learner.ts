@@ -143,12 +143,15 @@ export const getLearnerHome: Handler = async (context) => {
     .sort((a, b) => a.due_at - b.due_at)
     .map((r) => {
       const skill = skillById.get(r.skill_id);
+      const matchedLesson = visibleLessons.find((l) => l.skill_id === r.skill_id) ?? null;
       return {
         skillId: r.skill_id,
         skillNameVi: skill?.name_vi ?? r.skill_id,
         subjectId: skill?.subject_id ?? "",
         dueAt: r.due_at,
         daysOverdue: Math.max(0, Math.floor((now - r.due_at) / DAY_MS)),
+        lessonId: matchedLesson?.id ?? null,
+        lessonTitleVi: matchedLesson?.title_vi ?? null,
       };
     });
 

@@ -8,6 +8,7 @@
  */
 
 import type { ApiError } from "../../shared/api-contract";
+import { readActiveLearnerId } from "./active-learner-store";
 import { readCsrfToken } from "./csrf-store";
 
 /** A response we could read: either the server's error body or transport failure. */
@@ -47,6 +48,10 @@ function redirectToLogin(): void {
 async function request<T>(method: string, path: string, body?: unknown): Promise<ApiResult<T>> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  const activeLearnerId = readActiveLearnerId();
+  if (activeLearnerId) {
+    headers["x-tlo-learner-id"] = activeLearnerId;
+  }
   if (MUTATING.has(method)) {
     const token = readCsrfToken();
     if (token) headers["x-tlo-csrf"] = token;

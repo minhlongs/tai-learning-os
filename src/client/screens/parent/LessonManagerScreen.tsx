@@ -21,8 +21,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  ClassroomLessonListResponse,
+  GrantLearnerConsentRequest,
+  GrantLearnerConsentResponse,
+  LearnerConsentListResponse,
   LessonListResponse,
   LessonDetailResponse,
+  RevokeLearnerConsentRequest,
+  RevokeLearnerConsentResponse,
   SetApprovalRequest,
   SetApprovalResponse,
 } from "../../../shared/api-contract";
@@ -36,6 +42,8 @@ import "../../styles/lesson-manager.css";
 
 /** One row of the list, taken from the contract rather than restated. */
 type LessonRow = LessonListResponse["lessons"][number];
+type ConsentRow = LearnerConsentListResponse["consents"][number];
+type ClassroomLessonRow = ClassroomLessonListResponse["lessons"][number];
 
 /**
  * The Vietnamese label for each real `ApprovalStatus` member.
@@ -68,7 +76,7 @@ function statusCell(lesson: {
   approvalStatus: ApprovalStatus;
   pendingReapproval: boolean;
 }): { label: string; tone: string } {
-  if (lesson.approvalStatus === "approved" && lesson.pendingReapproval) {
+  if (lesson.pendingReapproval) {
     return { label: "Cần duyệt lại", tone: "status-pill--attention" };
   }
   return { label: STATUS_LABELS[lesson.approvalStatus], tone: STATUS_TONES[lesson.approvalStatus] };
@@ -104,6 +112,11 @@ export function LessonManagerScreen({
   const [listError, setListError] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(true);
 
+  const [consents, setConsents] = useState<readonly ConsentRow[]>([]);
+  const [consentOrgs, setConsentOrgs] = useState<readonly { id: string; name: string }[]>([]);
+  const [classroomLessons, setClassroomLessons] = useState<readonly ClassroomLessonRow[]>([]);
+  const [busyConsentOrgId, setBusyConsentOrgId] = useState<string | null>(null);
+
   /**
    * Short confirmation or failure line after a decision. The tone drives the
    * colour AND a leading word, so the outcome is never colour-only.
@@ -133,6 +146,15 @@ export function LessonManagerScreen({
         setListError(failureMessage(result.failure));
       }
       setListLoading(false);
+    });
+    void api.get<LearnerConsentListResponse>(endpoints.consents).then((res) => {
+      if (res.ok) setConsents(res.value.consents);
+    });
+    void api.get<{ organizations: { id: string; name: string }[] }>(endpoints.consentOrganizations).then((res) => {
+      if (res.ok) setConsentOrgs(res.value.organizations);
+    });
+    void api.get<ClassroomLessonListResponse>(endpoints.classroomLessons).then((res) => {
+      if (res.ok) setClassroomLessons(res.value.lessons);
     });
   }, []);
 
@@ -241,10 +263,54 @@ export function LessonManagerScreen({
     [refusal],
   );
 
+  const handleGrantConsent = useCallback(
+    (organizationId: string, organizationName: string) => {
+      const learnerId = session.learner?.id;
+      if (!learnerId) return;
+      setBusyConsentOrgId(organizationId);
+      setActionNote(null);
+      const body: GrantLearnerConsentRequest = { organizationId, learnerId };
+      void api.post<GrantLearnerConsentResponse>(endpoints.grantConsent, body).then((res) => {
+        setBusyConsentOrgId(null);
+        if (!res.ok) {
+          setActionNote({ tone: "error", text: failureMessage(res.failure) });
+          return;
+        }
+        setActionNote({
+          tone: "ok",
+          text: `Đã cấp quyền chia sẻ dữ liệu học tập với trung tâm “${organizationName}”.`,
+        });
+        loadLessons();
+      });
+    },
+    [loadLessons, session.learner?.id],
+  );
+
+  const handleRevokeConsent = useCallback(
+    (organizationId: string, organizationName: string) => {
+      const learnerId = session.learner?.id;
+      if (!learnerId) return;
+      setBusyConsentOrgId(organizationId);
+      setActionNote(null);
+      const body: RevokeLearnerConsentRequest = { organizationId, learnerId };
+      void api.post<RevokeLearnerConsentResponse>(endpoints.revokeConsent, body).then((res) => {
+        setBusyConsentOrgId(null);
+        if (!res.ok) {
+          setActionNote({ tone: "error", text: failureMessage(res.failure) });
+          return;
+        }
+        setActionNote({
+          tone: "ok",
+          text: `Đã thu hồi quyền truy cập của trung tâm “${organizationName}”.`,
+        });
+        loadLessons();
+      });
+    },
+    [loadLessons, session.learner?.id],
+  );
+
   const draftCount = lessons.filter((lesson) => lesson.approvalStatus !== "approved").length;
-  const reapprovalCount = lessons.filter(
-    (lesson) => lesson.approvalStatus === "approved" && lesson.pendingReapproval,
-  ).length;
+  const reapprovalCount = lessons.filter((lesson) => lesson.pendingReapproval).length;
 
   return (
     <ProtectedScreen area="parent" session={session}>
@@ -318,7 +384,7 @@ export function LessonManagerScreen({
                   </thead>
                   <tbody>
                     {lessons.map((lesson) => {
-                      const pending = lesson.approvalStatus === "approved" && lesson.pendingReapproval;
+                      const pending = lesson.pendingReapproval;
                       const busy = busyLessonId === lesson.id;
                       return (
                         <tr key={lesson.id}>
@@ -424,6 +490,116 @@ export function LessonManagerScreen({
             onRetry={() => openDetail(openLessonId)}
           />
         ) : null}
+
+        <section className="card" aria-labelledby="classroom-lessons-title" style={{ marginTop: "1.5rem" }}>
+          <h2 className="card__title" id="classroom-lessons-title">
+            Bài học được lớp / trung tâm giao
+          </h2>
+          {classroomLessons.length === 0 ? (
+            <p className="row__meta">
+              Chưa có bài học nào từ lớp hoặc trung tâm được giao cho hồ sơ này.
+            </p>
+          ) : (
+            <ul className="rows" data-testid="classroom-assigned-lessons">
+              {classroomLessons.map((item) => (
+                <li key={`${item.classroomId}-${item.lessonId}`} className="row">
+                  <span className="row__main">
+                    <strong className="row__title">{item.titleVi}</strong>
+                    <br />
+                    <span className="row__meta">
+                      Môn: {item.subjectId} · Lớp {item.gradeFrom}
+                      {item.isParentApproved ? " · Phụ huynh đã duyệt" : " · Chờ phụ huynh duyệt"}
+                    </span>
+                  </span>
+                  <span className="row__aside" style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => openDetail(item.lessonId)}
+                    >
+                      Xem bài
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="card" aria-labelledby="consent-grants-title" style={{ marginTop: "1.5rem" }}>
+          <h2 className="card__title" id="consent-grants-title">
+            Quyền chia sẻ dữ liệu với trung tâm / gia sư
+          </h2>
+          <p className="card__note">
+            Trung tâm hoặc giáo viên chỉ xem được tiến độ của bé khi phụ huynh cấp
+            quyền đồng ý. Khi thu hồi quyền, trung tâm bị ngắt quyền truy cập ngay lập tức.
+          </p>
+          {consents.length === 0 && consentOrgs.length === 0 ? (
+            <p className="row__meta">
+              Hồ sơ này hiện chưa ghi danh vào lớp học của trung tâm nào.
+            </p>
+          ) : (
+            <ul className="rows" data-testid="learner-consents-list">
+              {consents.map((c) => (
+                <li key={c.id} className="row">
+                  <span className="row__main">
+                    <strong className="row__title">{c.organizationName}</strong>
+                    <br />
+                    <span className="row__meta">
+                      Trạng thái:{" "}
+                      {c.status === "active" ? "Đang cho phép chia sẻ" : "Đã thu hồi quyền"}
+                    </span>
+                  </span>
+                  <span className="row__aside">
+                    {c.status === "active" ? (
+                      <button
+                        type="button"
+                        className="btn btn--danger"
+                        disabled={busyConsentOrgId === c.organizationId}
+                        data-testid={`revoke-consent-${c.organizationId}`}
+                        onClick={() => handleRevokeConsent(c.organizationId, c.organizationName)}
+                      >
+                        Thu hồi quyền
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        disabled={busyConsentOrgId === c.organizationId}
+                        data-testid={`grant-consent-${c.organizationId}`}
+                        onClick={() => handleGrantConsent(c.organizationId, c.organizationName)}
+                      >
+                        Cấp quyền lại
+                      </button>
+                    )}
+                  </span>
+                </li>
+              ))}
+              {consentOrgs
+                .filter((org) => !consents.some((c) => c.organizationId === org.id))
+                .map((org) => (
+                  <li key={org.id} className="row">
+                    <span className="row__main">
+                      <strong className="row__title">{org.name}</strong>
+                      <br />
+                      <span className="row__meta">Chưa cấp quyền chia sẻ dữ liệu</span>
+                    </span>
+                    <span className="row__aside">
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        disabled={busyConsentOrgId === org.id}
+                        data-testid={`grant-consent-${org.id}`}
+                        onClick={() => handleGrantConsent(org.id, org.name)}
+                      >
+                        Cấp quyền
+                      </button>
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </section>
 
         <p className="card__note">
           Khu vực phụ huynh không hiển thị với Tài.{" "}

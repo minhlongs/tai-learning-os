@@ -30,11 +30,19 @@ import { recordAudit } from "../db/repositories";
  * exists.
  */
 async function findOwnedLearner(
-  context: { env: { DB: D1Database }; parent: { parentId: string } },
-  learnerId: unknown,
+  context: { request: Request; url: URL; env: { DB: D1Database }; parent: { parentId: string } },
+  learnerId?: unknown,
 ) {
-  if (typeof learnerId !== "string" || learnerId.length === 0) return null;
-  return repo.findLearnerForParent(context.env.DB, learnerId, context.parent.parentId);
+  const candidate =
+    typeof learnerId === "string" && learnerId.trim().length > 0
+      ? learnerId.trim()
+      : context.url.searchParams.get("learnerId")?.trim() ||
+        context.request.headers.get("x-tlo-learner-id")?.trim() ||
+        "";
+  if (candidate.length > 0) {
+    return repo.findLearnerForParent(context.env.DB, candidate, context.parent.parentId);
+  }
+  return repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
 }
 
 /* ── GET /api/parent/consents ─────────────────────────────────────────────── */

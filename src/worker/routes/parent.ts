@@ -51,10 +51,26 @@ import { badRequest, forbidden, notFound, ok, readJsonBody, serverError } from "
 import type { Handler } from "../http/middleware";
 import { recordParentCorrection } from "../services/session-service";
 
+async function resolveTargetLearner(
+  context: { request: Request; url: URL; env: { DB: D1Database }; parent: { parentId: string } },
+  explicitLearnerId?: unknown,
+) {
+  const candidate =
+    typeof explicitLearnerId === "string" && explicitLearnerId.trim().length > 0
+      ? explicitLearnerId.trim()
+      : context.url.searchParams.get("learnerId")?.trim() ||
+        context.request.headers.get("x-tlo-learner-id")?.trim() ||
+        "";
+  if (candidate.length > 0) {
+    return repo.findLearnerForParent(context.env.DB, candidate, context.parent.parentId);
+  }
+  return repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+}
+
 /* ── GET /api/parent/dashboard ─────────────────────────────────────────────── */
 
 export const getParentDashboard: Handler = async (context) => {
-  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const learner = await resolveTargetLearner(context);
 
   if (!learner) {
     // Empty state, acknowledged as empty. No placeholder learner, no fake stats.
@@ -205,10 +221,7 @@ export const getParentDashboard: Handler = async (context) => {
  * learner mode.
  */
 export const listLessons: Handler = async (context) => {
-  const queryLearnerId = context.url.searchParams.get("learnerId");
-  const targetLearner = queryLearnerId
-    ? await repo.findLearnerForParent(context.env.DB, queryLearnerId, context.parent.parentId)
-    : await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const targetLearner = await resolveTargetLearner(context);
 
   const lessons = await repo.listLessons(context.env.DB);
   const [approvalsResult, steps, metadataRows, orgLessonsResult, parentMemberships, parentLearners] =
@@ -341,13 +354,10 @@ export const getLessonDetail: Handler = async (context) => {
     }
   }
 
-  const queryLearnerId = context.url.searchParams.get("learnerId");
   const queryVersion = context.url.searchParams.get("version");
   const targetVersion = queryVersion ? parseInt(queryVersion, 10) : lesson.version;
 
-  const targetLearner = queryLearnerId
-    ? await repo.findLearnerForParent(context.env.DB, queryLearnerId, context.parent.parentId)
-    : await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const targetLearner = await resolveTargetLearner(context);
 
   const [steps, approval] = await Promise.all([
     repo.listStepsForLesson(context.env.DB, lesson.id, targetVersion),
@@ -408,9 +418,14 @@ export const setLessonApproval: Handler = async (context) => {
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
   // Resolve target learner
+  const explicitLearnerId =
+    (typeof body.learnerId === "string" && body.learnerId.trim().length > 0 ? body.learnerId.trim() : null) ??
+    context.url.searchParams.get("learnerId")?.trim() ??
+    context.request.headers.get("x-tlo-learner-id")?.trim() ??
+    null;
   let learnerId: string | null;
-  if (body.learnerId) {
-    const learner = await repo.findLearnerForParent(context.env.DB, body.learnerId, context.parent.parentId);
+  if (explicitLearnerId) {
+    const learner = await repo.findLearnerForParent(context.env.DB, explicitLearnerId, context.parent.parentId);
     if (!learner) return notFound("Không tìm thấy hồ sơ người học.");
     learnerId = learner.id;
   } else {
@@ -628,7 +643,7 @@ export const correctSkillEvidence: Handler = async (context) => {
     note?: unknown;
   };
 
-  if (typeof body.learnerId !== "string" || typeof body.skillId !== "string") {
+  if (typeof body.skillId !== "string" || body.skillId.trim().length === 0) {
     return badRequest("Thiếu thông tin kỹ năng.");
   }
   if (!isCompetencyState(body.state)) return badRequest("Trạng thái năng lực không hợp lệ.");
@@ -637,7 +652,7 @@ export const correctSkillEvidence: Handler = async (context) => {
     return badRequest("Vui lòng ghi lý do điều chỉnh.");
   }
 
-  const learner = await repo.findLearnerOwnedBy(context.env.DB, body.learnerId, context.parent.parentId);
+  const learner = await resolveTargetLearner(context, body.learnerId);
   if (!learner) return notFound("Không tìm thấy hồ sơ người học.");
   const skill = await repo.findSkill(context.env.DB, body.skillId);
   if (!skill) return notFound("Không tìm thấy kỹ năng.");
@@ -815,7 +830,7 @@ function isProvenanceType(val: unknown): val is ProvenanceType {
 }
 
 export const getCurriculumSetup: Handler = async (context) => {
-  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const learner = await resolveTargetLearner(context);
   const objectives = await repo.listCurriculumObjectives(context.env.DB);
   const schoolYearLabel = "2026-2027";
   const grade = learner?.grade ?? 4;
@@ -884,7 +899,7 @@ export const getCurriculumSetup: Handler = async (context) => {
 /* ── POST /api/parent/curriculum ──────────────────────────────────────────── */
 
 export const upsertCurriculumSetup: Handler = async (context) => {
-  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const learner = await resolveTargetLearner(context);
   if (!learner) {
     return badRequest("Vui lòng tạo hồ sơ người học trước khi thiết lập chương trình học.");
   }
@@ -1009,11 +1024,11 @@ export const upsertCurriculumSetup: Handler = async (context) => {
 /* ── GET /api/parent/baseline ─────────────────────────────────────────────── */
 
 export const getBaselineAssessments: Handler = async (context) => {
-  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const learner = await resolveTargetLearner(context);
   const [lessons, metadataRows, approvals] = await Promise.all([
     repo.listLessons(context.env.DB),
     repo.listLessonMetadata(context.env.DB),
-    repo.listApprovalStatuses(context.env.DB),
+    repo.listApprovalStatuses(context.env.DB, context.parent.parentId, learner?.id ?? null),
   ]);
 
   const baselineMeta = new Map(
@@ -1063,7 +1078,7 @@ export const getBaselineAssessments: Handler = async (context) => {
 /* ── POST /api/parent/baseline ────────────────────────────────────────────── */
 
 export const evaluateBaselineAssessment: Handler = async (context) => {
-  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const learner = await resolveTargetLearner(context);
   if (!learner) {
     return badRequest("Chưa có hồ sơ người học.");
   }
@@ -1163,7 +1178,7 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
 /* ── GET /api/parent/planner ──────────────────────────────────────────────── */
 
 export const getFourWeekPlan: Handler = async (context) => {
-  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const learner = await resolveTargetLearner(context);
   const schoolYearLabel = "2026-2027";
   if (!learner) {
     return ok<PlannerGetResponse>({
@@ -1236,7 +1251,7 @@ export const getFourWeekPlan: Handler = async (context) => {
 /* ── POST /api/parent/planner/generate ────────────────────────────────────── */
 
 export const generateFourWeekPlanRoute: Handler = async (context) => {
-  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const learner = await resolveTargetLearner(context);
   if (!learner) {
     return badRequest("Vui lòng tạo hồ sơ người học trước khi lập kế hoạch 4 tuần.");
   }
@@ -1357,7 +1372,7 @@ export const generateFourWeekPlanRoute: Handler = async (context) => {
 /* ── PATCH /api/parent/planner/item ───────────────────────────────────────── */
 
 export const updatePlanItemRoute: Handler = async (context) => {
-  const learner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
+  const learner = await resolveTargetLearner(context);
   if (!learner) return badRequest("Chưa có hồ sơ người học.");
 
   const parsed = await readJsonBody(context.request, 8_000);

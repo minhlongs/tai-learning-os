@@ -24,7 +24,7 @@ import {
 } from "../../shared/schemas/transfer";
 import type { Db } from "../db/repositories";
 import * as repo from "../db/repositories";
-import { badRequest, ok, readJsonBody, serverError } from "../http/response";
+import { badRequest, notFound, ok, readJsonBody, serverError } from "../http/response";
 import type { Handler } from "../http/middleware";
 
 /** Collections that carry rows keyed by `id`. Order is insert order (FK-safe). */
@@ -43,8 +43,18 @@ const MAX_IMPORT_BYTES = 2_000_000;
  */
 export const exportRecord: Handler = async (context) => {
   const db = context.env.DB;
-  const learner = await repo.findFirstLearnerForParent(db, context.parent.parentId);
+  const requestedLearnerId =
+    context.url.searchParams.get("learnerId")?.trim() ||
+    context.request.headers.get("x-tlo-learner-id")?.trim() ||
+    "";
+  const learner =
+    requestedLearnerId.length > 0
+      ? await repo.findLearnerForParent(db, requestedLearnerId, context.parent.parentId)
+      : await repo.findFirstLearnerForParent(db, context.parent.parentId);
   if (!learner) {
+    if (requestedLearnerId.length > 0) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
     return badRequest("Chưa có hồ sơ người học để xuất dữ liệu.");
   }
 

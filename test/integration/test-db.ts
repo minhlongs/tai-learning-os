@@ -94,6 +94,7 @@ function migrationStatements(): string[] {
     "0005_organization_and_consent.sql",
     "0006_lesson_authoring_and_assignments.sql",
     "0007_learner_version_approvals_and_session_continuation.sql",
+    "0008_grade4_curriculum_expansion.sql",
   ];
   const statements: string[] = [];
   for (const name of names) {

@@ -17,33 +17,39 @@
 import type { LessonDefinition } from "./types";
 
 import { fractionsEquivalent } from "./math/fractions-equivalent";
+import { fractionsCompare } from "./math/fractions-compare";
 import { wordProblems } from "./math/word-problems";
 import { areaMeasurement } from "./math/area-measurement";
 import { baselineMathGrade4 } from "./math/baseline-math-grade4";
 
 import { simpleSentences } from "./english/simple-sentences";
 import { everydayNouns } from "./english/everyday-nouns";
+import { homeVocabulary } from "./english/home-vocabulary";
 import { greetingsDialogue } from "./english/greetings-dialogue";
 import { baselineEnglishGrade4 } from "./english/baseline-english-grade4";
 
 import { readingMainIdea } from "./vietnamese/reading-main-idea";
 import { sentenceClarity } from "./vietnamese/sentence-clarity";
 import { findEvidence } from "./vietnamese/find-evidence";
+import { storyLesson } from "./vietnamese/story-lesson";
 import { baselineVietnameseGrade4 } from "./vietnamese/baseline-vietnamese-grade4";
 
 export const LESSONS: readonly LessonDefinition[] = [
   // Toán
   fractionsEquivalent,
+  fractionsCompare,
   wordProblems,
   areaMeasurement,
   // Tiếng Anh
   simpleSentences,
   everydayNouns,
+  homeVocabulary,
   greetingsDialogue,
   // Tiếng Việt
   readingMainIdea,
   sentenceClarity,
   findEvidence,
+  storyLesson,
   // Khảo sát năng lực đầu vào (Phụ huynh giám sát)
   baselineMathGrade4,
   baselineEnglishGrade4,

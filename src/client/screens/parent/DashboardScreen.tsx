@@ -23,8 +23,13 @@
  *     dashboard points at a decision rather than implying a verdict.
  */
 
-import { useCallback, useEffect, useState } from "react";
-import type { ParentDashboardResponse } from "../../../shared/api-contract";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import type {
+  CorrectSkillRequest,
+  CorrectSkillResponse,
+  ParentDashboardResponse,
+} from "../../../shared/api-contract";
+import { COMPETENCY_STATES, type CompetencyState } from "../../../shared/schemas/attempt";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
 import { useSessionContext } from "../../lib/SessionProvider";
@@ -159,7 +164,11 @@ export function DashboardScreen({
               </section>
             ) : null}
 
-            <SkillTable rows={data.skillEvidence} />
+            <SkillTable
+              rows={data.skillEvidence}
+              learnerId={data.learner?.id ?? null}
+              onCorrected={load}
+            />
 
             <RecentSessions rows={data.recentSessions} />
 
@@ -243,12 +252,67 @@ function ReviewQueue({
   );
 }
 
-function SkillTable({ rows }: { rows: readonly SkillEvidence[] }): React.JSX.Element {
+function SkillTable({
+  rows,
+  learnerId,
+  onCorrected,
+}: {
+  rows: readonly SkillEvidence[];
+  learnerId: string | null;
+  onCorrected: () => void;
+}): React.JSX.Element {
+  const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
+  const [targetState, setTargetState] = useState<CompetencyState>("SUPPORTED");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const openEditor = (row: SkillEvidence) => {
+    setEditingSkillId(row.skillId);
+    setTargetState(row.state);
+    setNote("");
+    setFormError(null);
+    setNotice(null);
+  };
+
+  const handleSubmit = (event: FormEvent, row: SkillEvidence) => {
+    event.preventDefault();
+    if (!note.trim()) {
+      setFormError("Vui lòng ghi lý do điều chỉnh.");
+      return;
+    }
+    setBusy(true);
+    setFormError(null);
+    const body: CorrectSkillRequest = {
+      skillId: row.skillId,
+      state: targetState,
+      note: note.trim(),
+      learnerId: learnerId ?? undefined,
+    };
+    void api.post<CorrectSkillResponse>(endpoints.correctSkill, body).then((res) => {
+      setBusy(false);
+      if (!res.ok) {
+        setFormError(failureMessage(res.failure));
+        return;
+      }
+      setEditingSkillId(null);
+      setNote("");
+      setNotice(`Đã ghi nhận điều chỉnh cho kỹ năng “${row.skillNameVi}”.`);
+      onCorrected();
+    });
+  };
+
   return (
     <section className="card" aria-labelledby="skills-title">
       <h2 className="card__title" id="skills-title">
         Bằng chứng theo kỹ năng
       </h2>
+      {notice ? (
+        <p className="data-control__notice data-control__notice--ok" role="status">
+          {notice}
+        </p>
+      ) : null}
       {rows.length === 0 ? (
         <p className="dashboard-empty">
           Chưa có kỹ năng nào được ghi nhận. Danh sách này chỉ hiện kỹ năng đã
@@ -267,12 +331,16 @@ function SkillTable({ rows }: { rows: readonly SkillEvidence[] }): React.JSX.Ele
               <th scope="col">Làm độc lập</th>
               <th scope="col">Cần gợi ý</th>
               <th scope="col">Cập nhật</th>
+              <th scope="col">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.skillId}>
-                <th scope="row">{row.skillNameVi}</th>
+                <th scope="row">
+                  <div>{row.skillNameVi}</div>
+                  {row.reasonVi ? <div className="row__meta">{row.reasonVi}</div> : null}
+                </th>
                 <td>
                   <span className={`pill pill--state ${competencyClass(row.state)}`}>
                     <span aria-hidden="true">{competencyGlyph(row.state)}</span>
@@ -282,6 +350,71 @@ function SkillTable({ rows }: { rows: readonly SkillEvidence[] }): React.JSX.Ele
                 <td className="dashboard-table__num">{row.independentCount}</td>
                 <td className="dashboard-table__num">{row.assistedCount}</td>
                 <td>{formatDate(row.updatedAt)}</td>
+                <td>
+                  {editingSkillId === row.skillId ? (
+                    <form
+                      onSubmit={(e) => handleSubmit(e, row)}
+                      data-testid={`skill-correction-form-${row.skillId}`}
+                      style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+                    >
+                      <label className="field__label" htmlFor={`state-${row.skillId}`}>
+                        Mức năng lực
+                      </label>
+                      <select
+                        id={`state-${row.skillId}`}
+                        className="select"
+                        value={targetState}
+                        onChange={(e) => setTargetState(e.target.value as CompetencyState)}
+                        disabled={busy}
+                      >
+                        {COMPETENCY_STATES.map((st) => (
+                          <option key={st} value={st}>
+                            {competencyLabel(st)}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="field__label" htmlFor={`note-${row.skillId}`}>
+                        Lý do điều chỉnh
+                      </label>
+                      <input
+                        id={`note-${row.skillId}`}
+                        className="input"
+                        type="text"
+                        placeholder="Ví dụ: Đã kiểm tra trực tiếp trên giấy"
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        disabled={busy}
+                      />
+                      {formError ? (
+                        <p className="data-control__notice data-control__notice--error" role="alert">
+                          {formError}
+                        </p>
+                      ) : null}
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <button type="submit" className="btn btn--primary" disabled={busy}>
+                          {busy ? "Đang lưu…" : "Lưu điều chỉnh"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          disabled={busy}
+                          onClick={() => setEditingSkillId(null)}
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      data-testid={`correct-skill-${row.skillId}`}
+                      onClick={() => openEditor(row)}
+                    >
+                      Điều chỉnh
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
