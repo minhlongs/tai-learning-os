@@ -34,6 +34,7 @@ export const endpoints = {
   createLearner: "/api/parent/learners",
   updateLearner: "/api/parent/learners/profile",
   schoolYears: "/api/parent/school-years",
+  parentGoals: "/api/parent/goals",
   consents: "/api/parent/consents",
   grantConsent: "/api/parent/consents/grant",
   revokeConsent: "/api/parent/consents/revoke",

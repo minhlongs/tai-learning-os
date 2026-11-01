@@ -15,11 +15,14 @@
 
 import type {
   BaselineGetResponse,
+  CreateGoalRequest,
+  CreateGoalResponse,
   CreateLearnerResponse,
   CurriculumGetResponse,
   EvaluateBaselineRequest,
   EvaluateBaselineResponse,
   GeneratePlanRequest,
+  GoalStatus,
   LearnerProfile,
   LessonDetailResponse,
   LessonListResponse,
@@ -32,6 +35,8 @@ import type {
   SetApprovalResponse,
   UpdateContentRequest,
   UpdateContentResponse,
+  UpdateGoalStatusRequest,
+  UpdateGoalStatusResponse,
   UpdatePlanItemRequest,
   UpsertCurriculumIntakeRequest,
   UpsertCurriculumIntakeResponse,
@@ -314,6 +319,8 @@ export const getParentDashboard: Handler = async (context) => {
       titleVi: goal.title_vi,
       subjectId: goal.subject_id,
       status: goal.status,
+      note: goal.note,
+      targetDate: goal.target_date,
     })),
     needsAttention,
     recommendedNextLessons,
@@ -337,7 +344,7 @@ export const listLessons: Handler = async (context) => {
   }
 
   const lessons = await repo.listLessons(context.env.DB);
-  const [approvalsResult, steps, metadataRows, orgLessonsResult, parentMemberships, parentLearners] =
+  const [approvalsResult, steps, metadataRows, orgLessonsResult, parentMemberships, assignedOrgLessonsForTarget] =
     await Promise.all([
       targetLearner
         ? context.env.DB
@@ -359,24 +366,20 @@ export const listLessons: Handler = async (context) => {
         .prepare("SELECT organization_id FROM organization_members WHERE user_id = ?1")
         .bind(context.parent.parentId)
         .all<{ organization_id: string }>(),
-      repo.listLearnersForParent(context.env.DB, context.parent.parentId),
+      targetLearner
+        ? repo.listAssignedOrgLessonIdsForLearner(context.env.DB, targetLearner.id)
+        : Promise.resolve(new Set<string>()),
     ]);
 
   const memberOrgIds = new Set((parentMemberships.results ?? []).map((m) => m.organization_id));
   const orgLessonMap = new Map((orgLessonsResult.results ?? []).map((ol) => [ol.lesson_id, ol]));
 
-  const assignedOrgLessonsForChildren = new Set<string>();
-  for (const learner of parentLearners) {
-    const ids = await repo.listAssignedOrgLessonIdsForLearner(context.env.DB, learner.id);
-    for (const id of ids) assignedOrgLessonsForChildren.add(id);
-  }
-
   const visibleLessons = lessons.filter((lesson) => {
     const orgLesson = orgLessonMap.get(lesson.id);
     if (!orgLesson) return true; // Platform lesson
     if (memberOrgIds.has(orgLesson.organization_id)) return true; // Parent is member/staff of this center
-    if (assignedOrgLessonsForChildren.has(lesson.id)) return true; // Assigned to this parent's child
-    return false; // Other center's private draft/unassigned lesson
+    if (assignedOrgLessonsForTarget.has(lesson.id)) return true; // Assigned to the target learner
+    return false; // Other center's or unassigned sibling's lesson
   });
 
   const lessonVersionMap = new Map(lessons.map((l) => [l.id, l.version]));
@@ -444,24 +447,23 @@ export const getLessonDetail: Handler = async (context) => {
   const lesson = await repo.findLesson(context.env.DB, lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
-  // Tenant / visibility check parity: if org lesson, caller must be org member or parent of enrolled/assigned learner
+  const { learner: targetLearner, explicitlyRequested } = await resolveTargetLearner(context);
+  if (explicitlyRequested && !targetLearner) {
+    return notFound("Không tìm thấy hồ sơ người học.");
+  }
+
+  // Tenant / visibility check parity: if org lesson, caller must be org member or parent of the assigned target learner
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
   if (orgLesson) {
     const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
     if (!role) {
-      const parentLearners = await repo.listLearnersForParent(context.env.DB, context.parent.parentId);
-      let isAssignedToChild = false;
-      for (const learner of parentLearners) {
-        const assigned = await repo.isLessonAssignedToLearner(context.env.DB, {
-          learnerId: learner.id,
-          lessonId: lesson.id,
-        });
-        if (assigned) {
-          isAssignedToChild = true;
-          break;
-        }
-      }
-      if (!isAssignedToChild) {
+      const assigned = targetLearner
+        ? await repo.isLessonAssignedToLearner(context.env.DB, {
+            learnerId: targetLearner.id,
+            lessonId: lesson.id,
+          })
+        : false;
+      if (!assigned) {
         return forbidden("Bạn không có quyền truy cập bài học của trung tâm này.");
       }
     }
@@ -469,11 +471,6 @@ export const getLessonDetail: Handler = async (context) => {
 
   const queryVersion = context.url.searchParams.get("version");
   const targetVersion = queryVersion ? parseInt(queryVersion, 10) : lesson.version;
-
-  const { learner: targetLearner, explicitlyRequested } = await resolveTargetLearner(context);
-  if (explicitlyRequested && !targetLearner) {
-    return notFound("Không tìm thấy hồ sơ người học.");
-  }
 
   const [steps, approval, versionSnapshot] = await Promise.all([
     repo.listStepsForLesson(context.env.DB, lesson.id, targetVersion),
@@ -1795,6 +1792,166 @@ export const transitionSchoolYear: Handler = async (context) => {
       independentAttemptCount: yearAttempts.filter(
         (a) => a.outcome === "correct" && a.help_level <= 2,
       ).length,
+    },
+  });
+};
+
+/* ── POST /api/parent/goals & PATCH /api/parent/goals ─────────────────────── */
+
+const VALID_GOAL_STATUSES: readonly GoalStatus[] = ["active", "paused", "achieved", "retired"];
+
+function isGoalStatus(val: unknown): val is GoalStatus {
+  return typeof val === "string" && VALID_GOAL_STATUSES.includes(val as GoalStatus);
+}
+
+export const createLearningGoalRoute: Handler = async (context) => {
+  const parsed = await readJsonBody(context.request, 8_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<CreateGoalRequest> & { learnerId?: unknown };
+
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context, body.learnerId);
+  if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
+    return badRequest("Vui lòng tạo hồ sơ người học trước khi đặt mục tiêu học tập.");
+  }
+
+  const titleVi = typeof body.titleVi === "string" ? body.titleVi.trim() : "";
+  if (titleVi.length < 1 || titleVi.length > 200) {
+    return badRequest("Nội dung mục tiêu cần từ 1 đến 200 ký tự.");
+  }
+
+  let subjectId: string | null = null;
+  if (typeof body.subjectId === "string" && body.subjectId.trim().length > 0) {
+    const candidateSubjectId = body.subjectId.trim();
+    const subjects = await repo.listSubjects(context.env.DB);
+    if (!subjects.some((s) => s.id === candidateSubjectId && s.active === 1)) {
+      return badRequest("Môn học không hợp lệ.");
+    }
+    subjectId = candidateSubjectId;
+  }
+
+  const note =
+    typeof body.note === "string" && body.note.trim().length > 0
+      ? body.note.trim().slice(0, 500)
+      : null;
+
+  let targetDate: string | null = null;
+  if (typeof body.targetDate === "string" && body.targetDate.trim().length > 0) {
+    const candidateDate = body.targetDate.trim();
+    if (!ISO_DATE_RE.test(candidateDate)) {
+      return badRequest("Ngày dự kiến cần có định dạng YYYY-MM-DD.");
+    }
+    targetDate = candidateDate;
+  }
+
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await repo.createGoal(context.env.DB, {
+    id,
+    learnerId: learner.id,
+    subjectId,
+    titleVi,
+    note,
+    targetDate,
+    now,
+  });
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: "goal.created",
+    subject: id,
+    detail: JSON.stringify({
+      learnerId: learner.id,
+      subjectId,
+      targetDate,
+    }),
+    now,
+  });
+
+  return ok<CreateGoalResponse>({
+    goal: {
+      id,
+      learnerId: learner.id,
+      titleVi,
+      subjectId,
+      status: "active",
+      note,
+      targetDate,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+};
+
+export const updateLearningGoalStatusRoute: Handler = async (context) => {
+  const parsed = await readJsonBody(context.request, 8_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<UpdateGoalStatusRequest> & { learnerId?: unknown };
+
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context, body.learnerId);
+  if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
+    return badRequest("Chưa có hồ sơ người học.");
+  }
+
+  const goalId = typeof body.goalId === "string" ? body.goalId.trim() : "";
+  if (goalId.length === 0) {
+    return badRequest("Thiếu mã mục tiêu học tập.");
+  }
+  if (!isGoalStatus(body.status)) {
+    return badRequest("Trạng thái mục tiêu học tập không hợp lệ.");
+  }
+
+  const existing = await repo.findGoalForLearner(context.env.DB, goalId, learner.id);
+  if (!existing) {
+    return notFound("Không tìm thấy mục tiêu học tập.");
+  }
+
+  const note =
+    body.note !== undefined
+      ? typeof body.note === "string" && body.note.trim().length > 0
+        ? body.note.trim().slice(0, 500)
+        : null
+      : existing.note;
+
+  const now = Date.now();
+  await repo.updateGoalStatus(context.env.DB, {
+    id: existing.id,
+    learnerId: learner.id,
+    status: body.status,
+    note,
+    now,
+  });
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: "goal.status_updated",
+    subject: existing.id,
+    detail: JSON.stringify({
+      learnerId: learner.id,
+      previousStatus: existing.status,
+      status: body.status,
+    }),
+    now,
+  });
+
+  return ok<UpdateGoalStatusResponse>({
+    goal: {
+      id: existing.id,
+      learnerId: learner.id,
+      titleVi: existing.title_vi,
+      subjectId: existing.subject_id,
+      status: body.status,
+      note,
+      targetDate: existing.target_date,
+      createdAt: existing.created_at,
+      updatedAt: now,
     },
   });
 };

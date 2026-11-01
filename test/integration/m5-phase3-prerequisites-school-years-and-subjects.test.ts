@@ -20,16 +20,20 @@ import { hashPassword } from "../../src/shared/crypto/password";
 import { leaksAnswer } from "../../src/shared/schemas/exercise";
 import type {
   BaselineGetResponse,
+  CreateGoalResponse,
   CurriculumGetResponse,
   EvaluateBaselineResponse,
   ExportResponse,
   FinalizeSessionResponse,
   LearnerSubjectListResponse,
+  LessonDetailResponse,
   ParentDashboardResponse,
+  ParentLessonListResponse,
   PlannerGetResponse,
   SchoolYearTransitionResponse,
   StartSessionResponse,
   SubmitAttemptResponse,
+  UpdateGoalStatusResponse,
 } from "../../src/shared/api-contract";
 
 const ORIGIN = "http://localhost";
@@ -532,5 +536,204 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
     expect(expBody.data.lessons.some((l) => l.id === "sci-plant-needs")).toBe(false);
     expect(expBody.data.lessonSteps.some((s) => s.lessonId === "sci-plant-needs")).toBe(false);
     expect(expBody.data.lessonMetadata?.some((m) => m.lessonId === "sci-plant-needs")).toBe(false);
+  });
+
+  it("4. Supports parent learning goals (create & update status with audit trail and owner/sibling isolation) and enforces sibling-scoped organization-lesson isolation on GET /api/parent/lessons and GET /api/parent/lessons/:id", async () => {
+    const now = Date.now();
+    const passHash = await hashPassword("ParentPass123!", 100_000);
+    await env.DB
+      .prepare(
+        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-m7', 'Mẹ Tài', ?1, ?2, ?2)",
+      )
+      .bind(passHash, now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m7-a', 'parent-m7', 'Tài', 4, ?1, ?1)",
+      )
+      .bind(now - 5_000)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m7-b', 'parent-m7', 'An', 4, ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+
+    // Seed another family to verify cross-family 404 isolation
+    await env.DB
+      .prepare(
+        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-m7-other', 'Phụ huynh Khác', ?1, ?2, ?2)",
+      )
+      .bind(passHash, now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m7-other', 'parent-m7-other', 'Bé Khác', 4, ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+
+    const parentJar = await createAuthenticatedJar("parent-m7", "Mẹ Tài", "parent");
+    const learnerJar = await createAuthenticatedJar("parent-m7", "Mẹ Tài", "learner");
+
+    // 1. Create a learning goal for Sibling A (`learner-m7-a`)
+    const createRes = await callWithJar(parentJar, "/api/parent/goals", {
+      method: "POST",
+      json: {
+        learnerId: "learner-m7-a",
+        titleVi: "Tự phân biệt ý kiến và sự thật trong đoạn văn ngắn",
+        subjectId: "debate",
+        targetDate: "2026-12-31",
+        note: "Ôn tập nhẹ nhàng cuối tuần",
+      },
+    });
+    expect(createRes.status).toBe(200);
+    const createdBody = (await createRes.json()) as CreateGoalResponse;
+    expect(createdBody.goal).toMatchObject({
+      learnerId: "learner-m7-a",
+      subjectId: "debate",
+      titleVi: "Tự phân biệt ý kiến và sự thật trong đoạn văn ngắn",
+      status: "active",
+      targetDate: "2026-12-31",
+      note: "Ôn tập nhẹ nhàng cuối tuần",
+    });
+
+    // 2. Verify goal appears in GET /api/parent/dashboard for Sibling A, not Sibling B
+    const dashARes = await callWithJar(parentJar, "/api/parent/dashboard", {
+      learnerIdHeader: "learner-m7-a",
+    });
+    const dashA = (await dashARes.json()) as ParentDashboardResponse;
+    expect(dashA.goals).toHaveLength(1);
+    expect(dashA.goals[0]?.id).toBe(createdBody.goal.id);
+    expect(dashA.goals[0]?.targetDate).toBe("2026-12-31");
+    expect(dashA.goals[0]?.note).toBe("Ôn tập nhẹ nhàng cuối tuần");
+
+    const dashBRes = await callWithJar(parentJar, "/api/parent/dashboard", {
+      learnerIdHeader: "learner-m7-b",
+    });
+    const dashB = (await dashBRes.json()) as ParentDashboardResponse;
+    expect(dashB.goals).toHaveLength(0);
+
+    // 3. Updating Sibling A's goal while targeting Sibling B must return 404
+    const wrongSiblingPatch = await callWithJar(parentJar, "/api/parent/goals", {
+      method: "PATCH",
+      json: {
+        learnerId: "learner-m7-b",
+        goalId: createdBody.goal.id,
+        status: "achieved",
+      },
+    });
+    expect(wrongSiblingPatch.status).toBe(404);
+
+    // 4. Update Sibling A's goal status to `achieved`
+    const patchRes = await callWithJar(parentJar, "/api/parent/goals", {
+      method: "PATCH",
+      json: {
+        learnerId: "learner-m7-a",
+        goalId: createdBody.goal.id,
+        status: "achieved",
+        note: "Đã hoàn thành tốt trong tuần 3",
+      },
+    });
+    expect(patchRes.status).toBe(200);
+    const patchedBody = (await patchRes.json()) as UpdateGoalStatusResponse;
+    expect(patchedBody.goal.status).toBe("achieved");
+    expect(patchedBody.goal.note).toBe("Đã hoàn thành tốt trong tuần 3");
+
+    // 5. Verify audit events (`goal.created` and `goal.status_updated`)
+    const auditRows = await env.DB
+      .prepare(
+        "SELECT action FROM audit_events WHERE subject = ?1 ORDER BY created_at ASC",
+      )
+      .bind(createdBody.goal.id)
+      .all<{ action: string }>();
+    expect(auditRows.results.map((r) => r.action)).toEqual(["goal.created", "goal.status_updated"]);
+
+    // 6. Verify child-mode 403, cross-family 404, and validation errors (400)
+    const childGoalRes = await callWithJar(learnerJar, "/api/parent/goals", {
+      method: "POST",
+      json: { titleVi: "Mục tiêu giả mạo" },
+    });
+    expect(childGoalRes.status).toBe(403);
+
+    const crossFamilyGoalRes = await callWithJar(parentJar, "/api/parent/goals", {
+      method: "POST",
+      json: { learnerId: "learner-m7-other", titleVi: "Mục tiêu chéo gia đình" },
+    });
+    expect(crossFamilyGoalRes.status).toBe(404);
+
+    const invalidDateRes = await callWithJar(parentJar, "/api/parent/goals", {
+      method: "POST",
+      json: { learnerId: "learner-m7-a", titleVi: "Mục tiêu ngày sai", targetDate: "31-12-2026" },
+    });
+    expect(invalidDateRes.status).toBe(400);
+
+    // 7. Sibling-scoped organization-lesson isolation on GET /api/parent/lessons and GET /api/parent/lessons/:id
+    // Bind `sci-plant-needs` to an external organization where only Sibling A (`learner-m7-a`) is enrolled & consented
+    await env.DB
+      .prepare(
+        "INSERT INTO organizations (id, slug, name, created_at, updated_at) VALUES ('org-m7', 'm7-center', 'Trung tâm M7', ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO classrooms (id, organization_id, name, grade, subject_id, created_at, updated_at) VALUES ('class-m7', 'org-m7', 'Lớp Khoa học 4A', 4, 'science', ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO organization_lessons (organization_id, lesson_id, author_id, review_status, created_at, updated_at) VALUES ('org-m7', 'sci-plant-needs', 'parent-m7-other', 'org_approved', ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO classroom_enrollments (id, classroom_id, learner_id, status, created_at, updated_at) VALUES ('enr-m7-a', 'class-m7', 'learner-m7-a', 'enrolled', ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO learner_consents (id, organization_id, learner_id, granted_by, status, granted_at, revoked_at) VALUES ('con-m7-a', 'org-m7', 'learner-m7-a', 'parent-m7', 'active', ?1, NULL)",
+      )
+      .bind(now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO classroom_lesson_assignments (id, classroom_id, lesson_id, assigned_by, assigned_at, due_at) VALUES ('asg-m7-1', 'class-m7', 'sci-plant-needs', 'parent-m7-other', ?1, NULL)",
+      )
+      .bind(now)
+      .run();
+
+    // Sibling A sees `sci-plant-needs` in GET /api/parent/lessons and GET /api/parent/lessons/sci-plant-needs
+    const lessonsARes = await callWithJar(parentJar, "/api/parent/lessons", {
+      learnerIdHeader: "learner-m7-a",
+    });
+    expect(lessonsARes.status).toBe(200);
+    const lessonsABody = (await lessonsARes.json()) as ParentLessonListResponse;
+    expect(lessonsABody.lessons.some((l) => l.id === "sci-plant-needs")).toBe(true);
+
+    const detailARes = await callWithJar(parentJar, "/api/parent/lessons/sci-plant-needs", {
+      learnerIdHeader: "learner-m7-a",
+    });
+    expect(detailARes.status).toBe(200);
+    const detailABody = (await detailARes.json()) as LessonDetailResponse;
+    expect(detailABody.id).toBe("sci-plant-needs");
+
+    // Sibling B (`learner-m7-b`, neither enrolled nor consented) does NOT see `sci-plant-needs` in list or detail
+    const lessonsBRes = await callWithJar(parentJar, "/api/parent/lessons", {
+      learnerIdHeader: "learner-m7-b",
+    });
+    expect(lessonsBRes.status).toBe(200);
+    const lessonsBBody = (await lessonsBRes.json()) as ParentLessonListResponse;
+    expect(lessonsBBody.lessons.some((l) => l.id === "sci-plant-needs")).toBe(false);
+
+    const detailBRes = await callWithJar(parentJar, "/api/parent/lessons/sci-plant-needs", {
+      learnerIdHeader: "learner-m7-b",
+    });
+    expect(detailBRes.status).toBe(403);
   });
 });

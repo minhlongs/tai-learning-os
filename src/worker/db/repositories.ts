@@ -1507,6 +1507,42 @@ export async function createGoal(
     .run();
 }
 
+export async function findGoalForLearner(
+  db: Db,
+  goalId: string,
+  learnerId: string,
+): Promise<LearningGoalRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, learner_id, subject_id, title_vi, note, target_date, status, created_at, updated_at
+       FROM learning_goals
+       WHERE id = ?1 AND learner_id = ?2`,
+    )
+    .bind(goalId, learnerId)
+    .first<LearningGoalRow>();
+  return row ?? null;
+}
+
+export async function updateGoalStatus(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    status: "active" | "paused" | "achieved" | "retired";
+    note: string | null;
+    now: number;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE learning_goals
+       SET status = ?1, note = ?2, updated_at = ?3
+       WHERE id = ?4 AND learner_id = ?5`,
+    )
+    .bind(input.status, input.note, input.now, input.id, input.learnerId)
+    .run();
+}
+
 /* ── Audit ───────────────────────────────────────────────────────────────── */
 
 export async function recordAudit(

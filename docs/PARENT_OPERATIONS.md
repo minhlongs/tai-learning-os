@@ -25,14 +25,15 @@ Mở trình duyệt web tại địa chỉ: `http://localhost:8791`
 Mặc định, khi bài học mới được đưa vào hệ thống, bài học ở trạng thái **Bản nháp (Draft)** hoặc **Chưa duyệt**. Bé Tài sẽ **không nhìn thấy** bài học này trong danh sách môn học cho đến khi phụ huynh duyệt.
 
 ### Các bước phê duyệt:
-1. Đăng nhập vào hệ thống và nhấn vào menu **"Duyệt bài học"** (`/parent/lessons`).
-2. Danh sách bài học theo từng môn (Toán, Tiếng Anh, Tiếng Việt) sẽ hiển thị chi tiết tên bài và mục tiêu học tập.
+1. Đăng nhập vào hệ thống và nhấn vào menu **"Quản lý bài học"** (`/parent/lessons`).
+2. Danh sách bài học theo 5 môn học đang mở (Toán học, Tiếng Anh, Tiếng Việt, Khoa học, Tư duy phản biện) sẽ hiển thị chi tiết tên bài và mục tiêu học tập.
 3. Nhấn nút **"Chưa duyệt"** để chuyển sang **"Đã duyệt"**.
 4. Khi đã duyệt, bài học sẽ lập tức xuất hiện trên giao diện học tập của bé. Phụ huynh có thể thu hồi phê duyệt bất kỳ lúc nào nếu muốn điều chỉnh lộ trình học.
 
 **Phạm vi của bản duyệt:** Phê duyệt gắn với **từng bé** và **từng phiên bản nội dung** của bài học:
 
 - Duyệt bài cho bé thứ nhất **không** tự động duyệt cho bé thứ hai.
+- Các bài học được giao từ lớp học trung tâm cũng được hiển thị và cách ly theo đúng từng bé được ghi danh.
 - Nếu bài học được chỉnh sửa nội dung (tạo phiên bản mới), bé sẽ không thấy bản mới cho đến khi phụ huynh duyệt lại.
 
 **Khi thu hồi quyền đang có phiên đang học:** Phụ huynh thu hồi quyền thì phiên học mới bị chặn ngay lập tức. Nếu bé đang học dở một phiên hợp lệ đã bắt đầu trước khi thu hồi, phiên đó chỉ được tiếp tục tối đa **30 phút** kể từ lần thu hồi đầu tiên, sau đó mọi thao tác đều bị từ chối. Việc thu hồi rồi cấp lại không kéo dài thêm khoảng 30 phút này.
@@ -50,6 +51,8 @@ Tại trang **"Bảng theo dõi"** (`/parent`):
   - `GHI NHỚ TỐT (RETAINED)`: Bé hoàn thành xuất sắc các bài ôn tập cách quãng sau 3, 7, 14 ngày.
   - `VẬN DỤNG (TRANSFERRED)`: Bé giải quyết tốt các bài toán thực tế phức tạp.
 - **Cảnh báo cần phụ huynh can thiệp (`needsParentAttention`)**: Nếu bé làm sai liên tiếp từ 3 lần trở lên ở một kỹ năng, hệ thống sẽ gắn cờ cảnh báo để phụ huynh ngồi cùng giải thích lại khái niệm cốt lõi cho con.
+- **Đề xuất bài học tiếp theo & Liên thông năm học**: Bảng theo dõi hiển thị gợi ý bài học tiếp theo dựa trên tiến độ kỹ năng tiên quyết của bé và hỗ trợ chuyển tiếp năm học mới (giữ nguyên toàn bộ lịch sử năng lực của các năm trước).
+- **Mục tiêu phụ huynh đặt ra (`learning_goals`)**: Phụ huynh có thể tạo mục tiêu học tập mới (chọn môn học, ngày dự kiến hoàn thành, ghi chú đồng hành) và cập nhật trạng thái (*Đang theo đuổi*, *Tạm dừng*, *Đã đạt*, *Đã khép lại*) ngay trên Bảng theo dõi. Mục tiêu của gia đình được tách biệt hoàn toàn với bằng chứng năng lực thực tế của bé.
 
 ---
 

@@ -27,10 +27,15 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import type {
   CorrectSkillRequest,
   CorrectSkillResponse,
+  CreateGoalRequest,
+  CreateGoalResponse,
+  GoalStatus,
   ParentDashboardResponse,
   SchoolYearTransitionResponse,
   SetApprovalRequest,
   SetApprovalResponse,
+  UpdateGoalStatusRequest,
+  UpdateGoalStatusResponse,
 } from "../../../shared/api-contract";
 import { COMPETENCY_STATES, type CompetencyState } from "../../../shared/schemas/attempt";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
@@ -135,8 +140,17 @@ export function DashboardScreen({
             </p>
           </div>
           <nav className="dashboard-header__nav" aria-label="Khu vực phụ huynh">
+            <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent/curriculum")}>
+              Chương trình học
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent/baseline")}>
+              Đánh giá đầu vào
+            </button>
             <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent/lessons")}>
               Quản lý bài học
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent/planner")}>
+              Kế hoạch 4 tuần
             </button>
             <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent/data")}>
               Dữ liệu của bé
@@ -180,6 +194,12 @@ export function DashboardScreen({
               learnerGrade={data.learner.grade}
               activeSchoolYearLabel={data.learner.schoolYearLabel ?? null}
               onTransitioned={load}
+            />
+
+            <ParentGoalsSection
+              goals={data.goals}
+              learnerId={data.learner.id}
+              onUpdated={load}
             />
           </>
         ) : null}
@@ -236,24 +256,6 @@ export function DashboardScreen({
             />
 
             <RecentSessions rows={data.recentSessions} />
-
-            {data.goals.length > 0 ? (
-              <section className="card" aria-labelledby="goals-title">
-                <h2 className="card__title" id="goals-title">
-                  Mục tiêu phụ huynh đặt ra
-                </h2>
-                <ul className="dashboard-goals">
-                  {data.goals.map((goal) => (
-                    <li key={goal.id}>
-                      <span className={`pill pill--goal pill--goal--${goal.status}`}>
-                        {GOAL_LABELS[goal.status]}
-                      </span>
-                      <span>{goal.titleVi}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
           </>
         ) : null}
       </div>
@@ -817,6 +819,249 @@ function SchoolYearContinuitySection({
           {notice.text}
         </p>
       ) : null}
+    </section>
+  );
+}
+
+const GOAL_STATUS_OPTIONS: readonly GoalStatus[] = ["active", "paused", "achieved", "retired"];
+
+function ParentGoalsSection({
+  goals,
+  learnerId,
+  onUpdated,
+}: {
+  goals: ParentDashboardResponse["goals"];
+  learnerId: string | null;
+  onUpdated: () => void;
+}): React.JSX.Element {
+  const [titleVi, setTitleVi] = useState("");
+  const [subjectId, setSubjectId] = useState<string>("");
+  const [targetDate, setTargetDate] = useState("");
+  const [note, setNote] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [updatingGoalId, setUpdatingGoalId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  const handleCreateGoal = (event: FormEvent) => {
+    event.preventDefault();
+    if (!learnerId) return;
+    if (!titleVi.trim()) {
+      setNotice({ tone: "error", text: "Vui lòng nhập nội dung mục tiêu học tập." });
+      return;
+    }
+    setCreating(true);
+    setNotice(null);
+    const body: CreateGoalRequest = {
+      learnerId,
+      titleVi: titleVi.trim(),
+      subjectId: subjectId || null,
+      targetDate: targetDate.trim() || null,
+      note: note.trim() || null,
+    };
+    void api.post<CreateGoalResponse>(endpoints.parentGoals, body).then((res) => {
+      if (readActiveLearnerId() && readActiveLearnerId() !== learnerId) return;
+      setCreating(false);
+      if (!res.ok) {
+        setNotice({ tone: "error", text: failureMessage(res.failure) });
+        return;
+      }
+      setTitleVi("");
+      setSubjectId("");
+      setTargetDate("");
+      setNote("");
+      setNotice({
+        tone: "ok",
+        text: `Đã thêm mục tiêu “${res.value.goal.titleVi}”.`,
+      });
+      onUpdated();
+    });
+  };
+
+  const handleStatusChange = (goalId: string, status: GoalStatus) => {
+    if (!learnerId) return;
+    setUpdatingGoalId(goalId);
+    setNotice(null);
+    const body: UpdateGoalStatusRequest = {
+      learnerId,
+      goalId,
+      status,
+    };
+    void api.patch<UpdateGoalStatusResponse>(endpoints.parentGoals, body).then((res) => {
+      if (readActiveLearnerId() && readActiveLearnerId() !== learnerId) return;
+      setUpdatingGoalId(null);
+      if (!res.ok) {
+        setNotice({ tone: "error", text: failureMessage(res.failure) });
+        return;
+      }
+      setNotice({
+        tone: "ok",
+        text: `Đã cập nhật trạng thái mục tiêu “${res.value.goal.titleVi}” sang ${GOAL_LABELS[status]}.`,
+      });
+      onUpdated();
+    });
+  };
+
+  return (
+    <section
+      className="card"
+      aria-labelledby="goals-title"
+      data-testid="parent-goals-section"
+    >
+      <h2 className="card__title" id="goals-title">
+        Mục tiêu phụ huynh đặt ra
+      </h2>
+      <p className="dashboard-note">
+        Mục tiêu do gia đình đặt ra để định hướng đồng hành cùng con, hoàn toàn tách biệt với bằng chứng năng lực thực tế.
+      </p>
+
+      {notice ? (
+        <p
+          className={`data-control__notice data-control__notice--${notice.tone}`}
+          data-testid="parent-goals-notice"
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          {notice.text}
+        </p>
+      ) : null}
+
+      {goals.length === 0 ? (
+        <p className="dashboard-empty" data-testid="parent-goals-empty">
+          Chưa có mục tiêu nào được đặt cho bé.
+        </p>
+      ) : (
+        <ul className="dashboard-goals" data-testid="parent-goals-list">
+          {goals.map((goal) => (
+            <li
+              key={goal.id}
+              data-testid={`parent-goal-item-${goal.id}`}
+              style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}
+            >
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem" }}>
+                <span className={`pill pill--goal pill--goal--${goal.status}`}>
+                  {GOAL_LABELS[goal.status]}
+                </span>
+                {goal.subjectId ? (
+                  <span className="pill">{subjectLabel(goal.subjectId)}</span>
+                ) : null}
+                <strong>{goal.titleVi}</strong>
+                {goal.targetDate ? (
+                  <span className="dashboard-sessions__meta">(Dự kiến: {goal.targetDate})</span>
+                ) : null}
+                {goal.note ? (
+                  <span className="dashboard-sessions__meta">— {goal.note}</span>
+                ) : null}
+              </div>
+              <div>
+                <label className="sr-only" htmlFor={`goal-status-${goal.id}`}>
+                  Trạng thái mục tiêu {goal.titleVi}
+                </label>
+                <select
+                  id={`goal-status-${goal.id}`}
+                  data-testid={`goal-status-select-${goal.id}`}
+                  className="select"
+                  value={goal.status}
+                  disabled={updatingGoalId === goal.id}
+                  onChange={(e) => handleStatusChange(goal.id, e.target.value as GoalStatus)}
+                >
+                  {GOAL_STATUS_OPTIONS.map((st) => (
+                    <option key={st} value={st}>
+                      {GOAL_LABELS[st]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form
+        onSubmit={handleCreateGoal}
+        data-testid="create-goal-form"
+        style={{
+          marginTop: "1rem",
+          display: "grid",
+          gap: "0.75rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          alignItems: "end",
+        }}
+      >
+        <div>
+          <label className="field__label" htmlFor="goal-title-input">
+            Mục tiêu mới
+          </label>
+          <input
+            id="goal-title-input"
+            data-testid="goal-title-input"
+            className="input"
+            type="text"
+            value={titleVi}
+            onChange={(e) => setTitleVi(e.target.value)}
+            placeholder="Ví dụ: Tự tóm tắt ý chính đoạn văn lớp 4"
+            disabled={creating}
+          />
+        </div>
+        <div>
+          <label className="field__label" htmlFor="goal-subject-select">
+            Môn học (tùy chọn)
+          </label>
+          <select
+            id="goal-subject-select"
+            data-testid="goal-subject-select"
+            className="select"
+            value={subjectId}
+            onChange={(e) => setSubjectId(e.target.value)}
+            disabled={creating}
+          >
+            <option value="">Chung các môn</option>
+            {Object.entries(SUBJECT_LABELS).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="field__label" htmlFor="goal-target-date-input">
+            Ngày dự kiến (YYYY-MM-DD)
+          </label>
+          <input
+            id="goal-target-date-input"
+            data-testid="goal-target-date-input"
+            className="input"
+            type="text"
+            value={targetDate}
+            onChange={(e) => setTargetDate(e.target.value)}
+            placeholder="2026-12-31"
+            disabled={creating}
+          />
+        </div>
+        <div>
+          <label className="field__label" htmlFor="goal-note-input">
+            Ghi chú của ba mẹ
+          </label>
+          <input
+            id="goal-note-input"
+            data-testid="goal-note-input"
+            className="input"
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Ôn nhẹ nhàng 3 buổi/tuần"
+            disabled={creating}
+          />
+        </div>
+        <div>
+          <button
+            type="submit"
+            className="btn btn--secondary"
+            data-testid="create-goal-submit"
+            disabled={creating || !learnerId}
+          >
+            {creating ? "Đang lưu…" : "Thêm mục tiêu"}
+          </button>
+        </div>
+      </form>
     </section>
   );
 }

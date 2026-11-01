@@ -636,6 +636,33 @@ test.describe("M4 Browser Verification Flows", () => {
     await expect(page.getByTestId("active-school-year-label")).toHaveText("2027-2028");
     await expect(page.getByTestId("school-year-row-2027-2028")).toBeVisible();
 
+    // 3b. Verify Parent Learning Goals creation and status transition on `/parent`
+    const goalsSection = page.getByTestId("parent-goals-section");
+    await expect(goalsSection).toBeVisible();
+    await page.getByTestId("goal-title-input").fill("Tự nêu ý kiến và lý lẽ rõ ràng trong bài đọc");
+    await page.getByTestId("goal-subject-select").selectOption("debate");
+    await page.getByTestId("goal-target-date-input").fill("2027-06-01");
+    await page.getByTestId("goal-note-input").fill("Luyện 2 buổi mỗi tuần");
+    await page.getByTestId("create-goal-submit").click();
+
+    await expect(page.getByTestId("parent-goals-notice")).toContainText(
+      "Tự nêu ý kiến và lý lẽ rõ ràng trong bài đọc",
+    );
+    await expect(page.getByTestId("parent-goals-list")).toContainText(
+      "Tự nêu ý kiến và lý lẽ rõ ràng trong bài đọc",
+    );
+
+    const statusSelect = page.locator('[data-testid^="goal-status-select-"]').first();
+    await expect(statusSelect).toBeVisible();
+    await statusSelect.selectOption("achieved");
+    await expect(page.getByTestId("parent-goals-notice")).toContainText("Đã đạt");
+
+    // 3c. Verify Curriculum Setup screen preserves transitioned active school year (`2027-2028`) across subject tabs
+    await page.getByRole("button", { name: "Chương trình học" }).click();
+    await expect(page).toHaveURL(/\/parent\/curriculum/);
+    await page.getByTestId("curriculum-subject-science").click();
+    await expect(page.locator("#curriculum-school-year")).toHaveValue("2027-2028");
+
     // 4. Verify 5-Subject Baseline Diagnostic Screen (`/parent/baseline`) including Science & Debate
     await page.goto("/parent/baseline");
     await expect(

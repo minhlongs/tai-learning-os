@@ -161,6 +161,16 @@ export function LessonManagerScreen({
       if (result.ok) {
         setLessons(result.value.lessons);
         setListError(null);
+        const visibleIds = new Set(result.value.lessons.map((l) => l.id));
+        setOpenLessonId((prev) => {
+          if (prev && !visibleIds.has(prev)) {
+            setDetail(null);
+            setDetailError(null);
+            setDetailLoading(false);
+            return null;
+          }
+          return prev;
+        });
       } else {
         setListError(failureMessage(result.failure));
       }
@@ -190,22 +200,29 @@ export function LessonManagerScreen({
    * The response is not normalised or trimmed: this is a review surface, so what
    * the server returns for the key is what the parent reads.
    */
-  const openDetail = useCallback((lessonId: string) => {
-    setDetailLoading(true);
-    setDetailError(null);
-    setDetail(null);
-    setOpenLessonId(lessonId);
-    void api.get<LessonDetailResponse>(endpoints.lessonDetail(lessonId)).then((result) => {
-      setDetailLoading(false);
-      if (result.ok) {
-        setDetail(result.value);
-      } else {
-        setDetailError(failureMessage(result.failure));
-      }
-      // Move the reading position to the panel the parent just opened.
-      detailRef.current?.scrollIntoView({ block: "nearest" });
-    });
-  }, []);
+  const openDetail = useCallback(
+    (lessonId: string) => {
+      const expectedLearnerId = session.learner?.id ?? readActiveLearnerId();
+      setDetailLoading(true);
+      setDetailError(null);
+      setDetail(null);
+      setOpenLessonId(lessonId);
+      void api.get<LessonDetailResponse>(endpoints.lessonDetail(lessonId)).then((result) => {
+        if (!mountedRef.current) return;
+        const currentActive = readActiveLearnerId();
+        if (expectedLearnerId && currentActive && currentActive !== expectedLearnerId) return;
+        setDetailLoading(false);
+        if (result.ok) {
+          setDetail(result.value);
+        } else {
+          setDetailError(failureMessage(result.failure));
+        }
+        // Move the reading position to the panel the parent just opened.
+        detailRef.current?.scrollIntoView({ block: "nearest" });
+      });
+    },
+    [session.learner?.id],
+  );
 
   const closeDetail = useCallback(() => {
     setOpenLessonId(null);
@@ -293,12 +310,14 @@ export function LessonManagerScreen({
 
   const handleGrantConsent = useCallback(
     (organizationId: string, organizationName: string) => {
-      const learnerId = session.learner?.id;
+      const learnerId = session.learner?.id ?? readActiveLearnerId();
       if (!learnerId) return;
       setBusyConsentOrgId(organizationId);
       setActionNote(null);
       const body: GrantLearnerConsentRequest = { organizationId, learnerId };
       void api.post<GrantLearnerConsentResponse>(endpoints.grantConsent, body).then((res) => {
+        if (!mountedRef.current) return;
+        if (readActiveLearnerId() && readActiveLearnerId() !== learnerId) return;
         setBusyConsentOrgId(null);
         if (!res.ok) {
           setActionNote({ tone: "error", text: failureMessage(res.failure) });
@@ -316,12 +335,14 @@ export function LessonManagerScreen({
 
   const handleRevokeConsent = useCallback(
     (organizationId: string, organizationName: string) => {
-      const learnerId = session.learner?.id;
+      const learnerId = session.learner?.id ?? readActiveLearnerId();
       if (!learnerId) return;
       setBusyConsentOrgId(organizationId);
       setActionNote(null);
       const body: RevokeLearnerConsentRequest = { organizationId, learnerId };
       void api.post<RevokeLearnerConsentResponse>(endpoints.revokeConsent, body).then((res) => {
+        if (!mountedRef.current) return;
+        if (readActiveLearnerId() && readActiveLearnerId() !== learnerId) return;
         setBusyConsentOrgId(null);
         if (!res.ok) {
           setActionNote({ tone: "error", text: failureMessage(res.failure) });

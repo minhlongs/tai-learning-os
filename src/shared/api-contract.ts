@@ -215,6 +215,8 @@ export type ParentDashboardResponse = {
     titleVi: string;
     subjectId: string | null;
     status: "active" | "paused" | "achieved" | "retired";
+    note?: string | null;
+    targetDate?: string | null;
   }[];
   needsAttention: { skillId: string; skillNameVi: string; reasonVi: string }[];
   /**
@@ -279,6 +281,43 @@ export type SchoolYearTransitionResponse = {
     attemptCount: number;
     independentAttemptCount: number;
   };
+};
+
+export type GoalStatus = "active" | "paused" | "achieved" | "retired";
+
+export type ParentGoalDto = {
+  id: string;
+  learnerId: string;
+  titleVi: string;
+  subjectId: string | null;
+  status: GoalStatus;
+  note: string | null;
+  targetDate: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type CreateGoalRequest = {
+  learnerId?: string;
+  titleVi: string;
+  subjectId?: string | null;
+  note?: string | null;
+  targetDate?: string | null;
+};
+
+export type CreateGoalResponse = {
+  goal: ParentGoalDto;
+};
+
+export type UpdateGoalStatusRequest = {
+  learnerId?: string;
+  goalId: string;
+  status: GoalStatus;
+  note?: string | null;
+};
+
+export type UpdateGoalStatusResponse = {
+  goal: ParentGoalDto;
 };
 
 // --- Parent lesson management ---------------------------------------------
