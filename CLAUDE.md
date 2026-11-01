@@ -37,10 +37,10 @@
 # Install dependencies
 npm install
 
-# Apply local D1 migrations (0001_initial_schema.sql, 0002_reference_content.sql)
+# Apply local D1 migrations (0001_initial_schema.sql through 0010_activate_science_and_debate.sql)
 npm run db:migrate
 
-# Seed curriculum (3 Math, 3 English, 3 Vietnamese lessons)
+# Seed curriculum (21 lessons across 5 active subjects: Math, English, Vietnamese, Science, Debate)
 npm run seed:demo
 
 # Start local development server (http://localhost:8791)
@@ -49,9 +49,9 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (8 files, 175 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (4 files, 77 tests)
-npm run test:e2e           # Playwright E2E browser tests (18 tests, Desktop, Tablet, Mobile)
+npm run test               # Vitest unit tests (10 files, 185 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (13 files, 134 tests)
+npm run test:e2e           # Playwright E2E browser tests (45 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + build
 
 # Data & Security operations (local only)
@@ -66,7 +66,7 @@ npm run db:reset-data
 
 - [`README.md`](README.md) — Quick-start and bilingual project overview
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Component map, authority boundaries, and data flows
-- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — 21 D1 tables, evidence/provenance split, and absent PII matrix
+- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — 22 D1 tables, evidence/provenance split, and absent PII matrix
 - [`docs/LEARNING_ENGINE.md`](docs/LEARNING_ENGINE.md) — Teaching sequence, hint policy, mastery states, and review ladder
 - [`docs/CURRICULUM_ARCHITECTURE.md`](docs/CURRICULUM_ARCHITECTURE.md) — GDPT 2018 objective registry, content versioning, and competency derivation
 - [`docs/BASELINE_ASSESSMENT.md`](docs/BASELINE_ASSESSMENT.md) — Parent-supervised diagnostic baseline architecture

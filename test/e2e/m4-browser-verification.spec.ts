@@ -636,7 +636,29 @@ test.describe("M4 Browser Verification Flows", () => {
     await expect(page.getByTestId("active-school-year-label")).toHaveText("2027-2028");
     await expect(page.getByTestId("school-year-row-2027-2028")).toBeVisible();
 
-    // 4. Navigate to Learner Home (`/`) and verify Science (`Khoa học`) and Debate (`Tư duy phản biện`) subjects and lessons are visible
+    // 4. Verify 5-Subject Baseline Diagnostic Screen (`/parent/baseline`) including Science & Debate
+    await page.goto("/parent/baseline");
+    await expect(
+      page.getByRole("heading", { name: /Đánh giá đầu vào/i }),
+    ).toBeVisible();
+    await expect(page.getByTestId("baseline-card-science")).toBeVisible();
+    await expect(page.getByTestId("baseline-card-debate")).toBeVisible();
+    await expect(page.getByTestId("baseline-card-science")).toContainText("Khoa học");
+    await expect(page.getByTestId("baseline-card-debate")).toContainText("Tư duy phản biện");
+
+    // Trigger baseline synthesis for Science directly in the browser UI
+    await page.getByTestId("evaluate-baseline-science").click();
+    await expect(page.getByTestId("baseline-card-science")).toContainText("sci-plant-needs");
+
+    // 5. Verify 4-Week Planner Screen (`/parent/planner`) generates plan for active school year
+    await page.goto("/parent/planner");
+    await expect(
+      page.getByRole("heading", { name: /Kế hoạch học tập 4 tuần/i }),
+    ).toBeVisible();
+    await page.getByTestId("generate-plan-btn").click();
+    await expect(page.getByRole("button", { name: /Tuần 1/i })).toBeVisible();
+
+    // 6. Navigate to Learner Home (`/`) and verify Science (`Khoa học`) and Debate (`Tư duy phản biện`) subjects and lessons are visible
     await page.goto("/");
     await expect(page.getByRole("heading", { name: /Chào/i })).toBeVisible();
     await expect(page.getByText("Khoa học").first()).toBeVisible();

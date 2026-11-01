@@ -272,26 +272,24 @@ Migration 0002 is described in its own header as *"REQUIRED for the app to
 work"* and *"contains no learner data."* It installs:
 
 - **`schema_versions`** — the single `version = 1` row.
-- **Subjects — 5 rows, 3 active, 2 deliberately inactive:**
+- **Subjects — 5 active rows** (activated across migrations `0002_reference_content.sql` and `0010_activate_science_and_debate.sql`):
 
   | id | name_vi | name_en | active |
   |---|---|---|---|
   | `math` | Toán | Mathematics | 1 |
   | `english` | Tiếng Anh | English | 1 |
   | `vietnamese` | Tiếng Việt | Vietnamese | 1 |
-  | `science` | Khoa học | Science | **0** |
-  | `debate` | Tư duy phản biện | Reasoning & Debate | **0** |
+  | `science` | Khoa học | Science | 1 |
+  | `debate` | Tư duy phản biện | Reasoning & Debate | 1 |
 
-  The two inactive rows are marked so they **never appear as if implemented**.
-  `active = 0` means "documented future module, not yet built."
-- **Skills — 12 rows** across the three active subjects, each with a stable `code`
-  (e.g. `MATH.FRAC.EQUIV`, `ENG.DIALOG.GREET`, `VIE.READ.EVID`) and a
+- **Skills — 16 rows** across the five active subjects (including `sci-water-cycle`, `sci-plant-needs`, `deb-claim-reason`, `deb-fact-opinion`), each with a stable `code`
+  (e.g. `MATH.FRAC.EQUIV`, `ENG.DIALOG.GREET`, `VIE.READ.EVID`, `SCI.G4.WATER.CYCLE`, `DEB.G4.CLAIM.REASON`) and a
   `grade_from` / `grade_to` band.
-- **Prerequisites — 6 edges**, deliberately minimal: *"a prerequisite edge the
-  app does not read is speculative structure."* Edges:
+- **Prerequisites — 8 edges**, deterministic skill dependency graph:
   `math-frac-equiv → math-frac-identify`, `math-frac-compare → math-frac-equiv`,
   `math-word-problem → math-frac-identify`, `eng-sentence-basic → eng-voc-noun`,
-  `eng-voc-home → eng-voc-noun`, `vie-evidence → vie-reading-main`.
+  `eng-voc-home → eng-voc-noun`, `vie-evidence → vie-reading-main`,
+  `sci-plant-needs → sci-water-cycle`, `deb-fact-opinion → deb-claim-reason`.
 
 **Lessons are not in SQL.** The migration header explains: lessons live in
 TypeScript (`src/shared/content/`) so they can be typechecked and unit-tested, and

@@ -16,11 +16,13 @@ Hệ thống đánh giá đầu vào không đưa ra điểm số phán xét hay
 
 ---
 
-### 2. BỘ BÀI TẬP CHẨN ĐOÁN 3 MÔN LỚP 4
+### 2. BỘ BÀI TẬP CHẨN ĐOÁN 5 MÔN LỚP 4
 
-- **Toán học (`baseline-math-grade4`):** Kiểm tra diện tích hình chữ nhật, nhận diện phân số và cộng hai phân số cùng mẫu số.
-- **Tiếng Việt (`baseline-vietnamese-grade4`):** Kiểm tra đọc hiểu chi tiết văn bản, tìm ý chính và cấu trúc câu chủ ngữ - vị ngữ.
-- **Tiếng Anh (`baseline-english-grade4`):** Kiểm tra từ vựng đồ vật quen thuộc, mẫu câu giao tiếp chào hỏi và cấu trúc câu đơn cơ bản.
+- **Toán học (`math-baseline-grade4`):** Kiểm tra diện tích hình chữ nhật, nhận diện phân số và cộng hai phân số cùng mẫu số.
+- **Tiếng Việt (`vie-baseline-grade4`):** Kiểm tra đọc hiểu chi tiết văn bản, tìm ý chính và cấu trúc câu chủ ngữ - vị ngữ.
+- **Tiếng Anh (`eng-baseline-grade4`):** Kiểm tra từ vựng đồ vật quen thuộc, mẫu câu giao tiếp chào hỏi và cấu trúc câu đơn cơ bản.
+- **Khoa học (`sci-baseline-grade4`):** Kiểm tra khả năng quan sát ba thể của nước, sự bay hơi - ngưng tụ và nhu cầu sống cơ bản của thực vật.
+- **Tư duy phản biện (`deb-baseline-grade4`):** Kiểm tra khả năng nhận diện ý kiến đề xuất (luận điểm), chọn lý lẽ hỗ trợ phù hợp và phân biệt sự thật với cảm nhận cá nhân.
 
 ---
 

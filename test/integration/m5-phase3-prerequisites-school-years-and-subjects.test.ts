@@ -19,9 +19,13 @@ import { createSessionToken, csrfTokenFor, verifySessionToken } from "../../src/
 import { hashPassword } from "../../src/shared/crypto/password";
 import { leaksAnswer } from "../../src/shared/schemas/exercise";
 import type {
+  BaselineGetResponse,
+  CurriculumGetResponse,
+  EvaluateBaselineResponse,
   FinalizeSessionResponse,
   LearnerSubjectListResponse,
   ParentDashboardResponse,
+  PlannerGetResponse,
   SchoolYearTransitionResponse,
   StartSessionResponse,
   SubmitAttemptResponse,
@@ -388,5 +392,133 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
       json: { label: "2028-2029", grade: 6 },
     });
     expect(foreignRes.status).toBe(404);
+  });
+
+  it("3. Supports 5-subject baseline diagnostics (Science & Debate), excludes cross-tenant org lessons from baseline/planner, and propagates active school year into planner", async () => {
+    const now = Date.now();
+    const passHash = await hashPassword("ParentPass123!", 100_000);
+    await env.DB
+      .prepare(
+        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-m6', 'Mẹ Tài', ?1, ?2, ?2)",
+      )
+      .bind(passHash, now)
+      .run();
+
+    await env.DB
+      .prepare(
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m6-1', 'parent-m6', 'Tài', 4, ?1, ?1)",
+      )
+      .bind(now - 5_000)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m6-2', 'parent-m6', 'An', 4, ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+
+    // Seed a cross-tenant organization and bind `sci-plant-needs` as an un-assigned org lesson of another org
+    await env.DB
+      .prepare(
+        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-foreign', 'Giáo viên Ngoài', ?1, ?2, ?2)",
+      )
+      .bind(passHash, now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO organizations (id, slug, name, created_at, updated_at) VALUES ('org-foreign', 'foreign-school', 'Trường Ngoài', ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO organization_lessons (organization_id, lesson_id, author_id, review_status, created_at, updated_at) VALUES ('org-foreign', 'sci-plant-needs', 'parent-foreign', 'org_approved', ?1, ?1)",
+      )
+      .bind(now)
+      .run();
+
+    const parentJar = await createAuthenticatedJar("parent-m6", "Mẹ Tài", "parent");
+
+    // 1. GET /api/parent/baseline returns all 5 baseline lessons across the 5 active subjects
+    const baseGetRes = await callWithJar(parentJar, "/api/parent/baseline");
+    expect(baseGetRes.status).toBe(200);
+    const baseGetBody = (await baseGetRes.json()) as BaselineGetResponse;
+    expect(baseGetBody.baselineLessons.map((l) => l.lessonId).sort()).toEqual([
+      "deb-baseline-grade4",
+      "eng-baseline-grade4",
+      "math-baseline-grade4",
+      "sci-baseline-grade4",
+      "vie-baseline-grade4",
+    ]);
+
+    // 2. POST /api/parent/baseline evaluates Science and Debate baselines, excluding cross-tenant `sci-plant-needs`
+    const evalSciRes = await callWithJar(parentJar, "/api/parent/baseline", {
+      method: "POST",
+      json: { learnerId: "learner-m6-2", subjectId: "science" },
+    });
+    expect(evalSciRes.status).toBe(200);
+    const evalSciBody = (await evalSciRes.json()) as EvaluateBaselineResponse;
+    expect(evalSciBody.assessment.learnerId).toBe("learner-m6-2");
+    expect(evalSciBody.assessment.subjectId).toBe("science");
+    expect(evalSciBody.assessment.suggestedLessons).toContain("sci-water-cycle");
+    expect(evalSciBody.assessment.suggestedLessons).not.toContain("sci-plant-needs");
+
+    const evalDebRes = await callWithJar(parentJar, "/api/parent/baseline", {
+      method: "POST",
+      json: { learnerId: "learner-m6-2", subjectId: "debate" },
+    });
+    expect(evalDebRes.status).toBe(200);
+    const evalDebBody = (await evalDebRes.json()) as EvaluateBaselineResponse;
+    expect(evalDebBody.assessment.learnerId).toBe("learner-m6-2");
+    expect(evalDebBody.assessment.subjectId).toBe("debate");
+    expect(evalDebBody.assessment.suggestedLessons).toEqual(
+      expect.arrayContaining(["deb-claim-reason", "deb-fact-opinion"]),
+    );
+
+    // 3. Transition learner-m6-2 to school year 2027-2028 (Grade 5) and verify curriculum + planner use 2027-2028
+    const transRes = await callWithJar(parentJar, "/api/parent/school-years", {
+      method: "POST",
+      json: { learnerId: "learner-m6-2", label: "2027-2028", grade: 5 },
+    });
+    expect(transRes.status).toBe(200);
+
+    const currRes = await callWithJar(parentJar, "/api/parent/curriculum?learnerId=learner-m6-2");
+    expect(currRes.status).toBe(200);
+    const currBody = (await currRes.json()) as CurriculumGetResponse;
+    expect(currBody.learnerId).toBe("learner-m6-2");
+    expect(currBody.schoolYearLabel).toBe("2027-2028");
+    expect(currBody.grade).toBe(5);
+
+    // 4. Generate 4-week plan for learner-m6-2 via body.learnerId and verify active school year + cross-tenant exclusion
+    const genRes = await callWithJar(parentJar, "/api/parent/planner/generate", {
+      method: "POST",
+      json: { learnerId: "learner-m6-2", sessionsPerWeek: 3, sessionDurationMinutes: 20 },
+    });
+    expect(genRes.status).toBe(200);
+    const genBody = (await genRes.json()) as PlannerGetResponse;
+    expect(genBody.learnerId).toBe("learner-m6-2");
+    expect(genBody.schoolYearLabel).toBe("2027-2028");
+    expect(genBody.items.length).toBeGreaterThan(0);
+    expect(genBody.items.every((i) => i.learnerId === "learner-m6-2")).toBe(true);
+    expect(genBody.items.every((i) => i.schoolYearLabel === "2027-2028")).toBe(true);
+    expect(genBody.items.some((i) => i.lessonId === "sci-plant-needs")).toBe(false);
+
+    // 5. Update a plan item for learner-m6-2 via body.learnerId
+    const firstItem = genBody.items[0]!;
+    const patchRes = await callWithJar(parentJar, "/api/parent/planner/item", {
+      method: "PATCH",
+      json: {
+        learnerId: "learner-m6-2",
+        itemId: firstItem.id,
+        status: "completed",
+        parentNote: "Đã hoàn thành buổi học đầu tiên của năm học mới",
+      },
+    });
+    expect(patchRes.status).toBe(200);
+    const patchBody = (await patchRes.json()) as PlannerGetResponse;
+    expect(patchBody.learnerId).toBe("learner-m6-2");
+    const updatedItem = patchBody.items.find((i) => i.id === firstItem.id);
+    expect(updatedItem?.status).toBe("completed");
+    expect(updatedItem?.parentNote).toBe("Đã hoàn thành buổi học đầu tiên của năm học mới");
   });
 });

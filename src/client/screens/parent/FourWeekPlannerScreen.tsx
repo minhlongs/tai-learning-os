@@ -15,12 +15,13 @@
  *   - Add parent notes to any scheduled item
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   PlannerGetResponse,
   LearningPlanItemDto,
   UpdatePlanItemRequest,
 } from "../../../shared/api-contract";
+import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
 import { useSessionContext } from "../../lib/SessionProvider";
@@ -63,29 +64,51 @@ export function FourWeekPlannerScreen({
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
+  const mountedRef = useRef(true);
+  const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const loadPlan = useCallback(() => {
+    const seq = ++requestSeqRef.current;
+    const expectedLearnerId = session.learner?.id ?? readActiveLearnerId();
     void api.get<PlannerGetResponse>(endpoints.planner).then((result) => {
+      if (!mountedRef.current || requestSeqRef.current !== seq) return;
+      const currentActive = readActiveLearnerId();
+      if (expectedLearnerId && currentActive && currentActive !== expectedLearnerId) return;
       setLoading(false);
       if (!result.ok) {
         setError(failureMessage(result.failure));
         return;
       }
+      if (expectedLearnerId && result.value.learnerId && result.value.learnerId !== expectedLearnerId) {
+        return;
+      }
       setData(result.value);
       setError(null);
     });
-  }, []);
+  }, [session.learner?.id]);
 
   useEffect(() => {
     loadPlan();
   }, [loadPlan]);
 
   const handleGenerate = () => {
+    const targetLearnerId = data?.learnerId ?? session.learner?.id ?? readActiveLearnerId();
     setGenerating(true);
     setNote(null);
     void api
-      .post<PlannerGetResponse>(endpoints.generatePlan, {})
+      .post<PlannerGetResponse>(endpoints.generatePlan, {
+        learnerId: targetLearnerId ?? undefined,
+      })
       .then((result) => {
+        if (!mountedRef.current) return;
+        if (targetLearnerId && readActiveLearnerId() && readActiveLearnerId() !== targetLearnerId) return;
         setGenerating(false);
         if (!result.ok) {
           setNote({ tone: "error", text: failureMessage(result.failure) });
@@ -104,8 +127,10 @@ export function FourWeekPlannerScreen({
     newStatus: LearningPlanItemDto["status"],
     parentNote?: string | null,
   ) => {
+    const targetLearnerId = data?.learnerId ?? session.learner?.id ?? readActiveLearnerId();
     setUpdatingId(itemId);
     const body: UpdatePlanItemRequest = {
+      learnerId: targetLearnerId ?? undefined,
       itemId,
       status: newStatus,
       parentNote: parentNote === undefined ? undefined : parentNote,
@@ -113,6 +138,8 @@ export function FourWeekPlannerScreen({
     void api
       .patch<PlannerGetResponse>(endpoints.updatePlanItem, body)
       .then((result) => {
+        if (!mountedRef.current) return;
+        if (targetLearnerId && readActiveLearnerId() && readActiveLearnerId() !== targetLearnerId) return;
         setUpdatingId(null);
         if (!result.ok) {
           setNote({ tone: "error", text: failureMessage(result.failure) });

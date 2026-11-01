@@ -14,11 +14,12 @@
  * It never assigns an IQ score, rank, percentage, or permanent deficit label.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BaselineGetResponse,
   BaselineAssessmentDto,
 } from "../../../shared/api-contract";
+import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
 import { useSessionContext } from "../../lib/SessionProvider";
@@ -29,6 +30,8 @@ const SUBJECTS = [
   { id: "math", nameVi: "Toán học — Phân số, phép tính & quy tắc dấu ngoặc" },
   { id: "vietnamese", nameVi: "Tiếng Việt — Đọc hiểu ý chính, chi tiết & dẫn chứng" },
   { id: "english", nameVi: "Tiếng Anh — Từ vựng theo ngữ cảnh & mẫu câu cơ bản" },
+  { id: "science", nameVi: "Khoa học — Vòng tuần hoàn của nước & sự sống thực vật" },
+  { id: "debate", nameVi: "Tư duy phản biện — Nêu ý kiến, lý lẽ & phân biệt sự thật" },
 ] as const;
 
 export function BaselineAssessmentScreen({
@@ -37,36 +40,59 @@ export function BaselineAssessmentScreen({
   onNavigate: (to: string) => void;
 }): React.JSX.Element {
   const { session } = useSessionContext();
+  const [learnerId, setLearnerId] = useState<string | null>(null);
   const [assessments, setAssessments] = useState<readonly BaselineAssessmentDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busySubject, setBusySubject] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const mountedRef = useRef(true);
+  const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const loadBaseline = useCallback(() => {
+    const seq = ++requestSeqRef.current;
+    const expectedLearnerId = session.learner?.id ?? readActiveLearnerId();
     void api.get<BaselineGetResponse>(endpoints.baselineAssessments).then((result) => {
+      if (!mountedRef.current || requestSeqRef.current !== seq) return;
+      const currentActive = readActiveLearnerId();
+      if (expectedLearnerId && currentActive && currentActive !== expectedLearnerId) return;
       setLoading(false);
       if (!result.ok) {
         setError(failureMessage(result.failure));
         return;
       }
+      if (expectedLearnerId && result.value.learnerId && result.value.learnerId !== expectedLearnerId) {
+        return;
+      }
+      setLearnerId(result.value.learnerId);
       setAssessments(result.value.assessments);
       setError(null);
     });
-  }, []);
+  }, [session.learner?.id]);
 
   useEffect(() => {
     loadBaseline();
   }, [loadBaseline]);
 
   const evaluateSubject = (subjectId: string) => {
+    const targetLearnerId = learnerId ?? session.learner?.id ?? readActiveLearnerId();
     setBusySubject(subjectId);
     setNote(null);
     void api
       .post<{ ok: true; assessment: BaselineAssessmentDto }>(endpoints.baselineAssessments, {
+        learnerId: targetLearnerId ?? undefined,
         subjectId,
       })
       .then((result) => {
+        if (!mountedRef.current) return;
+        if (targetLearnerId && readActiveLearnerId() && readActiveLearnerId() !== targetLearnerId) return;
         setBusySubject(null);
         if (!result.ok) {
           setNote({ tone: "error", text: failureMessage(result.failure) });
@@ -86,10 +112,10 @@ export function BaselineAssessmentScreen({
         <header className="dashboard__header">
           <h1 className="page__title">Đánh giá đầu vào (Baseline Diagnostic)</h1>
           <p className="page__lede">
-            Tổng hợp bằng chứng quan sát đầu vào từ các bài học của Tài cho 3 môn (Toán, Tiếng Việt,
-            Tiếng Anh). Báo cáo này không chấm điểm hay xếp loại, mà chỉ rõ những gì đã quan sát
-            được độc lập, những gì cần gợi ý hỗ trợ, kỹ năng nào cần thêm quan sát, và gợi ý bài học
-            bắt đầu phù hợp.
+            Tổng hợp bằng chứng quan sát đầu vào từ các bài học của Tài cho 5 môn (Toán, Tiếng Việt,
+            Tiếng Anh, Khoa học, Tư duy phản biện). Báo cáo này không chấm điểm hay xếp loại, mà chỉ
+            rõ những gì đã quan sát được độc lập, những gì cần gợi ý hỗ trợ, kỹ năng nào cần thêm
+            quan sát, và gợi ý bài học bắt đầu phù hợp.
           </p>
         </header>
 

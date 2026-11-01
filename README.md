@@ -20,7 +20,7 @@
 
 - **Frontend**: React 19, TypeScript strict mode, CSS thuần theo Design Tokens trực quan và thân thiện.
 - **Backend / Edge Runtime**: Cloudflare Workers (`workerd`), REST API được kiểm soát qua `x-tlo-csrf` và Session Cookie (`HttpOnly`, `SameSite=Strict`).
-- **Database**: Cloudflare D1 (SQLite) với 21 bảng quan hệ, ràng buộc khóa ngoại `PRAGMA foreign_keys = ON`, bảng bóp nghẹt đăng nhập thất bại `auth_throttles`, siêu dữ liệu chương trình GDPT 2018 và kế hoạch học tập 4 tuần.
+- **Database**: Cloudflare D1 (SQLite) với 22 bảng quan hệ, ràng buộc khóa ngoại `PRAGMA foreign_keys = ON`, bảng bóp nghẹt đăng nhập thất bại `auth_throttles`, bản chụp phiên bản bất biến `lesson_versions`, siêu dữ liệu chương trình GDPT 2018 và kế hoạch học tập 4 tuần.
 - **Testing & Verification**:
   - `Vitest` (Unit test cho engine sư phạm, planner, crypto, schema).
   - `@cloudflare/vitest-pool-workers` (Integration test chạy trực tiếp trên workerd và D1 cục bộ).
@@ -44,7 +44,7 @@ npm install
 # Áp dụng migrations vào D1 cục bộ
 npm run db:migrate
 
-# Nạp danh mục môn học và bài học mẫu (Toán, Tiếng Anh, Tiếng Việt)
+# Nạp danh mục 5 môn học và 21 bài học mẫu (Toán, Tiếng Anh, Tiếng Việt, Khoa học, Tư duy phản biện)
 npm run seed:demo
 ```
 
@@ -71,13 +71,13 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (175 tests across 8 files)
+# Chạy toàn bộ Unit Tests (185 tests across 10 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với workerd D1 (77 tests across 4 files)
+# Chạy toàn bộ Integration Tests với workerd D1 (134 tests across 13 files)
 npm run test:integration
 
-# Chạy Playwright End-to-End Tests (18 tests, Desktop + Tablet + Mobile)
+# Chạy Playwright End-to-End Tests (45 tests, Desktop + Tablet + Mobile)
 npm run test:e2e
 
 # Xác thực toàn diện tất cả các cổng (typecheck, lint, test, build)
@@ -98,14 +98,14 @@ npm run unlock:parent
 tai-learning-os/
 ├── docs/                      # Tài liệu kiến trúc, bảo mật, vận hành và quyền riêng tư
 │   ├── ARCHITECTURE.md        # Kiến trúc hệ thống và phân tách trách nhiệm
-│   ├── DATA_MODEL.md          # Đặc tả 15 bảng cơ sở dữ liệu và mô hình bằng chứng
+│   ├── DATA_MODEL.md          # Đặc tả 22 bảng cơ sở dữ liệu và mô hình bằng chứng
 │   ├── LEARNING_ENGINE.md     # Động cơ đánh giá năng lực và thuật ngữ sư phạm
 │   ├── SECURITY.md            # Mô hình đe dọa, chính sách mật khẩu và CSRF
 │   ├── CHILD_PRIVACY_REVIEW.md# Đánh giá quyền riêng tư dữ liệu trẻ em
 │   ├── PARENT_OPERATIONS.md   # Cẩm nang vận hành dành cho phụ huynh
 │   ├── ROADMAP_90_DAYS.md     # Kế hoạch phát triển và điều kiện triển khai
-│   └── audits/                # Báo cáo kiểm định chất lượng Cổng 01 & Cổng 02 (Forensic Audit)
-├── migrations/                # D1 SQL Migrations (0001 schema, 0002 catalogue)
+│   └── audits/                # Báo cáo kiểm định chất lượng Cổng 01, 02 & 03 (Forensic Audit)
+├── migrations/                # D1 SQL Migrations (0001..0010)
 ├── scripts/                   # Các script công cụ cục bộ (seed, reset, export, hash)
 ├── src/
 │   ├── client/                # React 19 SPA (Screens, Components, Styles)
@@ -118,5 +118,6 @@ tai-learning-os/
 
 ## Chính Sách Triển Khai (Release Policy)
 
-> **LOCAL ONLY / PRODUCTION BLOCKED**:  
-> Dự án được cấu hình chạy hoàn toàn trên máy trạm cục bộ. Mọi hoạt động triển khai lên hạ tầng Cloudflare công cộng (`wrangler deploy`) hoặc xuất bản qua mạng Internet đều bị chặn cho đến khi hoàn tất phê duyệt chính thức về mặt pháp lý và kỹ thuật bảo mật trẻ em.
+> **PR-MERGE AUTHORIZED / PRODUCTION DEPLOY BLOCKED**:  
+> Git push, tạo Pull Request và hợp nhất vào nhánh `main` được phép thực hiện sau khi vượt qua đầy đủ các cổng kiểm chứng cục bộ (`typecheck`, `lint`, `test`, `test:integration`, `test:e2e`).  
+> Mọi hoạt động triển khai lên hạ tầng Cloudflare công cộng (`wrangler deploy`), chạy migration từ xa hoặc xuất bản dữ liệu trẻ em thật đều bị chặn cho đến khi hoàn tất phê duyệt pháp lý và kỹ thuật bảo mật.

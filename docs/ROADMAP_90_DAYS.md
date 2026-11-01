@@ -32,14 +32,14 @@
 
 ---
 
-## Phase 3: Days 61–90 — Multi-Term Analytics & School-Year Transitions (Complete — M5)
+## Phase 3: Days 61–90 — Multi-Term Analytics, School-Year Transitions & 5-Subject Baseline/Planner Parity (Complete — M5 & M6)
 
 - [x] **School-Year Archival & Comparison**:
-  - Smooth transition workflows across `school_years` (`POST /api/parent/school-years`, e.g., Grade 4 → Grade 5) while preserving historical sessions, attempts, and competency snapshots per school year on `GET /api/parent/dashboard`.
+  - Smooth transition workflows across `school_years` (`POST /api/parent/school-years`, e.g., Grade 4 → Grade 5) while preserving historical sessions, attempts, and competency snapshots per school year on `GET /api/parent/dashboard` and propagating active school year to Curriculum Setup and the 4-Week Planner.
 - [x] **Prerequisite Graph Guided Recommendations**:
   - Deterministic prerequisite-graph engine (`derivePrerequisiteRecommendations`) highlighting `unlocked_next`, `prerequisite_gap`, and `reinforce_supported` lessons on `GET /api/parent/dashboard` with one-click parent approval.
-- [x] **Activated Science & Reasoning Modules**:
-  - Initial Grade 4 curriculum packs for `science` (`Khoa học`: `sci-water-cycle`, `sci-plant-needs`) and `debate` (`Tư duy phản biện`: `deb-claim-reason`, `deb-fact-opinion`) with `subjects.active = 1` (19 lessons across 5 active subjects).
+- [x] **Activated Science & Reasoning Modules + 5-Subject Baseline & 4-Week Planner Parity**:
+  - Grade 4 curriculum packs and baseline diagnostics for `science` (`Khoa học`: `sci-water-cycle`, `sci-plant-needs`, `sci-baseline-grade4`) and `debate` (`Tư duy phản biện`: `deb-claim-reason`, `deb-fact-opinion`, `deb-baseline-grade4`) with `subjects.active = 1` (21 lessons = 16 core + 5 baseline across 5 active subjects), plus cross-tenant organization-lesson visibility filtering across dashboard, baseline, and planner routes.
 
 ---
 
