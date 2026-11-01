@@ -32,6 +32,7 @@ import {
 import {
   correctSkillEvidence,
   createLearnerProfile,
+  createLearningGoalRoute,
   evaluateBaselineAssessment,
   generateFourWeekPlanRoute,
   getBaselineAssessments,
@@ -43,6 +44,7 @@ import {
   setLessonApproval,
   transitionSchoolYear,
   updateLearnerProfile,
+  updateLearningGoalStatusRoute,
   updateLessonContent,
   updatePlanItemRoute,
   upsertCurriculumSetup,
@@ -112,6 +114,8 @@ const ROUTES: readonly Route[] = [
   parentRoute("POST", /^\/api\/parent\/learners$/, createLearnerProfile),
   parentRoute("PATCH", /^\/api\/parent\/learners\/profile$/, updateLearnerProfile),
   parentRoute("POST", /^\/api\/parent\/school-years$/, transitionSchoolYear),
+  parentRoute("POST", /^\/api\/parent\/goals$/, createLearningGoalRoute),
+  parentRoute("PATCH", /^\/api\/parent\/goals$/, updateLearningGoalStatusRoute),
 
   // Parent Consent routes
   parentRoute("GET", /^\/api\/parent\/consents$/, listConsents),

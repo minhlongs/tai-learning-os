@@ -71,7 +71,10 @@ export function CurriculumSetupScreen({
 
   const syncFormForSubject = useCallback(
     (payload: CurriculumGetResponse, subjectId: string) => {
-      const existing = payload.intakes.find((row) => row.subjectId === subjectId);
+      const existing =
+        payload.intakes.find(
+          (row) => row.subjectId === subjectId && row.schoolYearLabel === payload.schoolYearLabel,
+        ) ?? payload.intakes.find((row) => row.subjectId === subjectId);
       if (existing) {
         setSchoolYearLabel(existing.schoolYearLabel);
         setGrade(existing.grade);
@@ -84,7 +87,7 @@ export function CurriculumSetupScreen({
         setLearningGoalsVi(existing.learningGoalsVi ?? "");
         setProvenance(existing.provenance);
       } else {
-        setSchoolYearLabel("2026-2027");
+        setSchoolYearLabel(payload.schoolYearLabel || "2026-2027");
         setGrade(payload.grade || 4);
         setTextbookSeries("UNKNOWN");
         setCurrentUnit("UNKNOWN");
