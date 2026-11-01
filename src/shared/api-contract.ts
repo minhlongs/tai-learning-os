@@ -233,6 +233,7 @@ export type ParentDashboardResponse = {
     prerequisiteNamesVi: string[];
     lessonId: string | null;
     lessonTitleVi: string | null;
+    lessonVersion: number | null;
     approvalStatus: ApprovalStatus;
     reasonVi: string;
   }[];

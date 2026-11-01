@@ -252,6 +252,7 @@ export interface PrerequisiteRecommendationCandidate {
   prerequisiteNamesVi: string[];
   lessonId: string | null;
   lessonTitleVi: string | null;
+  lessonVersion?: number | null;
   approvalStatus: ApprovalStatus;
 }
 
@@ -265,6 +266,7 @@ export interface PrerequisiteRecommendation {
   prerequisiteNamesVi: string[];
   lessonId: string | null;
   lessonTitleVi: string | null;
+  lessonVersion: number | null;
   approvalStatus: ApprovalStatus;
   reasonVi: string;
 }
@@ -349,6 +351,7 @@ export function derivePrerequisiteRecommendations(
         prerequisiteNamesVi: candidate.prerequisiteNamesVi,
         lessonId: candidate.lessonId,
         lessonTitleVi: candidate.lessonTitleVi,
+        lessonVersion: candidate.lessonVersion ?? null,
         approvalStatus: candidate.approvalStatus,
         reasonVi: `Đã vững kỹ năng nền tảng (${masteredPrereqNames.join(", ")}); sẵn sàng học tiếp “${candidate.skillNameVi}”.`,
       });
@@ -368,6 +371,7 @@ export function derivePrerequisiteRecommendations(
         prerequisiteNamesVi: candidate.prerequisiteNamesVi,
         lessonId: candidate.lessonId,
         lessonTitleVi: candidate.lessonTitleVi,
+        lessonVersion: candidate.lessonVersion ?? null,
         approvalStatus: candidate.approvalStatus,
         reasonVi:
           candidate.state === "SUPPORTED"
@@ -390,6 +394,7 @@ export function derivePrerequisiteRecommendations(
         prerequisiteNamesVi: candidate.prerequisiteNamesVi,
         lessonId: candidate.lessonId,
         lessonTitleVi: candidate.lessonTitleVi,
+        lessonVersion: candidate.lessonVersion ?? null,
         approvalStatus: candidate.approvalStatus,
         reasonVi: `Em đã làm được “${candidate.skillNameVi}” khi có gợi ý; nên luyện thêm để tự làm độc lập.`,
       });

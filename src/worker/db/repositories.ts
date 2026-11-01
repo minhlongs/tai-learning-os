@@ -240,7 +240,7 @@ export async function findActiveSchoolYear(
       `SELECT id, learner_id, label, starts_on, ends_on, grade, created_at
        FROM school_years
        WHERE learner_id = ?1 AND ends_on >= ?2
-       ORDER BY starts_on DESC, created_at DESC LIMIT 1`,
+       ORDER BY created_at DESC, starts_on DESC LIMIT 1`,
     )
     .bind(learnerId, todayIso)
     .first<SchoolYearRow>();
@@ -279,7 +279,8 @@ export async function upsertSchoolYear(
        ON CONFLICT(learner_id, label) DO UPDATE SET
          starts_on = excluded.starts_on,
          ends_on = excluded.ends_on,
-         grade = excluded.grade`,
+         grade = excluded.grade,
+         created_at = excluded.created_at`,
     )
     .bind(
       input.id,

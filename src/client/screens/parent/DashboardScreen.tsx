@@ -553,6 +553,9 @@ function PrerequisiteRecommendations({
       lessonId: rec.lessonId,
       status: "approved",
       learnerId,
+      ...(rec.lessonVersion !== null && rec.lessonVersion !== undefined
+        ? { version: rec.lessonVersion }
+        : {}),
     };
     void api.post<SetApprovalResponse>(endpoints.setApproval, body).then((res) => {
       if (readActiveLearnerId() && readActiveLearnerId() !== learnerId) return;
