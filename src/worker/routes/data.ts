@@ -491,6 +491,7 @@ export const importRecord: Handler = async (context) => {
         actor: row.actor.startsWith("learner:")
           ? `learner:${retarget(learnerIds, row.actor.slice("learner:".length))}`
           : row.actor,
+        subject: row.subject ? retarget(learnerIds, row.subject) : row.subject,
       })),
     });
 

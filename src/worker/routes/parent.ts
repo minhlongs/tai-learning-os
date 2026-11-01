@@ -123,6 +123,10 @@ export const getParentDashboard: Handler = async (context) => {
     goals,
     lessons,
     approvals,
+    allOrgLessonIds,
+    assignedOrgLessonIds,
+    parentMemberships,
+    orgLessonsResult,
   ] =
     await Promise.all([
       repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
@@ -136,7 +140,25 @@ export const getParentDashboard: Handler = async (context) => {
       repo.listGoalsForLearner(context.env.DB, learner.id),
       repo.listLessons(context.env.DB),
       repo.listApprovalStatuses(context.env.DB, context.parent.parentId, learner.id),
+      repo.listAllOrgLessonIds(context.env.DB),
+      repo.listAssignedOrgLessonIdsForLearner(context.env.DB, learner.id),
+      context.env.DB
+        .prepare("SELECT organization_id FROM organization_members WHERE user_id = ?1")
+        .bind(context.parent.parentId)
+        .all<{ organization_id: string }>(),
+      context.env.DB
+        .prepare("SELECT lesson_id, organization_id FROM organization_lessons")
+        .all<{ lesson_id: string; organization_id: string }>(),
     ]);
+
+  const memberOrgIds = new Set((parentMemberships.results ?? []).map((m) => m.organization_id));
+  const orgLessonMap = new Map((orgLessonsResult.results ?? []).map((ol) => [ol.lesson_id, ol.organization_id]));
+  const visibleLessons = lessons.filter((l) => {
+    if (!allOrgLessonIds.has(l.id)) return true;
+    const orgId = orgLessonMap.get(l.id);
+    if (orgId && memberOrgIds.has(orgId)) return true;
+    return assignedOrgLessonIds.has(l.id);
+  });
 
   const skillById = new Map(skills.map((s) => [s.id, s]));
   const lessonById = new Map(lessons.map((l) => [l.id, l]));
@@ -221,8 +243,8 @@ export const getParentDashboard: Handler = async (context) => {
       .map((p) => p.prerequisite_id);
     const skillPrereqNames = skillPrereqIds.map((pid) => skillById.get(pid)?.name_vi ?? pid);
     const matchingLesson =
-      lessons.find((l) => l.skill_id === skill.id && !l.id.includes("baseline")) ??
-      lessons.find((l) => l.skill_id === skill.id) ??
+      visibleLessons.find((l) => l.skill_id === skill.id && !l.id.includes("baseline")) ??
+      visibleLessons.find((l) => l.skill_id === skill.id) ??
       null;
     const approvalStatus: ApprovalStatus = matchingLesson
       ? (approvals[matchingLesson.id] ?? "draft")
@@ -236,6 +258,7 @@ export const getParentDashboard: Handler = async (context) => {
       prerequisiteNamesVi: skillPrereqNames,
       lessonId: matchingLesson?.id ?? null,
       lessonTitleVi: matchingLesson?.title_vi ?? null,
+      lessonVersion: matchingLesson?.version ?? null,
       approvalStatus,
     };
   });
@@ -526,6 +549,23 @@ export const setLessonApproval: Handler = async (context) => {
   } else {
     const firstLearner = await repo.findFirstLearnerForParent(context.env.DB, context.parent.parentId);
     learnerId = firstLearner?.id ?? null;
+  }
+
+  // Enforce organization-lesson tenant visibility parity before recording parent approval
+  const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
+  if (orgLesson) {
+    const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
+    if (!role) {
+      const assigned = learnerId
+        ? await repo.isLessonAssignedToLearner(context.env.DB, {
+            learnerId,
+            lessonId: lesson.id,
+          })
+        : false;
+      if (!assigned) {
+        return forbidden("Bạn không có quyền phê duyệt bài học của trung tâm này.");
+      }
+    }
   }
 
   const version = typeof body.version === "number" ? body.version : lesson.version;
