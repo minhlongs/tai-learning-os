@@ -80,6 +80,36 @@ async function resolveTargetLearner(
   };
 }
 
+async function filterVisibleLessonsForParent<T extends { id: string }>(
+  db: D1Database,
+  parentId: string,
+  learnerId: string | null,
+  lessons: readonly T[],
+): Promise<T[]> {
+  const [allOrgLessonIds, assignedOrgLessonIds, parentMemberships, orgLessonsResult] =
+    await Promise.all([
+      repo.listAllOrgLessonIds(db),
+      learnerId ? repo.listAssignedOrgLessonIdsForLearner(db, learnerId) : Promise.resolve(new Set<string>()),
+      db
+        .prepare("SELECT organization_id FROM organization_members WHERE user_id = ?1")
+        .bind(parentId)
+        .all<{ organization_id: string }>(),
+      db
+        .prepare("SELECT lesson_id, organization_id FROM organization_lessons")
+        .all<{ lesson_id: string; organization_id: string }>(),
+    ]);
+  const memberOrgIds = new Set((parentMemberships.results ?? []).map((m) => m.organization_id));
+  const orgLessonMap = new Map(
+    (orgLessonsResult.results ?? []).map((ol) => [ol.lesson_id, ol.organization_id]),
+  );
+  return lessons.filter((l) => {
+    if (!allOrgLessonIds.has(l.id)) return true;
+    const orgId = orgLessonMap.get(l.id);
+    if (orgId && memberOrgIds.has(orgId)) return true;
+    return assignedOrgLessonIds.has(l.id);
+  });
+}
+
 /* ── GET /api/parent/dashboard ─────────────────────────────────────────────── */
 
 export const getParentDashboard: Handler = async (context) => {
@@ -123,10 +153,6 @@ export const getParentDashboard: Handler = async (context) => {
     goals,
     lessons,
     approvals,
-    allOrgLessonIds,
-    assignedOrgLessonIds,
-    parentMemberships,
-    orgLessonsResult,
   ] =
     await Promise.all([
       repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
@@ -140,25 +166,14 @@ export const getParentDashboard: Handler = async (context) => {
       repo.listGoalsForLearner(context.env.DB, learner.id),
       repo.listLessons(context.env.DB),
       repo.listApprovalStatuses(context.env.DB, context.parent.parentId, learner.id),
-      repo.listAllOrgLessonIds(context.env.DB),
-      repo.listAssignedOrgLessonIdsForLearner(context.env.DB, learner.id),
-      context.env.DB
-        .prepare("SELECT organization_id FROM organization_members WHERE user_id = ?1")
-        .bind(context.parent.parentId)
-        .all<{ organization_id: string }>(),
-      context.env.DB
-        .prepare("SELECT lesson_id, organization_id FROM organization_lessons")
-        .all<{ lesson_id: string; organization_id: string }>(),
     ]);
 
-  const memberOrgIds = new Set((parentMemberships.results ?? []).map((m) => m.organization_id));
-  const orgLessonMap = new Map((orgLessonsResult.results ?? []).map((ol) => [ol.lesson_id, ol.organization_id]));
-  const visibleLessons = lessons.filter((l) => {
-    if (!allOrgLessonIds.has(l.id)) return true;
-    const orgId = orgLessonMap.get(l.id);
-    if (orgId && memberOrgIds.has(orgId)) return true;
-    return assignedOrgLessonIds.has(l.id);
-  });
+  const visibleLessons = await filterVisibleLessonsForParent(
+    context.env.DB,
+    context.parent.parentId,
+    learner.id,
+    lessons,
+  );
 
   const skillById = new Map(skills.map((s) => [s.id, s]));
   const lessonById = new Map(lessons.map((l) => [l.id, l]));
@@ -1047,8 +1062,8 @@ export const getCurriculumSetup: Handler = async (context) => {
 
   return ok<CurriculumGetResponse>({
     learnerId: learner.id,
-    schoolYearLabel: intakes[0]?.school_year_label ?? activeSchoolYear?.label ?? schoolYearLabel,
-    grade: intakes[0]?.grade ?? grade,
+    schoolYearLabel: activeSchoolYear?.label ?? intakes[0]?.school_year_label ?? schoolYearLabel,
+    grade: activeSchoolYear?.grade ?? learner.grade ?? intakes[0]?.grade ?? grade,
     intakes: intakes.map((i) => ({
       id: i.id,
       learnerId: i.learner_id,
@@ -1214,11 +1229,17 @@ export const getBaselineAssessments: Handler = async (context) => {
   if (explicitlyRequested && !learner) {
     return notFound("Không tìm thấy hồ sơ người học.");
   }
-  const [lessons, metadataRows, approvals] = await Promise.all([
+  const [allLessons, metadataRows, approvals] = await Promise.all([
     repo.listLessons(context.env.DB),
     repo.listLessonMetadata(context.env.DB),
     repo.listApprovalStatuses(context.env.DB, context.parent.parentId, learner?.id ?? null),
   ]);
+  const lessons = await filterVisibleLessonsForParent(
+    context.env.DB,
+    context.parent.parentId,
+    learner?.id ?? null,
+    allLessons,
+  );
 
   const baselineMeta = new Map(
     metadataRows.filter((m) => m.is_baseline === 1).map((m) => [m.lesson_id, m]),
@@ -1284,10 +1305,16 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
   }
 
   const subjectId = body.subjectId.trim();
-  const [lessons, attempts] = await Promise.all([
+  const [subjectLessons, attempts] = await Promise.all([
     repo.listLessonsBySubject(context.env.DB, subjectId),
     repo.listAttemptsForLearner(context.env.DB, learner.id),
   ]);
+  const lessons = await filterVisibleLessonsForParent(
+    context.env.DB,
+    context.parent.parentId,
+    learner.id,
+    subjectLessons,
+  );
 
   const subjectLessonIds = new Set(lessons.map((l) => l.id));
   const relevantAttempts = attempts
@@ -1308,9 +1335,23 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
     attempts: relevantAttempts,
   });
 
+  const attemptedSkillIds = new Set(
+    relevantAttempts.map((a) => a.skillId).filter((s): s is string => Boolean(s)),
+  );
+  const unattemptedSkillIds = Array.from(
+    new Set(
+      lessons
+        .filter((l) => !l.id.includes("baseline") && l.skill_id && !attemptedSkillIds.has(l.skill_id))
+        .map((l) => l.skill_id!),
+    ),
+  );
+  const needsObservation = Array.from(
+    new Set([...evalResult.needsObservation, ...unattemptedSkillIds]),
+  );
+
   // Map needsObservation skill IDs to suggested non-baseline lesson IDs
   const suggestedLessons = lessons
-    .filter((l) => !l.id.includes("baseline") && (!l.skill_id || evalResult.needsObservation.includes(l.skill_id)))
+    .filter((l) => !l.id.includes("baseline") && (!l.skill_id || needsObservation.includes(l.skill_id)))
     .map((l) => l.id);
 
   const now = Date.now();
@@ -1333,7 +1374,7 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
     status,
     observedSummaryVi: evalResult.observedSummaryVi,
     supportedSummaryVi: evalResult.supportedSummaryVi,
-    needsObservationJson: JSON.stringify(evalResult.needsObservation),
+    needsObservationJson: JSON.stringify(needsObservation),
     suggestedLessonsJson: JSON.stringify(suggestedLessons),
     parentReviewRequired,
     now,
@@ -1345,7 +1386,7 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
     actor: `parent:${context.parent.parentId}`,
     action: `baseline.${status}`,
     subject: id,
-    detail: JSON.stringify({ subjectId, needsObservationCount: evalResult.needsObservation.length }),
+    detail: JSON.stringify({ subjectId, needsObservationCount: needsObservation.length }),
     now,
   });
 
@@ -1358,7 +1399,7 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
       status,
       observedSummaryVi: evalResult.observedSummaryVi,
       supportedSummaryVi: evalResult.supportedSummaryVi,
-      needsObservation: evalResult.needsObservation,
+      needsObservation,
       suggestedLessons,
       parentReviewRequired,
       createdAt: existingForSubj?.created_at ?? now,
@@ -1369,34 +1410,33 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
 
 /* ── GET /api/parent/planner ──────────────────────────────────────────────── */
 
-export const getFourWeekPlan: Handler = async (context) => {
-  const { learner, explicitlyRequested } = await resolveTargetLearner(context);
-  if (explicitlyRequested && !learner) {
-    return notFound("Không tìm thấy hồ sơ người học.");
-  }
+async function buildFourWeekPlanResponse(
+  context: { env: { DB: D1Database }; parent: { parentId: string } },
+  learner: NonNullable<Awaited<ReturnType<typeof repo.findLearnerForParent>>>,
+  preferredSchoolYearLabel?: string,
+): Promise<Response> {
   const schoolYearLabel = "2026-2027";
-  if (!learner) {
-    return ok<PlannerGetResponse>({
-      learnerId: null,
-      schoolYearLabel,
-      items: [],
-      summary: {
-        todayCount: 0,
-        upcomingCount: 0,
-        reviewDueCount: 0,
-        completedCount: 0,
-        needsParentReviewCount: 0,
-      },
-    });
-  }
-
-  const [items, skills, lessons, reviewRows, baselines] = await Promise.all([
+  const [items, skills, allLessons, reviewRows, baselines, activeSchoolYear] = await Promise.all([
     repo.listLearningPlanItemsForLearner(context.env.DB, learner.id),
     repo.listSkills(context.env.DB),
     repo.listLessons(context.env.DB),
     repo.listReviewScheduleForLearner(context.env.DB, learner.id),
     repo.listBaselineAssessmentsForLearner(context.env.DB, learner.id),
+    repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
   ]);
+  const lessons = await filterVisibleLessonsForParent(
+    context.env.DB,
+    context.parent.parentId,
+    learner.id,
+    allLessons,
+  );
+
+  const resolvedSchoolYearLabel =
+    preferredSchoolYearLabel ??
+    (activeSchoolYear && items.some((i) => i.school_year_label === activeSchoolYear.label)
+      ? activeSchoolYear.label
+      : (items[0]?.school_year_label ?? activeSchoolYear?.label ?? schoolYearLabel));
+  const yearItems = items.filter((i) => i.school_year_label === resolvedSchoolYearLabel);
 
   const skillById = new Map(skills.map((s) => [s.id, s]));
   const lessonById = new Map(lessons.map((l) => [l.id, l]));
@@ -1404,7 +1444,7 @@ export const getFourWeekPlan: Handler = async (context) => {
   const reviewDueCount = reviewRows.filter((r) => r.due_at <= now).length;
   const needsParentReviewCount = baselines.filter((b) => b.parent_review_required === 1).length;
 
-  const dtos = items.map((item) => ({
+  const dtos = yearItems.map((item) => ({
     id: item.id,
     learnerId: item.learner_id,
     schoolYearLabel: item.school_year_label,
@@ -1431,7 +1471,7 @@ export const getFourWeekPlan: Handler = async (context) => {
 
   return ok<PlannerGetResponse>({
     learnerId: learner.id,
-    schoolYearLabel: items[0]?.school_year_label ?? schoolYearLabel,
+    schoolYearLabel: resolvedSchoolYearLabel,
     items: dtos,
     summary: {
       todayCount,
@@ -1441,6 +1481,30 @@ export const getFourWeekPlan: Handler = async (context) => {
       needsParentReviewCount,
     },
   });
+}
+
+export const getFourWeekPlan: Handler = async (context) => {
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context);
+  if (explicitlyRequested && !learner) {
+    return notFound("Không tìm thấy hồ sơ người học.");
+  }
+  const schoolYearLabel = "2026-2027";
+  if (!learner) {
+    return ok<PlannerGetResponse>({
+      learnerId: null,
+      schoolYearLabel,
+      items: [],
+      summary: {
+        todayCount: 0,
+        upcomingCount: 0,
+        reviewDueCount: 0,
+        completedCount: 0,
+        needsParentReviewCount: 0,
+      },
+    });
+  }
+
+  return buildFourWeekPlanResponse(context, learner);
 };
 
 /* ── POST /api/parent/planner/generate ────────────────────────────────────── */
@@ -1458,7 +1522,7 @@ export const generateFourWeekPlanRoute: Handler = async (context) => {
     return badRequest("Vui lòng tạo hồ sơ người học trước khi lập kế hoạch 4 tuần.");
   }
 
-  const [skills, prereqs, lessons, metaRows, evidenceRows, reviewRows, baselines, intakes] =
+  const [skills, prereqs, allLessons, metaRows, evidenceRows, reviewRows, baselines, intakes, activeSchoolYear] =
     await Promise.all([
       repo.listSkills(context.env.DB),
       repo.listSkillPrerequisites(context.env.DB),
@@ -1468,12 +1532,19 @@ export const generateFourWeekPlanRoute: Handler = async (context) => {
       repo.listReviewScheduleForLearner(context.env.DB, learner.id),
       repo.listBaselineAssessmentsForLearner(context.env.DB, learner.id),
       repo.listCurriculumIntakesForLearner(context.env.DB, learner.id),
+      repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
     ]);
+  const lessons = await filterVisibleLessonsForParent(
+    context.env.DB,
+    context.parent.parentId,
+    learner.id,
+    allLessons,
+  );
 
   const schoolYearLabel =
     typeof body.schoolYearLabel === "string" && body.schoolYearLabel.trim().length > 0
       ? body.schoolYearLabel.trim()
-      : intakes[0]?.school_year_label ?? "2026-2027";
+      : activeSchoolYear?.label ?? intakes[0]?.school_year_label ?? "2026-2027";
   const sessionsPerWeek =
     optionalIntIn(body.sessionsPerWeek ?? intakes[0]?.weekly_sessions ?? 3, 1, 7) ??
     DEFAULT_PLANNER_CONFIG.sessionsPerWeek;
@@ -1564,7 +1635,7 @@ export const generateFourWeekPlanRoute: Handler = async (context) => {
     now,
   });
 
-  return getFourWeekPlan(context);
+  return buildFourWeekPlanResponse(context, learner, schoolYearLabel);
 };
 
 /* ── PATCH /api/parent/planner/item ───────────────────────────────────────── */
@@ -1621,7 +1692,7 @@ export const updatePlanItemRoute: Handler = async (context) => {
     now,
   });
 
-  return getFourWeekPlan(context);
+  return buildFourWeekPlanResponse(context, learner, current.school_year_label);
 };
 
 /* ── POST /api/parent/school-years ────────────────────────────────────────── */

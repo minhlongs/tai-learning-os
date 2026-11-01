@@ -36,9 +36,11 @@ import { baselineVietnameseGrade4 } from "./vietnamese/baseline-vietnamese-grade
 
 import { waterCycle } from "./science/water-cycle";
 import { plantNeeds } from "./science/plant-needs";
+import { baselineScienceGrade4 } from "./science/baseline-science-grade4";
 
 import { claimAndReason } from "./debate/claim-and-reason";
 import { factVsOpinion } from "./debate/fact-vs-opinion";
+import { baselineDebateGrade4 } from "./debate/baseline-debate-grade4";
 
 export const LESSONS: readonly LessonDefinition[] = [
   // Toán
@@ -66,4 +68,6 @@ export const LESSONS: readonly LessonDefinition[] = [
   baselineMathGrade4,
   baselineEnglishGrade4,
   baselineVietnameseGrade4,
+  baselineScienceGrade4,
+  baselineDebateGrade4,
 ];
