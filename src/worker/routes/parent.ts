@@ -80,32 +80,20 @@ async function resolveTargetLearner(
   };
 }
 
-async function filterVisibleLessonsForParent<T extends { id: string }>(
+export async function filterVisibleLessonsForParent<T extends { id: string }>(
   db: D1Database,
-  parentId: string,
+  _parentId: string,
   learnerId: string | null,
   lessons: readonly T[],
 ): Promise<T[]> {
-  const [allOrgLessonIds, assignedOrgLessonIds, parentMemberships, orgLessonsResult] =
-    await Promise.all([
-      repo.listAllOrgLessonIds(db),
-      learnerId ? repo.listAssignedOrgLessonIdsForLearner(db, learnerId) : Promise.resolve(new Set<string>()),
-      db
-        .prepare("SELECT organization_id FROM organization_members WHERE user_id = ?1")
-        .bind(parentId)
-        .all<{ organization_id: string }>(),
-      db
-        .prepare("SELECT lesson_id, organization_id FROM organization_lessons")
-        .all<{ lesson_id: string; organization_id: string }>(),
-    ]);
-  const memberOrgIds = new Set((parentMemberships.results ?? []).map((m) => m.organization_id));
-  const orgLessonMap = new Map(
-    (orgLessonsResult.results ?? []).map((ol) => [ol.lesson_id, ol.organization_id]),
-  );
+  const [allOrgLessonIds, assignedOrgLessonIds] = await Promise.all([
+    repo.listAllOrgLessonIds(db),
+    learnerId
+      ? repo.listAssignedOrgLessonIdsForLearner(db, learnerId)
+      : Promise.resolve(new Set<string>()),
+  ]);
   return lessons.filter((l) => {
     if (!allOrgLessonIds.has(l.id)) return true;
-    const orgId = orgLessonMap.get(l.id);
-    if (orgId && memberOrgIds.has(orgId)) return true;
     return assignedOrgLessonIds.has(l.id);
   });
 }
@@ -176,7 +164,7 @@ export const getParentDashboard: Handler = async (context) => {
   );
 
   const skillById = new Map(skills.map((s) => [s.id, s]));
-  const lessonById = new Map(lessons.map((l) => [l.id, l]));
+  const lessonById = new Map(visibleLessons.map((l) => [l.id, l]));
   const evidenceBySkill = new Map(evidenceRows.map((e) => [e.skill_id, e]));
 
   const skillEvidence: ParentDashboardResponse["skillEvidence"] = [];

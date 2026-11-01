@@ -26,6 +26,7 @@ import type { Db } from "../db/repositories";
 import * as repo from "../db/repositories";
 import { badRequest, notFound, ok, readJsonBody, serverError } from "../http/response";
 import type { Handler } from "../http/middleware";
+import { filterVisibleLessonsForParent } from "./parent";
 
 /** Collections that carry rows keyed by `id`. Order is insert order (FK-safe). */
 const COLLECTIONS = EXPORT_COLLECTIONS;
@@ -62,7 +63,7 @@ export const exportRecord: Handler = async (context) => {
     schoolYears,
     subjects,
     skills,
-    lessons,
+    rawLessons,
     approvals,
     sessions,
     attempts,
@@ -73,7 +74,7 @@ export const exportRecord: Handler = async (context) => {
     prerequisites,
     curriculumObjectives,
     curriculumIntakes,
-    lessonMetadata,
+    rawLessonMetadata,
     baselineAssessments,
     learningPlanItems,
     sessionReflections,
@@ -130,6 +131,22 @@ export const exportRecord: Handler = async (context) => {
         .prepare("SELECT version, description FROM schema_versions ORDER BY version ASC")
         .all<{ version: number; description: string }>(),
     ]);
+
+  const learnerVisibleLessons = await filterVisibleLessonsForParent(
+    db,
+    context.parent.parentId,
+    learner.id,
+    rawLessons,
+  );
+  const referencedLessonIds = new Set<string>(learnerVisibleLessons.map((l) => l.id));
+  for (const row of sessions.results ?? []) referencedLessonIds.add(String(row.lesson_id));
+  for (const row of approvals.results ?? []) referencedLessonIds.add(String(row.lesson_id));
+  for (const a of attempts) referencedLessonIds.add(a.lesson_id);
+  for (const p of learningPlanItems) {
+    if (p.lesson_id) referencedLessonIds.add(p.lesson_id);
+  }
+  const lessons = rawLessons.filter((l) => referencedLessonIds.has(l.id));
+  const lessonMetadata = rawLessonMetadata.filter((m) => referencedLessonIds.has(m.lesson_id));
 
   const lessonIds = lessons.map((l) => l.id);
   const stepRows = await repo.findStepsForLessons(db, lessonIds);
