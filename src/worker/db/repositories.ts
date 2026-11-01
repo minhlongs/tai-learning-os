@@ -705,32 +705,34 @@ export async function findSession(
   db: Db,
   sessionId: string,
   parentId: string,
-): Promise<(LearningSessionRow & { parent_id: string }) | null> {
+): Promise<(LearningSessionRow & { parent_id: string; is_continuation_expired: number }) | null> {
   const row = await db
     .prepare(
       `SELECT s.id, s.learner_id, s.lesson_id, s.lesson_version, s.school_year_id,
-              s.started_at, s.ended_at, s.status, s.steps_seen, s.continuation_deadline, l.parent_id
+              s.started_at, s.ended_at, s.status, s.steps_seen, s.continuation_deadline, l.parent_id,
+              CASE WHEN s.continuation_deadline IS NOT NULL AND ${SQL_UTC_NOW_MS_EXPR} >= s.continuation_deadline THEN 1 ELSE 0 END AS is_continuation_expired
        FROM learning_sessions s
        JOIN learners l ON l.id = s.learner_id
        WHERE s.id = ?1 AND l.parent_id = ?2`,
     )
     .bind(sessionId, parentId)
-    .first<LearningSessionRow & { parent_id: string }>();
+    .first<LearningSessionRow & { parent_id: string; is_continuation_expired: number }>();
   return row ?? null;
 }
 
 export async function findInProgressSessionForLearner(
   db: Db,
   learnerId: string,
-): Promise<LearningSessionRow | null> {
+): Promise<(LearningSessionRow & { is_continuation_expired: number }) | null> {
   const row = await db
     .prepare(
-      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline,
+              CASE WHEN continuation_deadline IS NOT NULL AND ${SQL_UTC_NOW_MS_EXPR} >= continuation_deadline THEN 1 ELSE 0 END AS is_continuation_expired
        FROM learning_sessions WHERE learner_id = ?1 AND status = 'in_progress'
        ORDER BY started_at DESC LIMIT 1`,
     )
     .bind(learnerId)
-    .first<LearningSessionRow>();
+    .first<LearningSessionRow & { is_continuation_expired: number }>();
   return row ?? null;
 }
 
@@ -744,11 +746,30 @@ export function finalizeSessionUpdate(
 }
 
 /**
+ * Native SQLite/D1 UTC millisecond clock expression evaluated at SQL statement
+ * execution time inside the database engine.
+ *
+ * Used at write-boundary authorization gates (`continuation_deadline`) so that
+ * any request delayed between JavaScript dispatch and SQLite statement execution
+ * is evaluated against the live database clock at the exact moment the SQL
+ * statement runs, rather than a stale JavaScript timestamp (`input.now` or
+ * `decisionNow`).
+ */
+export const SQL_UTC_NOW_MS_EXPR = "CAST(ROUND((julianday('now') - 2440587.5) * 86400000.0) AS INTEGER)";
+
+export async function readDatabaseNowMs(db: Db): Promise<number> {
+  const row = await db
+    .prepare(`SELECT ${SQL_UTC_NOW_MS_EXPR} AS now_ms`)
+    .first<{ now_ms: number }>();
+  return typeof row?.now_ms === "number" && Number.isFinite(row.now_ms) ? row.now_ms : Date.now();
+}
+
+/**
  * Guarded session finalization at the write boundary.
  *
  * Requires the session to still be `in_progress` and, if a `continuation_deadline`
- * is present, requires `decisionNow < continuation_deadline` at the moment of the
- * UPDATE statement execution.
+ * is present, requires `databaseNow < continuation_deadline` evaluated by SQLite
+ * at the exact moment of UPDATE statement execution.
  */
 export function finalizeSessionUpdateGuarded(
   db: Db,
@@ -758,7 +779,6 @@ export function finalizeSessionUpdateGuarded(
     status: SessionStatus;
     stepsSeen: number;
     endedAt: number;
-    decisionNow: number;
   },
 ): D1PreparedStatement {
   return db
@@ -768,7 +788,7 @@ export function finalizeSessionUpdateGuarded(
        WHERE id = ?4
          AND learner_id = ?5
          AND status = 'in_progress'
-         AND (continuation_deadline IS NULL OR ?6 < continuation_deadline)`,
+         AND (continuation_deadline IS NULL OR ${SQL_UTC_NOW_MS_EXPR} < continuation_deadline)`,
     )
     .bind(
       input.status,
@@ -776,14 +796,14 @@ export function finalizeSessionUpdateGuarded(
       input.endedAt,
       input.sessionId,
       input.learnerId,
-      input.decisionNow,
     );
 }
 
 /**
  * Guarded session-completed audit INSERT that verifies in the same `db.batch`
  * that `finalizeSessionUpdateGuarded` actually transitioned the session to
- * `status = 'completed'`. If the session was already ended or its continuation
+ * `status = 'completed'` and that the database clock has not reached
+ * `continuation_deadline`. If the session was already ended or its continuation
  * deadline expired before the batch executed, `action` evaluates to `NULL` and
  * SQLite aborts the entire `db.batch` with `NOT NULL constraint failed: audit_events.action`.
  */
@@ -796,10 +816,8 @@ export function finalizeSessionAuditInsertGuarded(
     learnerId: string;
     detail: string;
     now: number;
-    decisionNow?: number;
   },
 ): D1PreparedStatement {
-  const decisionNow = input.decisionNow ?? input.now;
   return db
     .prepare(
       `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
@@ -814,7 +832,7 @@ export function finalizeSessionAuditInsertGuarded(
              WHERE id = ?3
                AND learner_id = ?4
                AND status = 'completed'
-               AND (continuation_deadline IS NULL OR ?7 < continuation_deadline)
+               AND (continuation_deadline IS NULL OR ${SQL_UTC_NOW_MS_EXPR} < continuation_deadline)
            )
          ),
          ?3,
@@ -829,7 +847,6 @@ export function finalizeSessionAuditInsertGuarded(
       input.learnerId,
       input.detail,
       input.now,
-      decisionNow,
     );
 }
 
@@ -844,14 +861,15 @@ export async function listSessionsForLearner(
   db: Db,
   learnerId: string,
   limit: number,
-): Promise<LearningSessionRow[]> {
+): Promise<(LearningSessionRow & { is_continuation_expired: number })[]> {
   const result = await db
     .prepare(
-      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline,
+              CASE WHEN continuation_deadline IS NOT NULL AND ${SQL_UTC_NOW_MS_EXPR} >= continuation_deadline THEN 1 ELSE 0 END AS is_continuation_expired
        FROM learning_sessions WHERE learner_id = ?1 ORDER BY started_at DESC LIMIT ?2`,
     )
     .bind(learnerId, limit)
-    .all<LearningSessionRow>();
+    .all<LearningSessionRow & { is_continuation_expired: number }>();
   return result.results ?? [];
 }
 
@@ -1057,13 +1075,11 @@ export function attemptInsertGuarded(
     evidenceKind: "observed" | "assisted" | "parent_correction";
     attemptNo: number;
     now: number;
-    decisionNow?: number;
     expectedStepAttemptCount: number;
     expectedHintAuditCount: number;
     expectedSkillAttemptCount: number;
   },
 ): D1PreparedStatement {
-  const decisionNow = input.decisionNow ?? input.now;
   return db
     .prepare(
       `INSERT INTO learning_attempts
@@ -1120,7 +1136,7 @@ export function attemptInsertGuarded(
                  AND lesson_id = ?4
                  AND lesson_version = ?6
                  AND status = 'in_progress'
-                 AND (continuation_deadline IS NULL OR ?17 < continuation_deadline)
+                 AND (continuation_deadline IS NULL OR ${SQL_UTC_NOW_MS_EXPR} < continuation_deadline)
              )
            )
          ),
@@ -1144,7 +1160,6 @@ export function attemptInsertGuarded(
       input.expectedStepAttemptCount,
       input.expectedHintAuditCount,
       input.expectedSkillAttemptCount,
-      decisionNow,
     );
 }
 
@@ -1484,10 +1499,8 @@ export function hintAuditInsertGuarded(
     stepId: string;
     detail: string;
     now: number;
-    decisionNow?: number;
   },
 ): D1PreparedStatement {
-  const decisionNow = input.decisionNow ?? input.now;
   return db
     .prepare(
       `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
@@ -1504,7 +1517,7 @@ export function hintAuditInsertGuarded(
                AND lesson_id = ?5
                AND lesson_version = ?6
                AND status = 'in_progress'
-               AND (continuation_deadline IS NULL OR ?10 < continuation_deadline)
+               AND (continuation_deadline IS NULL OR ${SQL_UTC_NOW_MS_EXPR} < continuation_deadline)
            )
          ),
          ?7,
@@ -1522,7 +1535,6 @@ export function hintAuditInsertGuarded(
       input.stepId,
       input.detail,
       input.now,
-      decisionNow,
     );
 }
 
@@ -2170,6 +2182,35 @@ export async function deletePlanItemsForLearner(db: Db, learnerId: string): Prom
 }
 
 /* ── Session reflections ────────────────────────────────────────────────── */
+
+export function sessionReflectionInsertGuarded(
+  db: Db,
+  input: { id: string; sessionId: string; learnerId: string; feeling: SessionReflectionRow["feeling"]; noteVi: string | null; now: number },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO session_reflections (id, session_id, learner_id, feeling, note_vi, created_at)
+       VALUES (
+         ?1,
+         ?2,
+         ?3,
+         (
+           SELECT ?4
+           WHERE EXISTS (
+             SELECT 1
+             FROM learning_sessions
+             WHERE id = ?2
+               AND learner_id = ?3
+               AND status IN ('in_progress', 'completed')
+               AND (continuation_deadline IS NULL OR ${SQL_UTC_NOW_MS_EXPR} < continuation_deadline)
+           )
+         ),
+         ?5,
+         ?6
+       )`,
+    )
+    .bind(input.id, input.sessionId, input.learnerId, input.feeling, input.noteVi, input.now);
+}
 
 export async function insertSessionReflection(
   db: Db,

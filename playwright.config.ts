@@ -1,16 +1,24 @@
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
+const sysTmp = resolve(tmpdir());
+const e2ePersistPath = process.env.TLO_E2E_PERSIST_PATH
+  ? resolve(process.env.TLO_E2E_PERSIST_PATH)
+  : "";
+
+if (!e2ePersistPath || !e2ePersistPath.startsWith(sysTmp)) {
+  throw new Error(
+    `Playwright E2E requires an isolated temporary persistence path inside ${sysTmp} (received TLO_E2E_PERSIST_PATH=${JSON.stringify(process.env.TLO_E2E_PERSIST_PATH)}). Run via "npm run test:e2e".`,
+  );
+}
+
 /**
- * E2E configuration: the real app, served by the real dev server.
+ * E2E configuration: the real app, served by an isolated Vite + Cloudflare workerd
+ * server on port 8792 backed exclusively by a temporary D1 database in os.tmpdir().
  *
- * `npm run dev` starts Vite with the Cloudflare plugin, which runs the Worker
- * inside workerd against the local D1 file — so an E2E run exercises the same
- * Worker code, the same route table and the same migrations the app ships with.
- * There is no mock server and no stubbed API in this configuration.
- *
- * The suite is serial and runs one worker at a time. It drives a shared local
- * database through destructive sequences (enrol, delete, restart), so parallel
- * files would fight over the same rows.
+ * It never touches `.wrangler/state`, `.dev.vars`, or port `8791`, and refuses to
+ * reuse any pre-existing server (`reuseExistingServer: false`).
  */
 export default defineConfig({
   testDir: "./test/e2e",
@@ -25,7 +33,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
 
   use: {
-    baseURL: "http://localhost:8791",
+    baseURL: "http://localhost:8792",
     trace: "retain-on-failure",
     // Screenshots and traces are evidence for visual QA; keeping them is the
     // point, and they are gitignored so they never reach a commit.
@@ -56,12 +64,10 @@ export default defineConfig({
     },
   ],
 
-  // Starts the dev server and reuses one already running, so a developer with
-  // the app open does not get a second instance on the same port.
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:8791/api/session",
-    reuseExistingServer: true,
+    command: "npx vite dev --port 8792 --strictPort",
+    url: "http://localhost:8792/api/session",
+    reuseExistingServer: false,
     timeout: 120_000,
     stdout: "pipe",
     stderr: "pipe",

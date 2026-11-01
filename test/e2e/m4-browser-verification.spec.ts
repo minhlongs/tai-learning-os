@@ -1,4 +1,11 @@
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import {
+  readSessionSnapshotFromIsolatedDb,
+  resolveIsolatedE2eSqlitePath,
+  setSessionContinuationDeadlineNearNow,
+} from "./e2e-db-helper";
 
 /**
  * M4 Browser Verification Suite
@@ -425,55 +432,138 @@ test.describe("M4 Browser Verification Flows", () => {
     await expect(page).toHaveURL(/\/lessons\/math-fractions-equivalent/);
   });
 
-  test("8. Bounded continuation deadline enforces 30-minute cutoff on revoked session", async ({ page }) => {
+  test("8. Bounded continuation deadline enforces real SQLite expiry cutoff on revoked in_progress session", async ({ page }) => {
+    const sysTmp = resolve(tmpdir());
+    const sqlitePath = resolveIsolatedE2eSqlitePath();
+    expect(sqlitePath.startsWith(sysTmp)).toBe(true);
+    expect(sqlitePath.includes(".wrangler")).toBe(false);
+
     const csrf = await signInAsParent(page);
     const withCsrf = { headers: { "x-tlo-csrf": csrf } };
 
     // 1. Approve lesson and start session
-    await page.request.post("/api/parent/lessons/approval", {
+    const approveRes = await page.request.post("/api/parent/lessons/approval", {
       ...withCsrf,
       data: { lessonId: "math-fractions-equivalent", status: "approved", version: 1 },
     });
+    expect(approveRes.status()).toBe(200);
 
     const startRes = await page.request.post("/api/learner/sessions", {
       ...withCsrf,
       data: { lessonId: "math-fractions-equivalent" },
     });
     expect(startRes.status()).toBe(200);
-    const startData = (await startRes.json()) as { sessionId: string };
+    const startData = (await startRes.json()) as {
+      sessionId: string;
+      steps: Array<{ id: string; kind: string }>;
+    };
+    const practiceStep = startData.steps[0]!;
 
-    // 2. Revoke approval while session is STILL IN_PROGRESS!
+    // 2. Revoke approval while session is STILL IN_PROGRESS
     const revokeRes = await page.request.post("/api/parent/lessons/approval", {
       ...withCsrf,
       data: { lessonId: "math-fractions-equivalent", status: "rejected", note: "Thu hồi khi đang học" },
     });
     expect(revokeRes.status()).toBe(200);
 
-    // 3. New session attempt must be blocked immediately with 403 Forbidden
+    // Verify in D1 that session is still in_progress and continuation_deadline was set ~30m out
+    const afterRevokeSnap = readSessionSnapshotFromIsolatedDb(startData.sessionId);
+    expect(afterRevokeSnap.status).toBe("in_progress");
+    expect(afterRevokeSnap.continuationDeadline).not.toBeNull();
+    expect(afterRevokeSnap.isContinuationExpired).toBe(0);
+
+    // 3. New session for an unapproved lesson must be blocked immediately with 403 Forbidden
     const newSessionAttempt = await page.request.post("/api/learner/sessions", {
       ...withCsrf,
       data: { lessonId: "math-word-problems" },
     });
     expect(newSessionAttempt.status()).toBe(403);
 
-    // 4. The existing in_progress session CAN resume within the 30-minute grace period
+    // 4. Within the grace period, the existing in_progress session CAN resume and use hints
     const resumeRes = await page.request.post("/api/learner/sessions", {
       ...withCsrf,
       data: { lessonId: "math-fractions-equivalent" },
     });
     expect(resumeRes.status()).toBe(200);
 
-    // 5. Finalize the active session so continuation ceases
-    await page.request.post("/api/learner/sessions/finalize", {
+    const graceHintRes = await page.request.post("/api/learner/hints", {
       ...withCsrf,
-      data: { sessionId: startData.sessionId, status: "completed" },
+      data: {
+        sessionId: startData.sessionId,
+        stepId: practiceStep.id,
+        currentLevel: 1,
+      },
     });
+    expect(graceHintRes.status()).toBe(200);
 
-    // 6. After finalize, continuation ceases completely
-    const postFinalizeRes = await page.request.post("/api/learner/sessions", {
+    const afterGraceHintSnap = readSessionSnapshotFromIsolatedDb(startData.sessionId);
+    expect(afterGraceHintSnap.status).toBe("in_progress");
+    expect(afterGraceHintSnap.hintAuditCount).toBe(1);
+    expect(afterGraceHintSnap.attemptCount).toBe(0);
+
+    // 5. Move continuation_deadline to a near timestamp (now + 400ms) directly in the isolated E2E D1 DB,
+    //    keeping session.status = 'in_progress' (do NOT finalize the session).
+    const nearDeadlineSnap = setSessionContinuationDeadlineNearNow(startData.sessionId, 400);
+    expect(nearDeadlineSnap.status).toBe("in_progress");
+    expect(nearDeadlineSnap.continuationDeadline).not.toBeNull();
+
+    // Wait for the SQLite database clock to cross continuation_deadline
+    while (readSessionSnapshotFromIsolatedDb(startData.sessionId).isContinuationExpired === 0) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    const expiredSnapBeforeCalls = readSessionSnapshotFromIsolatedDb(startData.sessionId);
+    expect(expiredSnapBeforeCalls.status).toBe("in_progress");
+    expect(expiredSnapBeforeCalls.isContinuationExpired).toBe(1);
+    expect(expiredSnapBeforeCalls.databaseNowMs).toBeGreaterThanOrEqual(
+      expiredSnapBeforeCalls.continuationDeadline!,
+    );
+
+    // 6. Browser navigation to the lesson player after cutoff must show error/blocked state
+    await page.goto("/lessons/math-fractions-equivalent");
+    await expect(
+      page.getByText(/chưa được phụ huynh phê duyệt|chưa được phụ huynh duyệt|hết thời gian|không mở được/i).first(),
+    ).toBeVisible();
+
+    // 7. Direct API calls for session resume, attempt submission, hint disclosure, and finalize
+    //    must all be rejected at the SQLite write/read boundary while session status remains 'in_progress'.
+    const expiredResumeRes = await page.request.post("/api/learner/sessions", {
       ...withCsrf,
       data: { lessonId: "math-fractions-equivalent" },
     });
-    expect(postFinalizeRes.status()).toBe(403);
+    expect(expiredResumeRes.status()).toBe(403);
+
+    const expiredAttemptRes = await page.request.post("/api/learner/attempts", {
+      ...withCsrf,
+      data: {
+        sessionId: startData.sessionId,
+        stepId: practiceStep.id,
+        submission: { kind: "choice", choiceId: "a" },
+        helpLevel: 0,
+      },
+    });
+    expect(expiredAttemptRes.status()).toBe(403);
+
+    const expiredHintRes = await page.request.post("/api/learner/hints", {
+      ...withCsrf,
+      data: {
+        sessionId: startData.sessionId,
+        stepId: practiceStep.id,
+        currentLevel: 2,
+      },
+    });
+    expect(expiredHintRes.status()).toBe(403);
+
+    const expiredFinalizeRes = await page.request.post("/api/learner/sessions/finalize", {
+      ...withCsrf,
+      data: { sessionId: startData.sessionId, status: "completed" },
+    });
+    expect(expiredFinalizeRes.status()).toBe(403);
+
+    // 8. Verify in D1 that session status is STILL 'in_progress' and ZERO new attempts or hints were recorded after cutoff
+    const finalSnap = readSessionSnapshotFromIsolatedDb(startData.sessionId);
+    expect(finalSnap.status).toBe("in_progress");
+    expect(finalSnap.attemptCount).toBe(0);
+    expect(finalSnap.hintAuditCount).toBe(1);
   });
 });

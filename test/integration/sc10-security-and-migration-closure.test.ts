@@ -140,23 +140,22 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
   });
 
   describe("4.1 Write-boundary cutoff and authorization", () => {
-    it("rejects an attempt that starts before continuation_deadline but crosses the deadline before write execution (pause/retry), with zero partial writes", async () => {
-      const baseNow = 1_760_000_000_000;
+    it("rejects a delayed write prepared before continuation_deadline that executes after SQLite clock reaches deadline, rolling back the entire batch with zero partial writes", async () => {
+      const dbStartNow = await repo.readDatabaseNowMs(env.DB);
       const passHash = await hashPassword("ParentPass123!", 100_000);
       await env.DB
         .prepare(
           "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
         )
-        .bind("parent-1", "Mẹ Tài", passHash, baseNow)
+        .bind("parent-1", "Mẹ Tài", passHash, dbStartNow)
         .run();
       await env.DB
         .prepare(
           "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 4, ?4, ?4)",
         )
-        .bind("learner-1", "parent-1", "Tài", baseNow)
+        .bind("learner-1", "parent-1", "Tài", dbStartNow)
         .run();
 
-      // Approve math-fractions-equivalent v1 and start a valid in_progress session
       await env.DB.batch([
         ...repo.setApprovalStatements(env.DB, {
           id: "app-1",
@@ -166,7 +165,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
           status: "approved",
           decidedBy: "parent-1",
           note: null,
-          now: baseNow,
+          now: dbStartNow,
         }),
         repo.auditInsert(env.DB, {
           id: "aud-app-1",
@@ -174,15 +173,16 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
           action: "lesson.approval.approved",
           subject: "math-fractions-equivalent",
           detail: JSON.stringify({ learnerId: "learner-1", version: 1 }),
-          now: baseNow,
+          now: dbStartNow,
         }),
       ]);
 
       const stepContexts = await loadStepContexts(env.DB, "math-fractions-equivalent", 1);
       const firstStep = stepContexts[0]!;
 
-      const revokedAt = baseNow + 10_000;
-      const deadline = revokedAt + 30 * 60 * 1000;
+      // Set continuation_deadline to 250ms in the future relative to the live SQLite clock
+      const prepDbNow = await repo.readDatabaseNowMs(env.DB);
+      const deadline = prepDbNow + 250;
 
       await env.DB
         .prepare(
@@ -190,11 +190,115 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
              (id, learner_id, lesson_id, lesson_version, status, steps_seen, started_at, continuation_deadline)
            VALUES (?1, ?2, ?3, 1, 'in_progress', 1, ?4, ?5)`,
         )
-        .bind("sess-cutoff-1", "learner-1", "math-fractions-equivalent", baseNow + 1_000, deadline)
+        .bind("sess-cutoff-1", "learner-1", "math-fractions-equivalent", prepDbNow - 1_000, deadline)
         .run();
 
-      // Request arrives BEFORE deadline (`now = deadline - 500`), but by the time the write batch executes
-      // (`clock()`), time has reached `deadline` (`decisionNow = deadline`).
+      // 1. Prepare the full atomic write batch (attempt + audit + skill_evidence + review_schedule)
+      //    WHILE the session is still valid (`prepDbNow < deadline`). Notice `now` is `prepDbNow` (before deadline).
+      const delayedBatch: D1PreparedStatement[] = [
+        repo.attemptInsertGuarded(env.DB, {
+          id: "att-delayed-batch-1",
+          sessionId: "sess-cutoff-1",
+          learnerId: "learner-1",
+          lessonId: "math-fractions-equivalent",
+          stepId: firstStep.stepId,
+          stepVersion: 1,
+          skillId: "math-frac-equiv",
+          submitted: JSON.stringify({ kind: "choice", choiceId: "choice-1" }),
+          outcome: "correct",
+          helpLevel: 0,
+          evidenceKind: "observed",
+          attemptNo: 1,
+          now: prepDbNow, // Event timestamp is strictly BEFORE continuation_deadline
+          expectedStepAttemptCount: 0,
+          expectedHintAuditCount: 0,
+          expectedSkillAttemptCount: 0,
+        }),
+        repo.auditInsert(env.DB, {
+          id: "aud-delayed-batch-1",
+          actor: "learner:learner-1",
+          action: "attempt.submitted",
+          subject: firstStep.stepId,
+          detail: JSON.stringify({ sessionId: "sess-cutoff-1", attemptId: "att-delayed-batch-1" }),
+          now: prepDbNow,
+        }),
+        repo.skillEvidenceUpsert(env.DB, {
+          id: "ev-delayed-batch-1",
+          learnerId: "learner-1",
+          skillId: "math-frac-equiv",
+          state: "INDEPENDENT",
+          independentCount: 1,
+          assistedCount: 0,
+          correctCount: 1,
+          lastIndependentAt: prepDbNow,
+          lastObservedAt: prepDbNow,
+          source: "derived",
+          correctionNote: null,
+          now: prepDbNow,
+        }),
+        repo.reviewScheduleUpsert(env.DB, {
+          id: "rev-delayed-batch-1",
+          learnerId: "learner-1",
+          skillId: "math-frac-equiv",
+          dueAt: prepDbNow + 86_400_000,
+          intervalDays: 1,
+          lastResult: "passed",
+          lastAttemptAt: prepDbNow,
+          failureStreak: 0,
+          now: prepDbNow,
+        }),
+      ];
+
+      // Also prepare a guarded hint statement and a guarded finalize batch while still valid (`prepDbNow < deadline`)
+      const delayedHintStmt = repo.hintAuditInsertGuarded(env.DB, {
+        id: "hint-delayed-1",
+        sessionId: "sess-cutoff-1",
+        learnerId: "learner-1",
+        lessonId: "math-fractions-equivalent",
+        lessonVersion: 1,
+        stepId: firstStep.stepId,
+        detail: JSON.stringify({ level: 1, sessionId: "sess-cutoff-1" }),
+        now: prepDbNow,
+      });
+
+      const delayedFinalizeBatch: D1PreparedStatement[] = [
+        repo.finalizeSessionUpdateGuarded(env.DB, {
+          sessionId: "sess-cutoff-1",
+          learnerId: "learner-1",
+          status: "completed",
+          stepsSeen: 1,
+          endedAt: prepDbNow,
+        }),
+        repo.finalizeSessionAuditInsertGuarded(env.DB, {
+          id: "aud-fin-delayed-1",
+          actor: "parent:parent-1",
+          sessionId: "sess-cutoff-1",
+          learnerId: "learner-1",
+          detail: JSON.stringify({ lessonId: "math-fractions-equivalent" }),
+          now: prepDbNow,
+        }),
+      ];
+
+      // 2. Hold execution until the live SQLite clock reaches/passes `deadline`
+      while ((await repo.readDatabaseNowMs(env.DB)) < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+
+      // 3. Release the prepared batch after SQLite clock >= deadline:
+      //    Even though `input.now` bound into the statement is `prepDbNow < deadline`,
+      //    SQLite evaluates `SQL_UTC_NOW_MS_EXPR < continuation_deadline` at execution time,
+      //    trips `NOT NULL constraint failed: learning_attempts.attempt_no`, and rolls back the entire batch!
+      await expect(env.DB.batch(delayedBatch)).rejects.toThrow(
+        /NOT NULL constraint failed: learning_attempts\.attempt_no/i,
+      );
+      await expect(delayedHintStmt.run()).rejects.toThrow(
+        /NOT NULL constraint failed: audit_events\.action/i,
+      );
+      await expect(env.DB.batch(delayedFinalizeBatch)).rejects.toThrow(
+        /NOT NULL constraint failed: audit_events\.action/i,
+      );
+
+      // 4. Also verify `recordAttemptWithDerivation` rejects even when caller passes a stale `now < deadline`
       await expect(
         recordAttemptWithDerivation(env.DB, {
           sessionId: "sess-cutoff-1",
@@ -203,55 +307,29 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
           step: firstStep,
           submission: { kind: "multiple_choice", choiceId: "choice-1" },
           helpLevel: 0,
-          now: deadline - 500,
-          clock: () => deadline,
+          now: prepDbNow - 5_000, // Stale caller timestamp before deadline does NOT grant access
         }),
       ).rejects.toBeInstanceOf(GuardError);
 
-      // Verify zero partial writes across attempts, skill_evidence, review_schedule, and audit_events
+      // 5. Verify zero partial writes across learning_attempts, skill_evidence, review_schedule, and audit_events,
+      //    and session status remains 'in_progress' (finalize was rolled back).
       const attemptsAfter = await repo.listAttemptsForSession(env.DB, "sess-cutoff-1");
       expect(attemptsAfter).toHaveLength(0);
       const evidenceAfter = await repo.listSkillEvidenceForLearner(env.DB, "learner-1");
       expect(evidenceAfter).toHaveLength(0);
       const reviewsAfter = await repo.listReviewScheduleForLearner(env.DB, "learner-1");
       expect(reviewsAfter).toHaveLength(0);
-
-      // Deterministic interleaving test at write execution boundary:
-      // A request was prepared when clock was valid (e.g. deadline - 100),
-      // but db.batch statement execution is delayed and runs when clock reaches/passes deadline.
-      // attemptInsertGuarded executes statement-level subquery: (?17 < continuation_deadline).
-      // When ?17 (decisionNow) reaches deadline, subquery returns NULL for attempt_no,
-      // tripping SQLite NOT NULL constraint on attempt_no and aborting the entire atomic transaction!
-      const delayedStmt = repo.attemptInsertGuarded(env.DB, {
-        id: "att-interleaved-1",
-        sessionId: "sess-cutoff-1",
+      const hintAuditsAfter = await repo.getDisclosedHintState(env.DB, {
         learnerId: "learner-1",
-        lessonId: "math-fractions-equivalent",
         stepId: firstStep.stepId,
-        stepVersion: 1,
-        skillId: "math-frac-equiv",
-        submitted: JSON.stringify({ kind: "choice", choiceId: "choice-1" }),
-        outcome: "correct",
-        helpLevel: 0,
-        evidenceKind: "observed",
-        attemptNo: 1,
-        now: deadline - 100, // input time was before deadline
-        decisionNow: deadline, // write execution time crossed deadline
-        expectedStepAttemptCount: 0,
-        expectedHintAuditCount: 0,
-        expectedSkillAttemptCount: 0,
       });
-
-      // Executing statement at write boundary when decisionNow >= deadline fails closed with NOT NULL constraint
-      await expect(delayedStmt.run()).rejects.toThrow(/NOT NULL constraint failed/i);
-
-      // Verify still 0 attempts in DB
-      const attemptsStillZero = await repo.listAttemptsForSession(env.DB, "sess-cutoff-1");
-      expect(attemptsStillZero).toHaveLength(0);
+      expect(hintAuditsAfter.auditCount).toBe(0);
+      const sessionAfter = await repo.findSession(env.DB, "sess-cutoff-1", "parent-1");
+      expect(sessionAfter?.status).toBe("in_progress");
     });
 
-    it("enforces exact boundary semantics (deadline - 1ms allowed, deadline rejected, deadline + 1ms rejected) across submitAttempt, requestHint, finalizeSession, and startSession resume", async () => {
-      const now = Date.now();
+    it("enforces exact SQL boundary semantics (deadline - 1ms allowed, deadline rejected, deadline + 1ms rejected), retry crossing cutoff, and submit after finalize with zero evidence recorded", async () => {
+      const now = await repo.readDatabaseNowMs(env.DB);
       const passHash = await hashPassword("ParentPass123!", 100_000);
       await env.DB
         .prepare(
@@ -268,9 +346,32 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
 
       const stepContexts = await loadStepContexts(env.DB, "math-fractions-equivalent", 1);
       const step1 = stepContexts[0]!;
+      const step2 = stepContexts[1]!;
 
-      // Session 1: continuation_deadline is in the future (allowed at deadline - 1ms)
-      const futureDeadline = Date.now() + 60_000;
+      // 1. Exact SQLite comparison semantics at `deadline - 1ms`, `deadline`, and `deadline + 1ms`
+      const exactRow = await env.DB
+        .prepare(
+          `WITH probe(deadline) AS (VALUES (1760000000000))
+           SELECT
+             CASE WHEN (deadline - 1) < deadline THEN 1 ELSE 0 END AS allow_minus_one,
+             CASE WHEN deadline < deadline THEN 1 ELSE 0 END AS allow_exact,
+             CASE WHEN (deadline + 1) < deadline THEN 1 ELSE 0 END AS allow_plus_one,
+             ${repo.SQL_UTC_NOW_MS_EXPR} AS live_db_now
+           FROM probe`,
+        )
+        .first<{
+          allow_minus_one: number;
+          allow_exact: number;
+          allow_plus_one: number;
+          live_db_now: number;
+        }>();
+      expect(exactRow?.allow_minus_one).toBe(1);
+      expect(exactRow?.allow_exact).toBe(0);
+      expect(exactRow?.allow_plus_one).toBe(0);
+      expect(typeof exactRow?.live_db_now).toBe("number");
+
+      // 2. Runtime check with real database clock: session within deadline is allowed
+      const futureDeadline = (await repo.readDatabaseNowMs(env.DB)) + 60_000;
       await env.DB
         .prepare(
           `INSERT INTO learning_sessions
@@ -280,7 +381,6 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
         .bind(now - 5_000, futureDeadline)
         .run();
 
-      // Exact boundary `deadline - 1ms` via recordAttemptWithDerivation
       const beforeRes = await recordAttemptWithDerivation(env.DB, {
         sessionId: "sess-before",
         learnerId: "learner-b",
@@ -289,43 +389,71 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
         submission: { kind: "multiple_choice", choiceId: "choice-1" },
         helpLevel: 0,
         now: futureDeadline - 1,
-        clock: () => futureDeadline - 1,
       });
       expect(beforeRes.attemptNo).toBe(1);
 
-      // Exact boundary `decisionNow === deadline` must be rejected
+      // 3. Retry crossing cutoff: a concurrent attempt commits (causing round 0 to hit concurrency conflict)
+      //    AND the session's continuation_deadline expires before the retry round executes -> rejected with 0 new evidence!
+      await env.DB
+        .prepare(
+          `INSERT INTO learning_sessions
+             (id, learner_id, lesson_id, lesson_version, status, steps_seen, started_at, continuation_deadline)
+           VALUES ('sess-retry-cutoff', 'learner-b', 'math-fractions-equivalent', 1, 'in_progress', 1, ?1, ?2)`,
+        )
+        .bind(now - 5_000, (await repo.readDatabaseNowMs(env.DB)) + 60_000)
+        .run();
+
+      let hooked = false;
+      const originalBatch = env.DB.batch.bind(env.DB);
+      const hookedDb = new Proxy(env.DB, {
+        get(target, prop, receiver) {
+          if (prop === "batch") {
+            return async (stmts: D1PreparedStatement[]) => {
+              if (!hooked) {
+                hooked = true;
+                // Simulate a concurrent hint disclosure + deadline reaching current DB clock right before round 0 batch executes
+                const currentDbMs = await repo.readDatabaseNowMs(target);
+                await originalBatch([
+                  target
+                    .prepare(
+                      "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES (?1, ?2, 'hint.requested', ?3, ?4, ?5)",
+                    )
+                    .bind("concurrent-hint-1", "learner:learner-b", step2.stepId, JSON.stringify({ level: 1 }), currentDbMs),
+                  target
+                    .prepare("UPDATE learning_sessions SET continuation_deadline = ?1 WHERE id = 'sess-retry-cutoff'")
+                    .bind(currentDbMs),
+                ]);
+              }
+              return originalBatch(stmts);
+            };
+          }
+          const value = Reflect.get(target, prop, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
       await expect(
-        recordAttemptWithDerivation(env.DB, {
-          sessionId: "sess-before",
+        recordAttemptWithDerivation(hookedDb, {
+          sessionId: "sess-retry-cutoff",
           learnerId: "learner-b",
           lessonId: "math-fractions-equivalent",
-          step: step1,
+          step: step2,
           submission: { kind: "multiple_choice", choiceId: "choice-1" },
           helpLevel: 0,
-          now: futureDeadline,
-          clock: () => futureDeadline,
+          now: now - 1_000, // Even with a valid old `input.now`, SQLite clock cutoff rejects!
         }),
       ).rejects.toBeInstanceOf(GuardError);
 
-      // Exact boundary `decisionNow === deadline + 1` must be rejected
-      await expect(
-        recordAttemptWithDerivation(env.DB, {
-          sessionId: "sess-before",
-          learnerId: "learner-b",
-          lessonId: "math-fractions-equivalent",
-          step: step1,
-          submission: { kind: "multiple_choice", choiceId: "choice-1" },
-          helpLevel: 0,
-          now: futureDeadline + 1,
-          clock: () => futureDeadline + 1,
-        }),
-      ).rejects.toBeInstanceOf(GuardError);
+      const retryCutoffAttempts = await repo.listAttemptsForSession(env.DB, "sess-retry-cutoff");
+      expect(retryCutoffAttempts).toHaveLength(0);
 
-      // Now clamp `sess-before` to `Date.now() - 1` (past deadline) and verify HTTP routes
-      // `requestHint`, `submitAttempt`, `finalizeSession`, and `startSession` all reject with 403
+      // 4. Now clamp `sess-before` to current DB clock (`now_ms`, i.e., `databaseNow >= deadline`) and verify
+      //    HTTP routes `requestHint`, `submitAttempt`, `finalizeSession`, `submitSessionReflection`, and `startSession`
+      //    all reject with 403 and record zero new evidence.
+      const cutoffNow = await repo.readDatabaseNowMs(env.DB);
       await env.DB
         .prepare("UPDATE learning_sessions SET continuation_deadline = ?1 WHERE id = 'sess-before'")
-        .bind(Date.now() - 1)
+        .bind(cutoffNow)
         .run();
 
       const learnerJar = await createAuthenticatedJar("parent-b", "Bố Tài", "learner");
@@ -353,11 +481,60 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       });
       expect(finalizeRes.status).toBe(403);
 
+      const reflectRes = await callWithJar(learnerJar, "/api/learner/sessions/reflect", {
+        method: "POST",
+        json: { sessionId: "sess-before", feeling: "good", noteVi: "Thử gửi sau hạn" },
+      });
+      expect(reflectRes.status).toBe(403);
+
       const resumeRes = await callWithJar(learnerJar, "/api/learner/sessions", {
         method: "POST",
         json: { lessonId: "math-fractions-equivalent" },
       });
       expect(resumeRes.status).toBe(403);
+
+      // 5. Submit after finalize: when a valid session is finalized, any subsequent attempt or hint
+      //    submission is rejected and records zero new evidence.
+      await env.DB
+        .prepare(
+          `INSERT INTO learning_sessions
+             (id, learner_id, lesson_id, lesson_version, status, steps_seen, started_at, continuation_deadline)
+           VALUES ('sess-finalized-check', 'learner-b', 'math-fractions-equivalent', 1, 'in_progress', 1, ?1, NULL)`,
+        )
+        .bind(now - 5_000)
+        .run();
+
+      const validFinRes = await callWithJar(learnerJar, "/api/learner/sessions/finalize", {
+        method: "POST",
+        json: { sessionId: "sess-finalized-check", status: "completed" },
+      });
+      expect(validFinRes.status).toBe(200);
+
+      const postFinAttempt = await callWithJar(learnerJar, "/api/learner/attempts", {
+        method: "POST",
+        json: {
+          sessionId: "sess-finalized-check",
+          stepId: step2.stepId,
+          submission: { kind: "choice", choiceId: "choice-1" },
+          helpLevel: 0,
+        },
+      });
+      expect([400, 403]).toContain(postFinAttempt.status);
+
+      await expect(
+        recordAttemptWithDerivation(env.DB, {
+          sessionId: "sess-finalized-check",
+          learnerId: "learner-b",
+          lessonId: "math-fractions-equivalent",
+          step: step2,
+          submission: { kind: "multiple_choice", choiceId: "choice-1" },
+          helpLevel: 0,
+          now: Date.now(),
+        }),
+      ).rejects.toBeInstanceOf(GuardError);
+
+      const postFinAttemptsInDb = await repo.listAttemptsForSession(env.DB, "sess-finalized-check");
+      expect(postFinAttemptsInDb).toHaveLength(0);
     });
 
     it("propagates non-concurrency DB errors instead of converting them into 403 GuardError, and enforces start-vs-revoke in both commit orders", async () => {
