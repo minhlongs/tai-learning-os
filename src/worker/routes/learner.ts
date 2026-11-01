@@ -164,10 +164,7 @@ export const getLearnerHome: Handler = async (context) => {
     });
 
   const inProgress = sessions.find((s) => s.status === "in_progress") ?? null;
-  const isContinuationExpired =
-    inProgress?.continuation_deadline !== null &&
-    inProgress?.continuation_deadline !== undefined &&
-    now >= inProgress.continuation_deadline;
+  const isContinuationExpired = inProgress?.is_continuation_expired === 1;
   const inProgressLesson = inProgress && !isContinuationExpired ? lessonById.get(inProgress.lesson_id) : null;
   const inProgressSnapshot =
     inProgress && inProgressLesson
@@ -288,7 +285,6 @@ export const startSession: Handler = async (context) => {
   const lesson = await repo.findLesson(context.env.DB, body.lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
-  const now = Date.now();
   const existing = await repo.findInProgressSessionForLearner(context.env.DB, learner.id);
 
   // If there is an existing in_progress session for this lesson, check if it's within the continuation window.
@@ -297,10 +293,7 @@ export const startSession: Handler = async (context) => {
   // atomically mark `existing` as `abandoned` when starting the new authorized session. If the lesson is
   // NOT currently approved, the new-session check below will reject with 403 Forbidden.
   if (existing && existing.lesson_id === lesson.id) {
-    const isExpired =
-      existing.continuation_deadline !== null &&
-      existing.continuation_deadline !== undefined &&
-      now >= existing.continuation_deadline;
+    const isExpired = existing.is_continuation_expired === 1;
 
     if (!isExpired) {
       const [rawSteps, versionSnapshot] = await Promise.all([
@@ -310,13 +303,12 @@ export const startSession: Handler = async (context) => {
       const sessionSteps = toStepPayloads(rawSteps);
       if (!sessionSteps) return serverError();
 
-      // Re-verify session status and continuation deadline right before returning resumed payload
+      // Re-verify session status and continuation deadline in SQLite right before returning resumed payload
       const refreshed = await repo.findSession(context.env.DB, existing.id, context.parent.parentId);
-      const resumeDecisionNow = Date.now();
       if (!refreshed || refreshed.status !== "in_progress") {
         return forbidden("Phiên học đã kết thúc.");
       }
-      if (refreshed.continuation_deadline !== null && resumeDecisionNow >= refreshed.continuation_deadline) {
+      if (refreshed.is_continuation_expired === 1) {
         return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
       }
 
@@ -466,12 +458,9 @@ export const requestHint: Handler = async (context) => {
     return badRequest("Phiên học đã kết thúc.");
   }
 
-  // Check bounded continuation deadline: hard cutoff at continuation_deadline (now >= deadline rejected)
-  const now = Date.now();
-  if (session.continuation_deadline !== null && session.continuation_deadline !== undefined) {
-    if (now >= session.continuation_deadline) {
-      return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
-    }
+  // Check bounded continuation deadline evaluated in SQLite: hard cutoff at continuation_deadline (now >= deadline rejected)
+  if (session.is_continuation_expired === 1) {
+    return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
   }
 
   const step = await repo.findStep(context.env.DB, body.stepId);
@@ -541,12 +530,9 @@ export const submitAttempt: Handler = async (context) => {
   }
   if (session.status !== "in_progress") return badRequest("Phiên học đã kết thúc.");
 
-  // Check bounded continuation deadline: hard cutoff at continuation_deadline (now >= deadline rejected)
-  const now = Date.now();
-  if (session.continuation_deadline !== null && session.continuation_deadline !== undefined) {
-    if (now >= session.continuation_deadline) {
-      return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
-    }
+  // Check bounded continuation deadline evaluated in SQLite: hard cutoff at continuation_deadline (now >= deadline rejected)
+  if (session.is_continuation_expired === 1) {
+    return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
   }
 
   // Load steps with immutable version snapshot matching the session's lesson_version
@@ -617,10 +603,8 @@ export const finalizeSession: Handler = async (context) => {
     return forbidden("Phiên học không thuộc về người học này.");
   }
 
-  if (session.continuation_deadline !== null && session.continuation_deadline !== undefined) {
-    if (Date.now() >= session.continuation_deadline) {
-      return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
-    }
+  if (session.is_continuation_expired === 1) {
+    return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
   }
 
   const attempts = await repo.listAttemptsForSession(context.env.DB, session.id);
@@ -656,9 +640,6 @@ export const finalizeSession: Handler = async (context) => {
   if (session.status === "in_progress") {
     status = "completed";
     const commitNow = Date.now();
-    if (session.continuation_deadline !== null && commitNow >= session.continuation_deadline) {
-      return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
-    }
     try {
       await context.env.DB.batch([
         repo.finalizeSessionUpdateGuarded(context.env.DB, {
@@ -667,7 +648,6 @@ export const finalizeSession: Handler = async (context) => {
           status,
           stepsSeen: stepsCompleted,
           endedAt: commitNow,
-          decisionNow: commitNow,
         }),
         repo.finalizeSessionAuditInsertGuarded(context.env.DB, {
           id: crypto.randomUUID(),
@@ -681,7 +661,6 @@ export const finalizeSession: Handler = async (context) => {
             assisted: assistedCount,
           }),
           now: commitNow,
-          decisionNow: commitNow,
         }),
       ]);
     } catch (err) {
@@ -733,6 +712,9 @@ export const submitSessionReflection: Handler = async (context) => {
   const learner = resolved.learner;
 
   if (session.learner_id !== learner.id) return forbidden("Phiên học không thuộc về người học này.");
+  if (session.status === "abandoned" || session.is_continuation_expired === 1) {
+    return forbidden("Phiên học đã kết thúc hoặc đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+  }
 
   const now = Date.now();
   const id = crypto.randomUUID();
@@ -741,23 +723,32 @@ export const submitSessionReflection: Handler = async (context) => {
       ? body.noteVi.trim().slice(0, 500)
       : null;
 
-  await repo.insertSessionReflection(context.env.DB, {
-    id,
-    sessionId: session.id,
-    learnerId: learner.id,
-    feeling: body.feeling,
-    noteVi,
-    now,
-  });
-
-  await repo.recordAudit(context.env.DB, {
-    id: crypto.randomUUID(),
-    actor: `learner:${learner.id}`,
-    action: "session.reflected",
-    subject: session.id,
-    detail: JSON.stringify({ feeling: body.feeling }),
-    now,
-  });
+  try {
+    await context.env.DB.batch([
+      repo.sessionReflectionInsertGuarded(context.env.DB, {
+        id,
+        sessionId: session.id,
+        learnerId: learner.id,
+        feeling: body.feeling,
+        noteVi,
+        now,
+      }),
+      repo.auditInsert(context.env.DB, {
+        id: crypto.randomUUID(),
+        actor: `learner:${learner.id}`,
+        action: "session.reflected",
+        subject: session.id,
+        detail: JSON.stringify({ feeling: body.feeling }),
+        now,
+      }),
+    ]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("NOT NULL constraint failed: session_reflections.feeling")) {
+      return forbidden("Phiên học đã kết thúc hoặc đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
+    }
+    return serverError();
+  }
 
   return ok<SubmitReflectionResponse>({
     id,

@@ -17,7 +17,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/run-e2e.mjs",
     "db:migrate": "wrangler d1 migrations apply tai-learning-os --local",
     "db:dump": "wrangler d1 export tai-learning-os --local",
     "db:reset-data": "node scripts/reset-local-d1.mjs",
