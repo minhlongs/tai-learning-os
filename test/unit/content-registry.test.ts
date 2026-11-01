@@ -18,8 +18,8 @@ import type { LessonDefinition } from "../../src/shared/content/types";
  */
 
 describe("lesson registry — shape", () => {
-  it("covers three subjects with five lessons each (four core lessons plus one baseline check)", () => {
-    expect(LESSONS).toHaveLength(15);
+  it("covers five active subjects (5 Math, 5 English, 5 Vietnamese, 2 Science, 2 Debate = 19 lessons)", () => {
+    expect(LESSONS).toHaveLength(19);
 
     const bySubject = new Map<string, number>();
     for (const lesson of LESSONS) {
@@ -28,6 +28,8 @@ describe("lesson registry — shape", () => {
     expect(bySubject.get("math")).toBe(5);
     expect(bySubject.get("english")).toBe(5);
     expect(bySubject.get("vietnamese")).toBe(5);
+    expect(bySubject.get("science")).toBe(2);
+    expect(bySubject.get("debate")).toBe(2);
   });
 
   it("uses unique lesson ids", () => {
@@ -37,7 +39,7 @@ describe("lesson registry — shape", () => {
 
   it("uses unique skill ids across core (non-baseline) lessons, so a core lesson cannot shadow another's evidence", () => {
     const coreLessons = LESSONS.filter((lesson) => !lesson.isBaseline);
-    expect(coreLessons).toHaveLength(12);
+    expect(coreLessons).toHaveLength(16);
     const skillIds = coreLessons.map((lesson) => lesson.skillId);
     expect(new Set(skillIds).size).toBe(skillIds.length);
   });

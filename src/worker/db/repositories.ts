@@ -239,8 +239,8 @@ export async function findActiveSchoolYear(
     .prepare(
       `SELECT id, learner_id, label, starts_on, ends_on, grade, created_at
        FROM school_years
-       WHERE learner_id = ?1 AND starts_on <= ?2 AND ends_on >= ?2
-       ORDER BY starts_on DESC LIMIT 1`,
+       WHERE learner_id = ?1 AND ends_on >= ?2
+       ORDER BY starts_on DESC, created_at DESC LIMIT 1`,
     )
     .bind(learnerId, todayIso)
     .first<SchoolYearRow>();
@@ -258,6 +258,57 @@ export async function createSchoolYear(
     )
     .bind(input.id, input.learnerId, input.label, input.startsOn, input.endsOn, input.grade, input.now)
     .run();
+}
+
+export async function upsertSchoolYear(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    label: string;
+    startsOn: string;
+    endsOn: string;
+    grade: number | null;
+    now: number;
+  },
+): Promise<SchoolYearRow> {
+  await db
+    .prepare(
+      `INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+       ON CONFLICT(learner_id, label) DO UPDATE SET
+         starts_on = excluded.starts_on,
+         ends_on = excluded.ends_on,
+         grade = excluded.grade`,
+    )
+    .bind(
+      input.id,
+      input.learnerId,
+      input.label,
+      input.startsOn,
+      input.endsOn,
+      input.grade,
+      input.now,
+    )
+    .run();
+  const saved = await db
+    .prepare(
+      `SELECT id, learner_id, label, starts_on, ends_on, grade, created_at
+       FROM school_years WHERE learner_id = ?1 AND label = ?2`,
+    )
+    .bind(input.learnerId, input.label)
+    .first<SchoolYearRow>();
+  return (
+    saved ?? {
+      id: input.id,
+      learner_id: input.learnerId,
+      label: input.label,
+      starts_on: input.startsOn,
+      ends_on: input.endsOn,
+      grade: input.grade,
+      created_at: input.now,
+    }
+  );
 }
 
 /* ── Subjects / skills ───────────────────────────────────────────────────── */

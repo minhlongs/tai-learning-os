@@ -28,6 +28,9 @@ import type {
   CorrectSkillRequest,
   CorrectSkillResponse,
   ParentDashboardResponse,
+  SchoolYearTransitionResponse,
+  SetApprovalRequest,
+  SetApprovalResponse,
 } from "../../../shared/api-contract";
 import { COMPETENCY_STATES, type CompetencyState } from "../../../shared/schemas/attempt";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
@@ -48,6 +51,32 @@ import "../../styles/dashboard.css";
 type SkillEvidence = ParentDashboardResponse["skillEvidence"][number];
 type ReviewEntry = ParentDashboardResponse["reviewQueue"][number];
 type SessionRow = ParentDashboardResponse["recentSessions"][number];
+type Recommendation = ParentDashboardResponse["recommendedNextLessons"][number];
+type SchoolYearRow = ParentDashboardResponse["schoolYears"][number];
+
+const SUBJECT_LABELS: Record<string, string> = {
+  math: "Toán",
+  english: "Tiếng Anh",
+  vietnamese: "Tiếng Việt",
+  science: "Khoa học",
+  debate: "Tư duy phản biện",
+};
+
+const RECOMMENDATION_KIND_LABELS: Record<Recommendation["recommendationKind"], string> = {
+  unlocked_next: "Đã mở khóa",
+  prerequisite_gap: "Bổ sung nền tảng",
+  reinforce_supported: "Củng cố thêm",
+};
+
+const CLASS_NAMES: Record<Recommendation["recommendationKind"], string> = {
+  unlocked_next: "pill--kind-unlocked",
+  prerequisite_gap: "pill--kind-gap",
+  reinforce_supported: "pill--kind-reinforce",
+};
+
+function subjectLabel(subjectId: string): string {
+  return SUBJECT_LABELS[subjectId] ?? subjectId;
+}
 
 export function DashboardScreen({
   onNavigate,
@@ -135,6 +164,24 @@ export function DashboardScreen({
               </button>
             </div>
           </EmptyPanel>
+        ) : null}
+
+        {!loading && !error && data?.learner ? (
+          <>
+            <PrerequisiteRecommendations
+              recommendations={data.recommendedNextLessons}
+              learnerId={data.learner.id}
+              onApproved={load}
+            />
+
+            <SchoolYearContinuitySection
+              schoolYears={data.schoolYears}
+              learnerId={data.learner.id}
+              learnerGrade={data.learner.grade}
+              activeSchoolYearLabel={data.learner.schoolYearLabel ?? null}
+              onTransitioned={load}
+            />
+          </>
         ) : null}
 
         {!loading && !error && data && !data.emptyState ? (
@@ -485,3 +532,289 @@ const SESSION_LABELS: Record<SessionRow["status"], string> = {
   completed: "Đã xong",
   abandoned: "Thoát giữa chừng",
 };
+
+function PrerequisiteRecommendations({
+  recommendations,
+  learnerId,
+  onApproved,
+}: {
+  recommendations: readonly Recommendation[];
+  learnerId: string | null;
+  onApproved: () => void;
+}): React.JSX.Element {
+  const [approvingLessonId, setApprovingLessonId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  const handleQuickApprove = (rec: Recommendation) => {
+    if (!rec.lessonId || !learnerId) return;
+    setApprovingLessonId(rec.lessonId);
+    setNotice(null);
+    const body: SetApprovalRequest = {
+      lessonId: rec.lessonId,
+      status: "approved",
+      learnerId,
+    };
+    void api.post<SetApprovalResponse>(endpoints.setApproval, body).then((res) => {
+      if (readActiveLearnerId() && readActiveLearnerId() !== learnerId) return;
+      setApprovingLessonId(null);
+      if (!res.ok) {
+        setNotice({ tone: "error", text: failureMessage(res.failure) });
+        return;
+      }
+      setNotice({
+        tone: "ok",
+        text: `Đã duyệt bài học “${rec.lessonTitleVi ?? rec.skillNameVi}” cho bé.`,
+      });
+      onApproved();
+    });
+  };
+
+  return (
+    <section
+      className="card"
+      aria-labelledby="prereq-rec-title"
+      data-testid="prerequisite-recommendations"
+    >
+      <h2 className="card__title" id="prereq-rec-title">
+        Gợi ý lộ trình theo kỹ năng tiên quyết
+      </h2>
+      <p className="dashboard-note">
+        Hệ thống đối chiếu cây kỹ năng tiên quyết và bằng chứng hiện có để gợi ý
+        bài học nền tảng hoặc bài học tiếp theo đã mở khóa. Phụ huynh giữ toàn
+        quyền quyết định duyệt bài.
+      </p>
+      {notice ? (
+        <p
+          className={`data-control__notice data-control__notice--${notice.tone}`}
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          {notice.text}
+        </p>
+      ) : null}
+      {recommendations.length === 0 ? (
+        <p className="dashboard-empty">
+          Hiện chưa có gợi ý kỹ năng tiên quyết mới cần bổ sung.
+        </p>
+      ) : (
+        <ul className="dashboard-sessions">
+          {recommendations.map((rec) => (
+            <li key={rec.skillId} data-testid={`prereq-rec-${rec.skillId}`}>
+              <div className="dashboard-sessions__head">
+                <div>
+                  <strong>{rec.skillNameVi}</strong>{" "}
+                  <span className="pill">{subjectLabel(rec.subjectId)}</span>{" "}
+                  <span className={`pill ${CLASS_NAMES[rec.recommendationKind]}`}>
+                    {RECOMMENDATION_KIND_LABELS[rec.recommendationKind]}
+                  </span>
+                </div>
+                <div>
+                  {rec.approvalStatus === "approved" ? (
+                    <span
+                      className="pill pill--status pill--status--completed"
+                      data-testid={`prereq-approved-${rec.lessonId ?? rec.skillId}`}
+                    >
+                      Đã duyệt cho bé
+                    </span>
+                  ) : rec.lessonId ? (
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      data-testid={`prereq-approve-${rec.lessonId}`}
+                      disabled={approvingLessonId === rec.lessonId}
+                      onClick={() => handleQuickApprove(rec)}
+                    >
+                      {approvingLessonId === rec.lessonId ? "Đang duyệt…" : "Duyệt ngay"}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="dashboard-sessions__meta">
+                <div>{rec.reasonVi}</div>
+                {rec.lessonTitleVi ? (
+                  <div>
+                    Bài học gợi ý: <strong>{rec.lessonTitleVi}</strong>
+                  </div>
+                ) : null}
+                {rec.prerequisiteNamesVi.length > 0 ? (
+                  <div>Kỹ năng tiên quyết: {rec.prerequisiteNamesVi.join(", ")}</div>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SchoolYearContinuitySection({
+  schoolYears,
+  learnerId,
+  learnerGrade,
+  activeSchoolYearLabel,
+  onTransitioned,
+}: {
+  schoolYears: readonly SchoolYearRow[];
+  learnerId: string | null;
+  learnerGrade: number | null;
+  activeSchoolYearLabel: string | null;
+  onTransitioned: () => void;
+}): React.JSX.Element {
+  const [label, setLabel] = useState("2027-2028");
+  const [gradeOverride, setGradeOverride] = useState<number | null>(null);
+  const grade = gradeOverride ?? Math.min(12, (learnerGrade ?? 4) + 1);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  const handleTransition = (event: FormEvent) => {
+    event.preventDefault();
+    if (!learnerId) return;
+    setBusy(true);
+    setNotice(null);
+    void api
+      .post<SchoolYearTransitionResponse>(endpoints.schoolYears, {
+        learnerId,
+        label: label.trim(),
+        grade,
+      })
+      .then((res) => {
+        if (readActiveLearnerId() && readActiveLearnerId() !== learnerId) return;
+        setBusy(false);
+        if (!res.ok) {
+          setNotice({ tone: "error", text: failureMessage(res.failure) });
+          return;
+        }
+        setNotice({
+          tone: "ok",
+          text: `Đã chuyển sang năm học ${res.value.schoolYear.label} (Lớp ${res.value.schoolYear.grade ?? grade}). Toàn bộ lịch sử các năm học trước được giữ nguyên.`,
+        });
+        onTransitioned();
+      });
+  };
+
+  return (
+    <section
+      className="card"
+      aria-labelledby="school-year-title"
+      data-testid="school-year-continuity-section"
+    >
+      <h2 className="card__title" id="school-year-title">
+        Liên tục qua các năm học & chuyển lớp
+      </h2>
+      <p className="dashboard-note">
+        Năm học hiện hành:{" "}
+        <strong data-testid="active-school-year-label">
+          {activeSchoolYearLabel ?? "Chưa thiết lập"}
+        </strong>{" "}
+        · Khối lớp hiện tại:{" "}
+        <strong data-testid="active-learner-grade">Lớp {learnerGrade ?? 4}</strong>. Khi chuyển
+        sang năm học mới, toàn bộ phiên học và bằng chứng kỹ năng của các năm trước vẫn được
+        bảo toàn nguyên vẹn.
+      </p>
+
+      {schoolYears.length > 0 ? (
+        <table className="dashboard-table" data-testid="school-year-history-table">
+          <thead>
+            <tr>
+              <th scope="col">Năm học</th>
+              <th scope="col">Khối lớp</th>
+              <th scope="col">Thời gian</th>
+              <th scope="col">Trạng thái</th>
+              <th scope="col">Phiên học (hoàn thành)</th>
+              <th scope="col">Lượt độc lập / Tổng lượt</th>
+            </tr>
+          </thead>
+          <tbody>
+            {schoolYears.map((sy) => (
+              <tr key={sy.id} data-testid={`school-year-row-${sy.label}`}>
+                <th scope="row">{sy.label}</th>
+                <td>Lớp {sy.grade ?? "—"}</td>
+                <td>
+                  {sy.startsOn} → {sy.endsOn}
+                </td>
+                <td>
+                  <span className={`pill ${sy.isActive ? "pill--status--completed" : ""}`}>
+                    {sy.isActive ? "Đang học" : "Lưu trữ"}
+                  </span>
+                </td>
+                <td className="dashboard-table__num">
+                  {sy.sessionCount} ({sy.completedSessionCount})
+                </td>
+                <td className="dashboard-table__num">
+                  {sy.independentAttemptCount} / {sy.attemptCount}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="dashboard-empty">Chưa có niên khóa nào được lưu trữ.</p>
+      )}
+
+      <form
+        onSubmit={handleTransition}
+        data-testid="school-year-transition-form"
+        style={{
+          marginTop: "1rem",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "0.75rem",
+          alignItems: "flex-end",
+        }}
+      >
+        <div>
+          <label className="field__label" htmlFor="school-year-label-input">
+            Năm học mới
+          </label>
+          <input
+            id="school-year-label-input"
+            data-testid="school-year-label-input"
+            className="input"
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="2027-2028"
+            disabled={busy}
+          />
+        </div>
+        <div>
+          <label className="field__label" htmlFor="school-year-grade-input">
+            Khối lớp mới
+          </label>
+          <select
+            id="school-year-grade-input"
+            data-testid="school-year-grade-input"
+            className="select"
+            value={grade}
+            onChange={(e) => setGradeOverride(Number(e.target.value))}
+            disabled={busy}
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((g) => (
+              <option key={g} value={g}>
+                Lớp {g}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          className="btn btn--secondary"
+          data-testid="school-year-transition-submit"
+          disabled={busy || !learnerId}
+        >
+          {busy ? "Đang chuyển năm học…" : "Chuyển năm học & lưu trữ"}
+        </button>
+      </form>
+      {notice ? (
+        <p
+          className={`data-control__notice data-control__notice--${notice.tone}`}
+          data-testid="school-year-transition-notice"
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          {notice.text}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+

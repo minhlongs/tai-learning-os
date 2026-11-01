@@ -41,6 +41,7 @@ import {
   getParentDashboard,
   listLessons,
   setLessonApproval,
+  transitionSchoolYear,
   updateLearnerProfile,
   updateLessonContent,
   updatePlanItemRoute,
@@ -110,6 +111,7 @@ const ROUTES: readonly Route[] = [
   parentRoute("POST", /^\/api\/parent\/skills\/correct$/, correctSkillEvidence),
   parentRoute("POST", /^\/api\/parent\/learners$/, createLearnerProfile),
   parentRoute("PATCH", /^\/api\/parent\/learners\/profile$/, updateLearnerProfile),
+  parentRoute("POST", /^\/api\/parent\/school-years$/, transitionSchoolYear),
 
   // Parent Consent routes
   parentRoute("GET", /^\/api\/parent\/consents$/, listConsents),

@@ -1,48 +1,45 @@
 # TAI LEARNING OS — 90-Day Roadmap & Production Gate
 
-> **Release Policy: LOCAL ONLY / PRODUCTION BLOCKED.**
+> **Release Policy: PR-MERGE AUTHORIZED / PRODUCTION DEPLOY BLOCKED.**
+> Git push, pull request creation, and squash/merge to `main` are authorized following comprehensive local multi-layer verification.
+> Remote deploy (`wrangler deploy`), remote migrations, remote resource provisioning, paid/external LLM APIs, and live child pilot remain strictly blocked.
 > This document outlines the 90-day evolution from the Gate 01 Local MVP to a rich household learning
 > system, along with the strict conditions required before any cloud or remote deployment is permitted.
 
 ---
 
-## Phase 1: Days 1–30 — Local MVP Stabilization & Core Curriculum (Current: Gate 01 & Gate 02 Complete)
+## Phase 1: Days 1–30 — Local MVP Stabilization & Core Curriculum (Complete)
 
-### Delivered in Gate 01 & Gate 02
+### Delivered in Gate 01, Gate 02 & M4
 - [x] Deterministic competency derivation (`NOT_OBSERVED` → `SUPPORTED` → `INDEPENDENT` → `RETAINED` → `TRANSFERRED`) with failed-review demotion (`RETAINED` → `INDEPENDENT`) and first-attempt (`attemptNo === 1`) anti-brute-force rule.
 - [x] Spaced review scheduler (`[1, 3, 7, 14]` days ladder with 1-day reset on review failure and parent escalation on 3+ consecutive failures).
 - [x] Strict client-server boundary: answer keys stripped from learner responses; server-only grading and server-enforced hint provenance (`hint.requested` audit trail prevents `helpLevel` spoofing).
 - [x] Hardened security middleware: per-client rate-limiting buckets (`AUTH_RATE_LIMITER` 5/60s, `API_RATE_LIMITER` 120/60s), `Origin` header validation, `x-tlo-csrf` enforcement, and automatic password hash upgrade (`needsRehash`).
-- [x] Local D1 SQLite schema (15 domain tables, FK enforcement, CHECK constraints) and reference catalogue.
-- [x] Parent governance screens: authentication, lesson approval gate with `pendingReapproval` detection, mastery dashboard, and full JSON export/import/delete (including `reviewApprovals`).
-- [x] Full verification suite: 167 unit tests, 70 integration tests, 15 E2E browser tests across Desktop, Tablet, and Mobile.
-
-### Remaining in Days 1–30
-- [ ] Expand Grade 4 Mathematics library (fractions comparison, word problems, multi-digit operations).
-- [ ] Expand Grade 4 English & Vietnamese reading comprehension modules using the existing validated exercise schemas.
-- [ ] Routine weekly parent JSON backup habit verification.
+- [x] Local D1 SQLite schema (22 domain tables including `lesson_versions` immutable snapshots, FK enforcement, CHECK constraints) and reference catalogue.
+- [x] Parent governance screens: authentication, per-learner and per-version lesson approval gate with 30-minute continuation grace window on revoke, mastery dashboard, and full JSON export/import/delete.
+- [x] Expanded Grade 4 Mathematics, English, and Vietnamese curriculum modules.
 
 ---
 
-## Phase 2: Days 31–60 — Pedagogical Depth & Parent Authoring Tools
+## Phase 2: Days 31–60 — Pedagogical Depth & Parent Authoring Tools (Complete — M4)
 
-- **Interactive Spaced Review Queue UI**:
-  - Dedicated daily "Ôn tập hôm nay" (Today's Review) flow on the learner home screen pulling directly from due `review_schedule` items.
-- **Parent Correction & Observation Recording**:
-  - UI controls allowing the parent to record offline observations or manual state overrides (`source = 'parent_correction'`) with mandatory `correction_note`.
-- **Local Lesson Authoring Validator**:
-  - CLI validator and template generator helping parents author new TypeScript lesson packs with immediate schema verification.
+- [x] **Interactive Spaced Review Queue UI**:
+  - Dedicated daily "Đến hạn ôn tập" flow on the learner home screen pulling directly from due `review_schedule` items with direct lesson navigation.
+- [x] **Parent Correction & Observation Recording**:
+  - UI controls allowing the parent to record offline observations or manual state overrides (`source = 'parent_correction'`) with mandatory `correction_note` (`POST /api/parent/skills/correct`).
+- [x] **Local Lesson Authoring Validator**:
+  - CLI validator (`npm run validate:lessons`) verifying schema integrity, 5-step teaching sequence, zero answer-key leakage, and unique skill coverage across all shipped lessons.
 
 ---
 
-## Phase 3: Days 61–90 — Multi-Term Analytics & School-Year Transitions
+## Phase 3: Days 61–90 — Multi-Term Analytics & School-Year Transitions (Complete — M5)
 
-- **School-Year Archival & Comparison**:
-  - Smooth transition workflows across `school_years` (e.g., Grade 4 → Grade 5) while preserving historical competency snapshots.
-- **Prerequisite Graph Guided Recommendations**:
-  - Highlight recommended next lessons to the parent based on `skill_prerequisites` edges and current `INDEPENDENT`/`RETAINED` mastery states.
-- **Activated Science & Reasoning Modules**:
-  - Author initial curriculum packs for `science` (`Khoa học`) and `debate` (`Tư duy phản biện`) and flip `subjects.active = 1`.
+- [x] **School-Year Archival & Comparison**:
+  - Smooth transition workflows across `school_years` (`POST /api/parent/school-years`, e.g., Grade 4 → Grade 5) while preserving historical sessions, attempts, and competency snapshots per school year on `GET /api/parent/dashboard`.
+- [x] **Prerequisite Graph Guided Recommendations**:
+  - Deterministic prerequisite-graph engine (`derivePrerequisiteRecommendations`) highlighting `unlocked_next`, `prerequisite_gap`, and `reinforce_supported` lessons on `GET /api/parent/dashboard` with one-click parent approval.
+- [x] **Activated Science & Reasoning Modules**:
+  - Initial Grade 4 curriculum packs for `science` (`Khoa học`: `sci-water-cycle`, `sci-plant-needs`) and `debate` (`Tư duy phản biện`: `deb-claim-reason`, `deb-fact-opinion`) with `subjects.active = 1` (19 lessons across 5 active subjects).
 
 ---
 

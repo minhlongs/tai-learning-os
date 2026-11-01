@@ -21,7 +21,7 @@ export type LessonStep = {
   explanationVi: string;
 };
 
-export type SubjectId = "math" | "english" | "vietnamese";
+export type SubjectId = "math" | "english" | "vietnamese" | "science" | "debate";
 
 export type CurriculumProvenance =
   | "gdpt_2018_objective"

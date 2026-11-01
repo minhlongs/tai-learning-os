@@ -217,6 +217,67 @@ export type ParentDashboardResponse = {
     status: "active" | "paused" | "achieved" | "retired";
   }[];
   needsAttention: { skillId: string; skillNameVi: string; reasonVi: string }[];
+  /**
+   * Deterministic prerequisite-graph recommendations for the parent.
+   * Derived from `skills`, `skill_prerequisites`, `skill_evidence`, `lessons`, and approvals.
+   * A recommendation names the skill, its current evidence state, the matched lesson with its
+   * approval status, and the reason — it never claims a mastery the evidence does not support.
+   */
+  recommendedNextLessons: {
+    skillId: string;
+    skillNameVi: string;
+    subjectId: string;
+    state: CompetencyState;
+    recommendationKind: "prerequisite_gap" | "unlocked_next" | "reinforce_supported";
+    prerequisiteSkillIds: string[];
+    prerequisiteNamesVi: string[];
+    lessonId: string | null;
+    lessonTitleVi: string | null;
+    approvalStatus: ApprovalStatus;
+    reasonVi: string;
+  }[];
+  /**
+   * School-year history for this learner with longitudinal evidence summaries.
+   * Sessions, attempts, and competency evidence are never rewritten when a new school year starts.
+   */
+  schoolYears: {
+    id: string;
+    label: string;
+    grade: number | null;
+    startsOn: string;
+    endsOn: string;
+    isActive: boolean;
+    sessionCount: number;
+    completedSessionCount: number;
+    attemptCount: number;
+    independentAttemptCount: number;
+  }[];
+};
+
+/** What a parent sends to transition a learner into a new school year. */
+export type SchoolYearTransitionRequest = {
+  learnerId?: string;
+  label: string;
+  grade: number;
+  startsOn?: string;
+  endsOn?: string;
+};
+
+/** The school year that was created (or reused on conflict) plus the learner's updated grade. */
+export type SchoolYearTransitionResponse = {
+  learnerId: string;
+  schoolYear: {
+    id: string;
+    label: string;
+    grade: number | null;
+    startsOn: string;
+    endsOn: string;
+    isActive: boolean;
+    sessionCount: number;
+    completedSessionCount: number;
+    attemptCount: number;
+    independentAttemptCount: number;
+  };
 };
 
 // --- Parent lesson management ---------------------------------------------
