@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_PLANNER_CONFIG,
+  derivePrerequisiteRecommendations,
   evaluateBaselineDiagnostic,
   generateFourWeekPlan,
+  type PrerequisiteRecommendationCandidate,
   type SkillCandidate,
 } from "../../src/shared/engine/planner";
 
@@ -162,3 +164,87 @@ describe("evaluateBaselineDiagnostic — non-punitive diagnostic evidence evalua
     expect(result.parentReviewRequired).toBe(true);
   });
 });
+
+describe("derivePrerequisiteRecommendations — deterministic prerequisite graph engine", () => {
+  it("recommends unlocked_next when a prerequisite is mastered and prerequisite_gap when a root skill is still unmastered", () => {
+    const candidates: PrerequisiteRecommendationCandidate[] = [
+      {
+        skillId: "sci-water-cycle",
+        skillNameVi: "Vòng tuần hoàn của nước trong tự nhiên",
+        subjectId: "science",
+        state: "INDEPENDENT",
+        prerequisiteSkillIds: [],
+        prerequisiteNamesVi: [],
+        lessonId: "sci-water-cycle",
+        lessonTitleVi: "Vòng tuần hoàn của nước trong tự nhiên",
+        approvalStatus: "approved",
+      },
+      {
+        skillId: "sci-plant-needs",
+        skillNameVi: "Các yếu tố cần cho sự sống và phát triển của thực vật",
+        subjectId: "science",
+        state: "NOT_OBSERVED",
+        prerequisiteSkillIds: ["sci-water-cycle"],
+        prerequisiteNamesVi: ["Vòng tuần hoàn của nước trong tự nhiên"],
+        lessonId: "sci-plant-needs",
+        lessonTitleVi: "Cây xanh cần gì để sống và phát triển?",
+        approvalStatus: "draft",
+      },
+      {
+        skillId: "deb-claim-reason",
+        skillNameVi: "Nhận diện ý kiến (luận điểm) và lý lẽ hỗ trợ",
+        subjectId: "debate",
+        state: "NOT_OBSERVED",
+        prerequisiteSkillIds: [],
+        prerequisiteNamesVi: [],
+        lessonId: "deb-claim-reason",
+        lessonTitleVi: "Ý kiến và lý lẽ: Vì sao em nghĩ vậy?",
+        approvalStatus: "draft",
+      },
+      {
+        skillId: "deb-fact-opinion",
+        skillNameVi: "Phân biệt sự thật kiểm chứng được và ý kiến cá nhân",
+        subjectId: "debate",
+        state: "NOT_OBSERVED",
+        prerequisiteSkillIds: ["deb-claim-reason"],
+        prerequisiteNamesVi: ["Nhận diện ý kiến (luận điểm) và lý lẽ hỗ trợ"],
+        lessonId: "deb-fact-opinion",
+        lessonTitleVi: "Phân biệt sự thật và ý kiến cá nhân",
+        approvalStatus: "draft",
+      },
+      {
+        skillId: "eng-vocab-home",
+        skillNameVi: "Từ vựng về ngôi nhà và gia đình",
+        subjectId: "english",
+        state: "SUPPORTED",
+        prerequisiteSkillIds: [],
+        prerequisiteNamesVi: [],
+        lessonId: "eng-home-vocabulary",
+        lessonTitleVi: "Từ vựng về ngôi nhà và đồ vật quanh em",
+        approvalStatus: "approved",
+      },
+    ];
+
+    const recs = derivePrerequisiteRecommendations(candidates, 6);
+
+    // 1. sci-plant-needs is unlocked_next because sci-water-cycle is INDEPENDENT
+    expect(recs[0]?.skillId).toBe("sci-plant-needs");
+    expect(recs[0]?.recommendationKind).toBe("unlocked_next");
+    expect(recs[0]?.reasonVi).toContain("Vòng tuần hoàn của nước trong tự nhiên");
+
+    // 2. deb-claim-reason is prerequisite_gap because deb-fact-opinion depends on it, and deb-fact-opinion itself is blocked until deb-claim-reason is mastered
+    const debClaimRec = recs.find((r) => r.skillId === "deb-claim-reason");
+    expect(debClaimRec).toBeDefined();
+    expect(debClaimRec?.recommendationKind).toBe("prerequisite_gap");
+    expect(recs.some((r) => r.skillId === "deb-fact-opinion")).toBe(false);
+
+    // 3. eng-vocab-home is reinforce_supported
+    const engHomeRec = recs.find((r) => r.skillId === "eng-vocab-home");
+    expect(engHomeRec).toBeDefined();
+    expect(engHomeRec?.recommendationKind).toBe("reinforce_supported");
+
+    // 4. sci-water-cycle is already INDEPENDENT and excluded
+    expect(recs.some((r) => r.skillId === "sci-water-cycle")).toBe(false);
+  });
+});
+

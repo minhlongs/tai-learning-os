@@ -34,6 +34,12 @@ import { findEvidence } from "./vietnamese/find-evidence";
 import { storyLesson } from "./vietnamese/story-lesson";
 import { baselineVietnameseGrade4 } from "./vietnamese/baseline-vietnamese-grade4";
 
+import { waterCycle } from "./science/water-cycle";
+import { plantNeeds } from "./science/plant-needs";
+
+import { claimAndReason } from "./debate/claim-and-reason";
+import { factVsOpinion } from "./debate/fact-vs-opinion";
+
 export const LESSONS: readonly LessonDefinition[] = [
   // Toán
   fractionsEquivalent,
@@ -50,6 +56,12 @@ export const LESSONS: readonly LessonDefinition[] = [
   sentenceClarity,
   findEvidence,
   storyLesson,
+  // Khoa học
+  waterCycle,
+  plantNeeds,
+  // Tư duy phản biện
+  claimAndReason,
+  factVsOpinion,
   // Khảo sát năng lực đầu vào (Phụ huynh giám sát)
   baselineMathGrade4,
   baselineEnglishGrade4,

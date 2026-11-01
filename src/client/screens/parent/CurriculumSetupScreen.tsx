@@ -25,6 +25,8 @@ const SUBJECTS = [
   { id: "math", nameVi: "Toán học" },
   { id: "vietnamese", nameVi: "Tiếng Việt" },
   { id: "english", nameVi: "Tiếng Anh" },
+  { id: "science", nameVi: "Khoa học" },
+  { id: "debate", nameVi: "Tư duy phản biện" },
 ] as const;
 
 const PROVENANCE_LABELS: Record<ProvenanceType, string> = {

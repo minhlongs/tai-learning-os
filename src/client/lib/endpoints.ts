@@ -33,6 +33,7 @@ export const endpoints = {
   correctSkill: "/api/parent/skills/correct",
   createLearner: "/api/parent/learners",
   updateLearner: "/api/parent/learners/profile",
+  schoolYears: "/api/parent/school-years",
   consents: "/api/parent/consents",
   grantConsent: "/api/parent/consents/grant",
   revokeConsent: "/api/parent/consents/revoke",

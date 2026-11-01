@@ -566,4 +566,90 @@ test.describe("M4 Browser Verification Flows", () => {
     expect(finalSnap.attemptCount).toBe(0);
     expect(finalSnap.hintAuditCount).toBe(1);
   });
+
+  test("9. M5 Phase 3: Prerequisite recommendations quick-approve, school-year transition & archival, and Science/Debate modules on Learner Home", async ({ page }) => {
+    const csrf = await signInAsParent(page);
+    const withCsrf = { headers: { "x-tlo-csrf": csrf } };
+
+    const sessionRes = await page.request.get("/api/session");
+    const sessionInfo = (await sessionRes.json()) as { learner: { id: string } | null };
+    const learnerId = sessionInfo.learner?.id;
+    expect(learnerId).toBeTruthy();
+
+    // 1. Mark foundational skill `sci-water-cycle` as INDEPENDENT so `sci-plant-needs` unlocks as `unlocked_next`
+    const correctRes = await page.request.post("/api/parent/skills/correct", {
+      ...withCsrf,
+      data: {
+        learnerId,
+        skillId: "sci-water-cycle",
+        state: "INDEPENDENT",
+        note: "Em đã nắm vững vòng tuần hoàn của nước",
+      },
+    });
+    expect(correctRes.ok()).toBe(true);
+
+    // Ensure `sci-plant-needs` starts unapproved (`draft`) so we can test quick-approve on the dashboard
+    await page.request.post("/api/parent/lessons/approval", {
+      ...withCsrf,
+      data: {
+        learnerId,
+        lessonId: "sci-plant-needs",
+        status: "draft",
+      },
+    });
+
+    // Also approve `deb-claim-reason` so both Science & Debate appear on Learner Home
+    await page.request.post("/api/parent/lessons/approval", {
+      ...withCsrf,
+      data: {
+        learnerId,
+        lessonId: "deb-claim-reason",
+        status: "approved",
+      },
+    });
+
+    // 2. Open Parent Dashboard (`/parent`) and verify Prerequisite Graph Guided Recommendations
+    await page.goto("/parent");
+    const prereqSection = page.getByTestId("prerequisite-recommendations");
+    await expect(prereqSection).toBeVisible();
+
+    const unlockedPlantCard = page.getByTestId("prereq-rec-sci-plant-needs");
+    await expect(unlockedPlantCard).toBeVisible();
+    await expect(unlockedPlantCard).toContainText("Đã mở khóa");
+    await expect(unlockedPlantCard).toContainText("Khoa học");
+
+    // Quick-approve `sci-plant-needs` directly from the recommendation card
+    const approveBtn = page.getByTestId("prereq-approve-sci-plant-needs");
+    await expect(approveBtn).toBeVisible();
+    await approveBtn.click();
+    await expect(page.getByTestId("prereq-approved-sci-plant-needs")).toBeVisible();
+
+    // 3. Verify School-Year Continuity & Transition section and transition to 2027-2028 (Grade 5)
+    const schoolYearSection = page.getByTestId("school-year-continuity-section");
+    await expect(schoolYearSection).toBeVisible();
+
+    await page.getByTestId("school-year-label-input").fill("2027-2028");
+    await page.getByTestId("school-year-grade-input").selectOption("5");
+    await page.getByTestId("school-year-transition-submit").click();
+
+    await expect(page.getByTestId("school-year-transition-notice")).toContainText("2027-2028");
+    await expect(page.getByTestId("active-school-year-label")).toHaveText("2027-2028");
+    await expect(page.getByTestId("school-year-row-2027-2028")).toBeVisible();
+
+    // 4. Navigate to Learner Home (`/`) and verify Science (`Khoa học`) and Debate (`Tư duy phản biện`) subjects and lessons are visible
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: /Chào/i })).toBeVisible();
+    await expect(page.getByText("Khoa học").first()).toBeVisible();
+    await expect(page.getByText("Tư duy phản biện").first()).toBeVisible();
+
+    await page.goto("/subjects/science");
+    await expect(
+      page.getByText("Các yếu tố cần cho sự sống và phát triển của thực vật").first(),
+    ).toBeVisible();
+
+    await page.goto("/subjects/debate");
+    await expect(
+      page.getByText("Nêu ý kiến và đưa ra lý lẽ hỗ trợ").first(),
+    ).toBeVisible();
+  });
 });

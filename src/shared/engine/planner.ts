@@ -11,7 +11,7 @@
  * 5. Allow parent full editing/rescheduling/skipping authority.
  */
 
-import type { CompetencyState } from "../schemas/attempt";
+import type { ApprovalStatus, CompetencyState } from "../schemas/attempt";
 
 export type ProvenanceLabel =
   | "gdpt_2018_objective"
@@ -237,3 +237,168 @@ export function evaluateBaselineDiagnostic(
     parentReviewRequired: true, // Baseline results always prompt parent review
   };
 }
+
+export type PrerequisiteRecommendationKind =
+  | "prerequisite_gap"
+  | "unlocked_next"
+  | "reinforce_supported";
+
+export interface PrerequisiteRecommendationCandidate {
+  skillId: string;
+  skillNameVi: string;
+  subjectId: string;
+  state: CompetencyState;
+  prerequisiteSkillIds: string[];
+  prerequisiteNamesVi: string[];
+  lessonId: string | null;
+  lessonTitleVi: string | null;
+  approvalStatus: ApprovalStatus;
+}
+
+export interface PrerequisiteRecommendation {
+  skillId: string;
+  skillNameVi: string;
+  subjectId: string;
+  state: CompetencyState;
+  recommendationKind: PrerequisiteRecommendationKind;
+  prerequisiteSkillIds: string[];
+  prerequisiteNamesVi: string[];
+  lessonId: string | null;
+  lessonTitleVi: string | null;
+  approvalStatus: ApprovalStatus;
+  reasonVi: string;
+}
+
+function isSkillMastered(state: CompetencyState): boolean {
+  return state === "INDEPENDENT" || state === "RETAINED" || state === "TRANSFERRED";
+}
+
+/**
+ * Computes deterministic prerequisite-guided recommendations for the parent dashboard.
+ *
+ * Priority order:
+ *   1. `prerequisite_gap`: Foundational skills (`NOT_OBSERVED` or `SUPPORTED`) whose own
+ *      prerequisites (if any) are already mastered, and which are required by at least one
+ *      unmastered downstream skill.
+ *   2. `unlocked_next`: Downstream skills (`NOT_OBSERVED` or `SUPPORTED`) that have
+ *      prerequisites and all of those prerequisites have reached `INDEPENDENT` / `RETAINED` / `TRANSFERRED`.
+ *   3. `reinforce_supported`: Skills currently in `SUPPORTED` state whose prerequisites are satisfied,
+ *      needing independent practice.
+ */
+export function derivePrerequisiteRecommendations(
+  candidates: readonly PrerequisiteRecommendationCandidate[],
+  maxResults = 6,
+): PrerequisiteRecommendation[] {
+  const bySkillId = new Map(candidates.map((c) => [c.skillId, c]));
+
+  // Find skills that are prerequisites for at least one unmastered downstream skill
+  const requiredByUnmasteredDownstream = new Set<string>();
+  for (const candidate of candidates) {
+    if (!isSkillMastered(candidate.state)) {
+      for (const prereqId of candidate.prerequisiteSkillIds) {
+        requiredByUnmasteredDownstream.add(prereqId);
+      }
+    }
+  }
+
+  const arePrerequisitesSatisfied = (candidate: PrerequisiteRecommendationCandidate): boolean => {
+    for (const prereqId of candidate.prerequisiteSkillIds) {
+      const prereq = bySkillId.get(prereqId);
+      // If the prerequisite has no teachable lesson at all (e.g. a base concept skill),
+      // only block if there IS a teachable lesson for that prerequisite that is still unmastered.
+      if (prereq && prereq.lessonId !== null && !isSkillMastered(prereq.state)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const hasMasteredPrerequisite = (candidate: PrerequisiteRecommendationCandidate): boolean => {
+    if (candidate.prerequisiteSkillIds.length === 0) return false;
+    return candidate.prerequisiteSkillIds.some((prereqId) => {
+      const prereq = bySkillId.get(prereqId);
+      return prereq ? isSkillMastered(prereq.state) : false;
+    });
+  };
+
+  const gapRecs: PrerequisiteRecommendation[] = [];
+  const unlockedRecs: PrerequisiteRecommendation[] = [];
+  const reinforceRecs: PrerequisiteRecommendation[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    if (!candidate.lessonId) continue;
+    if (isSkillMastered(candidate.state)) continue;
+    if (!arePrerequisitesSatisfied(candidate)) continue;
+
+    // 1. Unlocked next: has at least one prerequisite that the learner has already mastered
+    if (hasMasteredPrerequisite(candidate)) {
+      const masteredPrereqNames = candidate.prerequisiteSkillIds
+        .map((id, idx) => {
+          const p = bySkillId.get(id);
+          return p && isSkillMastered(p.state) ? (candidate.prerequisiteNamesVi[idx] ?? p.skillNameVi) : null;
+        })
+        .filter((name): name is string => Boolean(name));
+      unlockedRecs.push({
+        skillId: candidate.skillId,
+        skillNameVi: candidate.skillNameVi,
+        subjectId: candidate.subjectId,
+        state: candidate.state,
+        recommendationKind: "unlocked_next",
+        prerequisiteSkillIds: candidate.prerequisiteSkillIds,
+        prerequisiteNamesVi: candidate.prerequisiteNamesVi,
+        lessonId: candidate.lessonId,
+        lessonTitleVi: candidate.lessonTitleVi,
+        approvalStatus: candidate.approvalStatus,
+        reasonVi: `Đã vững kỹ năng nền tảng (${masteredPrereqNames.join(", ")}); sẵn sàng học tiếp “${candidate.skillNameVi}”.`,
+      });
+      seen.add(candidate.skillId);
+      continue;
+    }
+
+    // 2. Prerequisite gap: needed by a downstream skill and not yet mastered
+    if (requiredByUnmasteredDownstream.has(candidate.skillId)) {
+      gapRecs.push({
+        skillId: candidate.skillId,
+        skillNameVi: candidate.skillNameVi,
+        subjectId: candidate.subjectId,
+        state: candidate.state,
+        recommendationKind: "prerequisite_gap",
+        prerequisiteSkillIds: candidate.prerequisiteSkillIds,
+        prerequisiteNamesVi: candidate.prerequisiteNamesVi,
+        lessonId: candidate.lessonId,
+        lessonTitleVi: candidate.lessonTitleVi,
+        approvalStatus: candidate.approvalStatus,
+        reasonVi:
+          candidate.state === "SUPPORTED"
+            ? `Kỹ năng nền tảng “${candidate.skillNameVi}” đang cần gợi ý; nên củng cố trước khi học kỹ năng tiếp theo.`
+            : `Kỹ năng nền tảng “${candidate.skillNameVi}” mở đường cho bài học tiếp theo; phụ huynh có thể duyệt để bé bắt đầu.`,
+      });
+      seen.add(candidate.skillId);
+      continue;
+    }
+
+    // 3. Reinforce supported
+    if (candidate.state === "SUPPORTED" && !seen.has(candidate.skillId)) {
+      reinforceRecs.push({
+        skillId: candidate.skillId,
+        skillNameVi: candidate.skillNameVi,
+        subjectId: candidate.subjectId,
+        state: candidate.state,
+        recommendationKind: "reinforce_supported",
+        prerequisiteSkillIds: candidate.prerequisiteSkillIds,
+        prerequisiteNamesVi: candidate.prerequisiteNamesVi,
+        lessonId: candidate.lessonId,
+        lessonTitleVi: candidate.lessonTitleVi,
+        approvalStatus: candidate.approvalStatus,
+        reasonVi: `Em đã làm được “${candidate.skillNameVi}” khi có gợi ý; nên luyện thêm để tự làm độc lập.`,
+      });
+      seen.add(candidate.skillId);
+    }
+  }
+
+  // Sort unlocked_next first when a learner has already mastered a prerequisite (direct progression signal),
+  // followed by prerequisite_gap (foundational roots) and reinforce_supported.
+  return [...unlockedRecs, ...gapRecs, ...reinforceRecs].slice(0, maxResults);
+}
+

@@ -26,6 +26,8 @@ import type {
   ParentDashboardResponse,
   PlannerGetResponse,
   ProvenanceType,
+  SchoolYearTransitionRequest,
+  SchoolYearTransitionResponse,
   SetApprovalRequest,
   SetApprovalResponse,
   UpdateContentRequest,
@@ -42,8 +44,10 @@ import type { AttemptEvidence } from "../../shared/engine/competency";
 import { needsParentAttention } from "../../shared/engine/review";
 import {
   DEFAULT_PLANNER_CONFIG,
+  derivePrerequisiteRecommendations,
   evaluateBaselineDiagnostic,
   generateFourWeekPlan,
+  type PrerequisiteRecommendationCandidate,
   type SkillCandidate,
 } from "../../shared/engine/planner";
 import * as repo from "../db/repositories";
@@ -102,19 +106,36 @@ export const getParentDashboard: Handler = async (context) => {
       skillEvidence: [],
       goals: [],
       needsAttention: [],
+      recommendedNextLessons: [],
+      schoolYears: [],
     });
   }
 
-  const [schoolYear, skills, sessions, attempts, evidenceRows, reviewRows, goals, lessons] =
+  const [
+    schoolYear,
+    skills,
+    prerequisites,
+    schoolYears,
+    sessions,
+    attempts,
+    evidenceRows,
+    reviewRows,
+    goals,
+    lessons,
+    approvals,
+  ] =
     await Promise.all([
       repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
       repo.listSkills(context.env.DB),
-      repo.listSessionsForLearner(context.env.DB, learner.id, 10),
+      repo.listSkillPrerequisites(context.env.DB),
+      repo.listSchoolYearsForLearner(context.env.DB, learner.id),
+      repo.listSessionsForLearner(context.env.DB, learner.id, 500),
       repo.listAttemptsForLearner(context.env.DB, learner.id),
       repo.listSkillEvidenceForLearner(context.env.DB, learner.id),
       repo.listReviewScheduleForLearner(context.env.DB, learner.id),
       repo.listGoalsForLearner(context.env.DB, learner.id),
       repo.listLessons(context.env.DB),
+      repo.listApprovalStatuses(context.env.DB, context.parent.parentId, learner.id),
     ]);
 
   const skillById = new Map(skills.map((s) => [s.id, s]));
@@ -162,7 +183,7 @@ export const getParentDashboard: Handler = async (context) => {
       };
     });
 
-  const recentSessions: ParentDashboardResponse["recentSessions"] = sessions.map((session) => {
+  const recentSessions: ParentDashboardResponse["recentSessions"] = sessions.slice(0, 10).map((session) => {
     const lesson = lessonById.get(session.lesson_id);
     const sessionAttempts = attempts.filter((a) => a.session_id === session.id);
     return {
@@ -192,6 +213,55 @@ export const getParentDashboard: Handler = async (context) => {
     }
   }
 
+  // Prerequisite-graph guided recommendations
+  const prereqCandidates: PrerequisiteRecommendationCandidate[] = skills.map((skill) => {
+    const ev = evidenceBySkill.get(skill.id);
+    const skillPrereqIds = prerequisites
+      .filter((p) => p.skill_id === skill.id)
+      .map((p) => p.prerequisite_id);
+    const skillPrereqNames = skillPrereqIds.map((pid) => skillById.get(pid)?.name_vi ?? pid);
+    const matchingLesson =
+      lessons.find((l) => l.skill_id === skill.id && !l.id.includes("baseline")) ??
+      lessons.find((l) => l.skill_id === skill.id) ??
+      null;
+    const approvalStatus: ApprovalStatus = matchingLesson
+      ? (approvals[matchingLesson.id] ?? "draft")
+      : "draft";
+    return {
+      skillId: skill.id,
+      skillNameVi: skill.name_vi,
+      subjectId: skill.subject_id,
+      state: ev?.state ?? "NOT_OBSERVED",
+      prerequisiteSkillIds: skillPrereqIds,
+      prerequisiteNamesVi: skillPrereqNames,
+      lessonId: matchingLesson?.id ?? null,
+      lessonTitleVi: matchingLesson?.title_vi ?? null,
+      approvalStatus,
+    };
+  });
+  const recommendedNextLessons = derivePrerequisiteRecommendations(prereqCandidates, 6);
+
+  // Longitudinal school-year continuity summaries
+  const schoolYearDtos: ParentDashboardResponse["schoolYears"] = schoolYears.map((sy) => {
+    const yearSessions = sessions.filter((s) => s.school_year_id === sy.id);
+    const yearSessionIds = new Set(yearSessions.map((s) => s.id));
+    const yearAttempts = attempts.filter((a) => yearSessionIds.has(a.session_id));
+    return {
+      id: sy.id,
+      label: sy.label,
+      grade: sy.grade,
+      startsOn: sy.starts_on,
+      endsOn: sy.ends_on,
+      isActive: schoolYear?.id === sy.id,
+      sessionCount: yearSessions.length,
+      completedSessionCount: yearSessions.filter((s) => s.status === "completed").length,
+      attemptCount: yearAttempts.length,
+      independentAttemptCount: yearAttempts.filter(
+        (a) => a.outcome === "correct" && a.help_level <= 2,
+      ).length,
+    };
+  });
+
   return ok<ParentDashboardResponse>({
     learner: {
       id: learner.id,
@@ -220,6 +290,8 @@ export const getParentDashboard: Handler = async (context) => {
       status: goal.status,
     })),
     needsAttention,
+    recommendedNextLessons,
+    schoolYears: schoolYearDtos,
   });
 };
 
@@ -1510,6 +1582,122 @@ export const updatePlanItemRoute: Handler = async (context) => {
   });
 
   return getFourWeekPlan(context);
+};
+
+/* ── POST /api/parent/school-years ────────────────────────────────────────── */
+
+const SCHOOL_YEAR_LABEL_RE = /^(\d{4})-(\d{4})$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Transitions a learner into a new or updated school year (`school_years` table)
+ * and updates their current grade while preserving all prior-year sessions,
+ * attempts, and competency evidence intact.
+ */
+export const transitionSchoolYear: Handler = async (context) => {
+  const parsed = await readJsonBody(context.request, 4_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<SchoolYearTransitionRequest> & { learnerId?: unknown };
+
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context, body.learnerId);
+  if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
+    return badRequest("Chưa có hồ sơ người học.");
+  }
+
+  const rawLabel = typeof body.label === "string" ? body.label.trim() : "";
+  const labelMatch = SCHOOL_YEAR_LABEL_RE.exec(rawLabel);
+  if (!labelMatch) {
+    return badRequest("Nhãn năm học không hợp lệ (ví dụ: 2027-2028).");
+  }
+  const startYear = Number.parseInt(labelMatch[1]!, 10);
+  const endYear = Number.parseInt(labelMatch[2]!, 10);
+  if (endYear !== startYear + 1 || startYear < 2020 || startYear > 2100) {
+    return badRequest("Nhãn năm học phải có dạng NNNN-(NNNN+1), ví dụ: 2027-2028.");
+  }
+
+  const grade = optionalIntIn(body.grade, 1, 12);
+  if (grade === null) {
+    return badRequest("Khối lớp cần từ 1 đến 12.");
+  }
+
+  const startsOn =
+    typeof body.startsOn === "string" && body.startsOn.trim().length > 0
+      ? body.startsOn.trim()
+      : `${startYear}-09-01`;
+  const endsOn =
+    typeof body.endsOn === "string" && body.endsOn.trim().length > 0
+      ? body.endsOn.trim()
+      : `${endYear}-06-30`;
+
+  if (!ISO_DATE_RE.test(startsOn) || !ISO_DATE_RE.test(endsOn) || startsOn > endsOn) {
+    return badRequest("Ngày bắt đầu/kết thúc năm học không hợp lệ.");
+  }
+
+  const now = Date.now();
+  const savedYear = await repo.upsertSchoolYear(context.env.DB, {
+    id: crypto.randomUUID(),
+    learnerId: learner.id,
+    label: rawLabel,
+    startsOn,
+    endsOn,
+    grade,
+    now,
+  });
+
+  await repo.updateLearner(context.env.DB, {
+    learnerId: learner.id,
+    parentId: context.parent.parentId,
+    nickname: learner.nickname,
+    grade,
+    now,
+  });
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: "school_year.transitioned",
+    subject: learner.id,
+    detail: JSON.stringify({
+      schoolYearId: savedYear.id,
+      label: savedYear.label,
+      grade: savedYear.grade,
+      previousGrade: learner.grade,
+      startsOn: savedYear.starts_on,
+      endsOn: savedYear.ends_on,
+    }),
+    now,
+  });
+
+  const [sessions, attempts, activeYear] = await Promise.all([
+    repo.listSessionsForLearner(context.env.DB, learner.id, 500),
+    repo.listAttemptsForLearner(context.env.DB, learner.id),
+    repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
+  ]);
+
+  const yearSessions = sessions.filter((s) => s.school_year_id === savedYear.id);
+  const yearSessionIds = new Set(yearSessions.map((s) => s.id));
+  const yearAttempts = attempts.filter((a) => yearSessionIds.has(a.session_id));
+
+  return ok<SchoolYearTransitionResponse>({
+    learnerId: learner.id,
+    schoolYear: {
+      id: savedYear.id,
+      label: savedYear.label,
+      grade: savedYear.grade,
+      startsOn: savedYear.starts_on,
+      endsOn: savedYear.ends_on,
+      isActive: activeYear?.id === savedYear.id,
+      sessionCount: yearSessions.length,
+      completedSessionCount: yearSessions.filter((s) => s.status === "completed").length,
+      attemptCount: yearAttempts.length,
+      independentAttemptCount: yearAttempts.filter(
+        (a) => a.outcome === "correct" && a.help_level <= 2,
+      ).length,
+    },
+  });
 };
 
 function parseStringArray(json: string): string[] {
