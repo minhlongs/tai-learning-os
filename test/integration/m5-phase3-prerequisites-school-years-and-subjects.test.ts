@@ -22,6 +22,7 @@ import type {
   BaselineGetResponse,
   CurriculumGetResponse,
   EvaluateBaselineResponse,
+  ExportResponse,
   FinalizeSessionResponse,
   LearnerSubjectListResponse,
   ParentDashboardResponse,
@@ -520,5 +521,16 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
     const updatedItem = patchBody.items.find((i) => i.id === firstItem.id);
     expect(updatedItem?.status).toBe("completed");
     expect(updatedItem?.parentNote).toBe("Đã hoàn thành buổi học đầu tiên của năm học mới");
+
+    // 6. POST /api/data/export excludes cross-tenant organization lessons and their step answer keys
+    const expRes = await callWithJar(parentJar, "/api/data/export", {
+      method: "POST",
+      learnerIdHeader: "learner-m6-2",
+    });
+    expect(expRes.status).toBe(200);
+    const expBody = (await expRes.json()) as ExportResponse;
+    expect(expBody.data.lessons.some((l) => l.id === "sci-plant-needs")).toBe(false);
+    expect(expBody.data.lessonSteps.some((s) => s.lessonId === "sci-plant-needs")).toBe(false);
+    expect(expBody.data.lessonMetadata?.some((m) => m.lessonId === "sci-plant-needs")).toBe(false);
   });
 });
