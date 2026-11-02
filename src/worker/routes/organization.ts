@@ -147,13 +147,16 @@ export const addOrganizationMemberRoute: Handler = async (context) => {
   }
 
   const now = Date.now();
-  await repo.addOrganizationMember(context.env.DB, {
+  const applied = await repo.addOrganizationMember(context.env.DB, {
     id: crypto.randomUUID(),
     organizationId: body.organizationId,
     userId: body.userId,
     role: body.role,
     now,
   });
+  if (!applied) {
+    return badRequest("Không thể hạ vai trò của chủ sở hữu (owner) duy nhất trong tổ chức.");
+  }
 
   return ok<AddOrganizationMemberResponse>({ success: true });
 };

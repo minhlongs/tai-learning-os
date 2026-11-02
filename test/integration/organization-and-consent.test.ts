@@ -507,5 +507,29 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
       json: { organizationId: orgId, lessonId },
     });
     expect(resubmitApprovedRes.status).toBe(400);
+
+    // Editing an org_approved lesson via POST /api/parent/lessons/content bumps its version and atomically resets review_status back to 'draft', allowing re-submission
+    const editRes = await callWithJar(teacherJar, "/api/parent/lessons/content", {
+      method: "POST",
+      json: {
+        lessonId,
+        titleVi: "Bài thực hành Khoa học trung tâm (Phiên bản 2)",
+      },
+    });
+    expect(editRes.status).toBe(200);
+
+    const afterEditLessonsRes = await callWithJar(teacherJar, `/api/org/lessons?organizationId=${orgId}`);
+    const afterEditBody = (await afterEditLessonsRes.json()) as {
+      lessons: { lessonId: string; reviewStatus: string }[];
+    };
+    expect(afterEditBody.lessons).toEqual([
+      expect.objectContaining({ lessonId, reviewStatus: "draft" }),
+    ]);
+
+    const resubmitAfterEditRes = await callWithJar(teacherJar, "/api/org/lessons/submit", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId },
+    });
+    expect(resubmitAfterEditRes.status).toBe(200);
   });
 });
