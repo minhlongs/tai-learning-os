@@ -446,6 +446,7 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     errors.push("Danh sách phiên bản lược đồ không hợp lệ.");
   }
   const exportedLessonsById = new Map<string, number>();
+  const practiceLessonIds = new Set<string>();
   if (Array.isArray(data.lessons)) {
     const seenLessonIds = new Set<string>();
     for (const l of data.lessons) {
@@ -472,6 +473,12 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
           recL.purpose !== "practice"
         ) {
           errors.push(`Mục đích bài học (${String(recL.purpose)}) không hợp lệ.`);
+        }
+        if (recL.ownershipType === "family" && recL.purpose === "official") {
+          errors.push(`Bài học gia đình (${String(recL.id)}) bắt buộc phải có mục đích là 'practice'.`);
+        }
+        if (typeof recL.id === "string" && (recL.ownershipType === "family" || recL.purpose === "practice")) {
+          practiceLessonIds.add(recL.id);
         }
       }
     }
@@ -618,6 +625,7 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
   }
 
   const hasDeclaredLessons = data.lessons.length > 0 || hasExplicitLessonVersions;
+  const practiceSessionIds = new Set<string>();
 
   for (const session of data.learningSessions) {
     if (!SESSION_STATUSES.includes(session.status)) {
@@ -629,6 +637,14 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       session.purpose !== "practice"
     ) {
       errors.push(`Mục đích phiên học (${String(session.purpose)}) không hợp lệ.`);
+    }
+    if (practiceLessonIds.has(session.lessonId) && session.purpose === "official") {
+      errors.push(
+        `Phiên học ${session.id} thuộc bài luyện tập (${session.lessonId}) nên không được phép có purpose = 'official'.`,
+      );
+    }
+    if (session.purpose === "practice" || practiceLessonIds.has(session.lessonId)) {
+      practiceSessionIds.add(session.id);
     }
     if (hasDeclaredLessons) {
       const maxVer = exportedLessonsById.get(session.lessonId);
@@ -684,6 +700,14 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       attempt.purpose !== "practice"
     ) {
       errors.push(`Mục đích lượt làm bài (${String(attempt.purpose)}) không hợp lệ.`);
+    }
+    if (
+      (practiceLessonIds.has(attempt.lessonId) || practiceSessionIds.has(attempt.sessionId)) &&
+      attempt.purpose === "official"
+    ) {
+      errors.push(
+        `Lượt làm bài ${attempt.id} thuộc bài hoặc phiên luyện tập nên không được phép có purpose = 'official'.`,
+      );
     }
     if (hasDeclaredLessons || data.lessonSteps.length > 0) {
       const referencedStep = exportedStepById.get(attempt.stepId);
@@ -833,8 +857,14 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     if (!Number.isInteger(attemptNo) || attemptNo < 1) {
       errors.push("Số thứ tự lượt làm bài (attemptNo) phải là số nguyên dương.");
     }
+    const effectiveAttemptPurpose =
+      attempt.purpose === "practice" ||
+      practiceLessonIds.has(attempt.lessonId) ||
+      practiceSessionIds.has(attempt.sessionId)
+        ? "practice"
+        : (attempt.purpose ?? "official");
     if (attempt.evidenceKind === "observed") {
-      if ((attempt.purpose ?? "official") === "practice") {
+      if (effectiveAttemptPurpose === "practice") {
         errors.push(
           `Lượt làm bài luyện tập (${attempt.id}) không được phép ghi nhận là bằng chứng độc lập (observed).`,
         );
@@ -848,7 +878,7 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     if (
       attempt.outcome === "correct" &&
       attempt.evidenceKind === "observed" &&
-      (attempt.purpose ?? "official") === "official" &&
+      effectiveAttemptPurpose === "official" &&
       attempt.skillId
     ) {
       const skillKey = `${attempt.learnerId}::${attempt.skillId}`;

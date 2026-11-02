@@ -558,6 +558,56 @@ describe("version-scoped lessonVersions, lineage, and practice purpose validatio
       },
     });
     expect(badSessionPurpose.ok).toBe(false);
+
+    const familyOfficialLesson = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [{ ...baseLessonExport(), ownershipType: "family", purpose: "official" }],
+      },
+    });
+    expect(familyOfficialLesson.ok).toBe(false);
+
+    const practiceOfficialAttempt = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [baseLessonExport()],
+        lessonSteps: [baseStepExport(1, "stp-v1")],
+        learningSessions: [
+          {
+            id: "ses-prac-bypass",
+            learnerId: "lnr-0001",
+            lessonId: "les-fam-1",
+            lessonVersion: 1,
+            schoolYearId: null,
+            startedAt: 1_700_000_010_000,
+            endedAt: 1_700_000_050_000,
+            status: "completed",
+            stepsSeen: 1,
+          },
+        ],
+        learningAttempts: [
+          {
+            id: "att-prac-bypass",
+            sessionId: "ses-prac-bypass",
+            learnerId: "lnr-0001",
+            lessonId: "les-fam-1",
+            stepId: "stp-v1",
+            stepVersion: 1,
+            skillId: "math-frac-equiv",
+            submitted: { kind: "choice", choiceId: "c1" },
+            outcome: "correct",
+            helpLevel: 0,
+            evidenceKind: "observed",
+            isTransfer: true,
+            isReview: false,
+            createdAt: 1_700_000_020_000,
+          },
+        ],
+      },
+    });
+    expect(practiceOfficialAttempt.ok).toBe(false);
   });
 });
 

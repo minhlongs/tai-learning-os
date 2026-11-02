@@ -614,6 +614,19 @@ describe("Family Practice Lessons, Mastery Isolation, and Version-Safe Backup", 
     expect(afterVersions[0]?.titleVi).toBe("Bài trung tâm L1");
     const afterSteps = (afterEnvelope.data.lessonSteps ?? []).filter((s) => s.lessonId === lessonId);
     expect(afterSteps.every((s) => s.contentVersion === 1)).toBe(true);
+    const afterLessonHeader = (afterEnvelope.data.lessons ?? []).find((l) => l.id === lessonId);
+    expect(afterLessonHeader?.version).toBe(1);
+    expect(afterLessonHeader?.titleVi).toBe("Bài trung tâm L1");
+
+    // If the historical v1 snapshot row in lesson_versions is absent for a non-visible lesson,
+    // exportRecord omits the lesson rather than falling back to live v2 title/version.
+    await env.DB.prepare(
+      "DELETE FROM lesson_versions WHERE lesson_id = ?1 AND version = 1"
+    ).bind(lessonId).run();
+    const missingSnapExport = await callWithJar(memberJar, "/api/data/export", { method: "POST" });
+    expect(missingSnapExport.status).toBe(200);
+    const missingSnapEnvelope = (await missingSnapExport.json()) as ExportEnvelope;
+    expect((missingSnapEnvelope.data.lessons ?? []).some((l) => l.id === lessonId)).toBe(false);
 
     // The enrolled owner learner's export carries the current v2 snapshot.
     const ownerExport = await callWithJar(ownerJar, "/api/data/export", { method: "POST" });
@@ -621,5 +634,88 @@ describe("Family Practice Lessons, Mastery Isolation, and Version-Safe Backup", 
     const ownerEnvelope = (await ownerExport.json()) as ExportEnvelope;
     const ownerVersions = (ownerEnvelope.data.lessonVersions ?? []).filter((v) => v.lessonId === lessonId);
     expect(ownerVersions.some((v) => v.version === 2)).toBe(true);
+  });
+
+  it("blocks global catalogue/shared metadata injection and mastery-isolation bypass during parent import", async () => {
+    const parentId = crypto.randomUUID();
+    const learnerId = crypto.randomUUID();
+    const now = Date.now();
+    const jar = await createJar(parentId, "Phụ huynh Kiểm thử", "parent");
+
+    await env.DB.prepare(
+      "INSERT INTO parents (id, password_hash, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)"
+    ).bind(parentId, "hash", "Phụ huynh Kiểm thử", now).run();
+    await repo.createLearner(env.DB, {
+      id: learnerId,
+      parentId,
+      nickname: "Bé Bảo Mật",
+      birthYear: 2016,
+      grade: 4,
+      timezone: "Asia/Ho_Chi_Minh",
+      now,
+    });
+
+    const exportRes = await callWithJar(jar, "/api/data/export", { method: "POST" });
+    expect(exportRes.status).toBe(200);
+    const baseEnvelope = (await exportRes.json()) as ExportEnvelope;
+
+    await callWithJar(jar, "/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: "XOA Bé Bảo Mật" },
+    });
+
+    // 1. Attempting to inject a brand-new 'catalogue' lesson via import fails with 409.
+    const injectedCatalogue: ExportEnvelope = JSON.parse(JSON.stringify(baseEnvelope));
+    injectedCatalogue.data.lessons.push({
+      ...injectedCatalogue.data.lessons[0]!,
+      id: "injected-global-cat-1",
+      ownershipType: "catalogue",
+      purpose: "official",
+    });
+    const injCatRes = await callWithJar(jar, "/api/data/import", {
+      method: "POST",
+      json: injectedCatalogue,
+    });
+    expect(injCatRes.status).toBe(409);
+    expect(await repo.findLesson(env.DB, "injected-global-cat-1")).toBeNull();
+
+    // 2. Attempting to inject a new version/step into an existing catalogue lesson fails with 409.
+    const targetCat = baseEnvelope.data.lessons[0]!;
+    const injectedCatVersion: ExportEnvelope = JSON.parse(JSON.stringify(baseEnvelope));
+    injectedCatVersion.data.lessons = injectedCatVersion.data.lessons.map((l) =>
+      l.id === targetCat.id ? { ...l, version: 2 } : l,
+    );
+    injectedCatVersion.data.lessonVersions = [
+      ...(injectedCatVersion.data.lessonVersions ?? []),
+      {
+        lessonId: targetCat.id,
+        version: 2,
+        titleVi: "Phiên bản giả mạo v2",
+        titleEn: "",
+        objectiveVi: "Mục tiêu giả mạo",
+        objectiveEn: "",
+        createdAt: now,
+      },
+    ];
+    const injVerRes = await callWithJar(jar, "/api/data/import", {
+      method: "POST",
+      json: injectedCatVersion,
+    });
+    expect(injVerRes.status).toBe(409);
+
+    // 3. Attempting to tamper shared lesson_metadata (isBaseline) on a valid import is ignored for shared catalogue lessons.
+    const metaTamper: ExportEnvelope = JSON.parse(JSON.stringify(baseEnvelope));
+    metaTamper.data.lessonMetadata = (metaTamper.data.lessonMetadata ?? []).map((m) =>
+      m.lessonId === targetCat.id ? { ...m, isBaseline: 1, reviewRecommendationVi: "Tampered" } : m,
+    );
+    const metaRes = await callWithJar(jar, "/api/data/import", {
+      method: "POST",
+      json: metaTamper,
+    });
+    expect(metaRes.status).toBe(200);
+    const catMetaRow = await env.DB.prepare(
+      "SELECT review_recommendation_vi FROM lesson_metadata WHERE lesson_id = ?1"
+    ).bind(targetCat.id).first<{ review_recommendation_vi: string | null }>();
+    expect(catMetaRow?.review_recommendation_vi).not.toBe("Tampered");
   });
 });
