@@ -2421,17 +2421,27 @@ export async function listConsentedLearnersForOrganization(
 export async function addOrganizationMember(
   db: Db,
   input: { id: string; organizationId: string; userId: string; role: OrganizationRole; now: number },
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const result = await db
     .prepare(
       `INSERT INTO organization_members (id, organization_id, user_id, role, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?5)
        ON CONFLICT(organization_id, user_id) DO UPDATE SET
          role = excluded.role,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at
+       WHERE organization_members.role != 'owner'
+          OR excluded.role = 'owner'
+          OR (
+            SELECT COUNT(*)
+            FROM organization_members om2
+            WHERE om2.organization_id = excluded.organization_id
+              AND om2.role = 'owner'
+              AND om2.user_id != excluded.user_id
+          ) >= 1`,
     )
     .bind(input.id, input.organizationId, input.userId, input.role, input.now)
     .run();
+  return Number(result.meta?.changes ?? 0) > 0;
 }
 
 export async function findMemberRole(
@@ -2900,6 +2910,22 @@ export async function submitOrganizationLessonForReview(
     )
     .bind(input.now, input.lessonId, input.organizationId)
     .run();
+}
+
+export function resetOrganizationLessonToDraftStatement(
+  db: Db,
+  input: { lessonId: string; organizationId: string; now: number },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE organization_lessons
+       SET review_status = 'draft',
+           reviewed_by = NULL,
+           reviewed_at = NULL,
+           updated_at = ?1
+       WHERE lesson_id = ?2 AND organization_id = ?3`,
+    )
+    .bind(input.now, input.lessonId, input.organizationId);
 }
 
 export function reviewOrganizationLessonStatement(

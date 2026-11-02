@@ -774,6 +774,21 @@ export const updateLessonContent: Handler = async (context) => {
       lessonId: lesson.id,
       revokedAt: now,
     }),
+  );
+
+  // If this lesson belongs to an organization, editing its content creates a new unreviewed version,
+  // so reset its center review_status back to 'draft' in the same atomic batch.
+  if (orgLesson) {
+    statements.push(
+      repo.resetOrganizationLessonToDraftStatement(context.env.DB, {
+        lessonId: lesson.id,
+        organizationId: orgLesson.organization_id,
+        now,
+      }),
+    );
+  }
+
+  statements.push(
     repo.auditInsert(context.env.DB, {
       id: crypto.randomUUID(),
       actor: `parent:${context.parent.parentId}`,
