@@ -51,7 +51,7 @@ import type {
   UpdateContentResponse,
 } from "../../../shared/api-contract";
 import type { LessonStepKind } from "../../../shared/schemas/attempt";
-import type { MultipleChoiceSpec } from "../../../shared/schemas/exercise";
+import type { ExerciseSpec } from "../../../shared/schemas/exercise";
 import { api, failureMessage } from "../../lib/api";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { endpoints } from "../../lib/endpoints";
@@ -67,11 +67,11 @@ type OrgLessonRow = OrganizationLessonListResponse["lessons"][number];
 type ConsentedLearner = ConsentedOrgLearnersResponse["learners"][number];
 type AssignedLesson = ClassroomLessonListResponse["lessons"][number];
 
-type MultipleChoiceDraftStep = {
+type PolymorphicDraftStep = {
   position: number;
   kind: LessonStepKind;
-  content: MultipleChoiceSpec;
-  answerKey: { correctChoiceId: string };
+  content: ExerciseSpec;
+  answerKey: unknown;
   explanationVi: string;
 };
 
@@ -117,7 +117,7 @@ const STEP_SEQUENCE: readonly LessonStepKind[] = ["concept", "concept", "guided"
  * be saved with a missing hint: a step with no hints would let a stuck child
  * stall with no way forward, which is exactly what the hint policy forbids.
  */
-function blankChoiceStep(position: number): MultipleChoiceDraftStep {
+function blankChoiceStep(position: number): PolymorphicDraftStep {
   const kind = STEP_SEQUENCE[position - 1] ?? "guided";
   return {
     position,
@@ -140,7 +140,7 @@ function blankChoiceStep(position: number): MultipleChoiceDraftStep {
   };
 }
 
-function emptyDraftSteps(): MultipleChoiceDraftStep[] {
+function emptyDraftSteps(): PolymorphicDraftStep[] {
   return [1, 2, 3, 4, 5].map(blankChoiceStep);
 }
 
@@ -1048,7 +1048,7 @@ function LessonStudioSection({
   const [subjectId, setSubjectId] = useState<string>("math");
   const [gradeFrom, setGradeFrom] = useState("4");
   const [gradeTo, setGradeTo] = useState("4");
-  const [steps, setSteps] = useState<MultipleChoiceDraftStep[]>(emptyDraftSteps);
+  const [steps, setSteps] = useState<PolymorphicDraftStep[]>(emptyDraftSteps);
   const [reviewNote, setReviewNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -1093,31 +1093,16 @@ function LessonStudioSection({
         setTitleVi(detail.titleVi);
         setObjectiveVi(detail.objectiveVi);
         setSubjectId(detail.subjectId);
+        // Preserve polymorphic ExerciseSpec (`multiple_choice`, `fraction_visual`,
+        // `vocab_match`, `reading_comprehension`) and `answerKey` intact.
         setSteps(
-          detail.steps.map((s, idx) => {
-            if (s.content.type === "multiple_choice") {
-              const correctChoice =
-                s.content.choices.find((c) => c.correct) ?? s.content.choices[0];
-              return {
-                position: s.position,
-                kind: s.kind,
-                content: s.content,
-                answerKey: { correctChoiceId: correctChoice?.id ?? "a" },
-                explanationVi: s.explanationVi,
-              };
-            }
-            const fallback = blankChoiceStep(idx + 1);
-            return {
-              ...fallback,
-              position: s.position,
-              kind: s.kind,
-              content: {
-                ...fallback.content,
-                question_vi: s.content.question_vi,
-              },
-              explanationVi: s.explanationVi,
-            };
-          }),
+          detail.steps.map((s) => ({
+            position: s.position,
+            kind: s.kind,
+            content: s.content,
+            answerKey: s.answerKey,
+            explanationVi: s.explanationVi,
+          })),
         );
         setNotice(`Đang chỉnh sửa “${detail.titleVi}” (Phiên bản hiện tại: ${detail.version}).`);
       });
@@ -1140,7 +1125,7 @@ function LessonStudioSection({
       emptyDraftSteps().map((step, index) => ({
         ...step,
         content: {
-          ...step.content,
+          type: "multiple_choice" as const,
           question_vi: `Bước ${index + 1} (${STEP_KIND_LABELS[step.kind]}): Khi đặt khay nước vào ngăn đá tủ lạnh, hiện tượng gì sẽ xảy ra?`,
           choices: [
             { id: "a", label_vi: "Nước lỏng đông đặc thành nước đá rắn", correct: true },
@@ -1159,7 +1144,7 @@ function LessonStudioSection({
     setNotice("Đã điền sẵn khung 5 bước chuẩn. Bạn có thể chỉnh sửa hoặc lưu bản nháp ngay.");
   };
 
-  const updateStep = (index: number, patch: Partial<MultipleChoiceDraftStep>) => {
+  const updateStep = (index: number, patch: Partial<PolymorphicDraftStep>) => {
     setSteps((current) => current.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   };
 
@@ -1175,8 +1160,16 @@ function LessonStudioSection({
       setError("Mỗi bước cần có câu hỏi bằng tiếng Việt.");
       return;
     }
-    if (steps.some((s) => s.content.choices.some((c) => c.label_vi.trim().length === 0))) {
-      setError("Mỗi lựa chọn (a, b, c, d) trong cả 5 bước cần có nội dung tiếng Việt.");
+    if (
+      steps.some(
+        (s) =>
+          (s.content.type === "multiple_choice" ||
+            s.content.type === "vocab_match" ||
+            s.content.type === "reading_comprehension") &&
+          s.content.choices.some((c) => c.label_vi.trim().length === 0),
+      )
+    ) {
+      setError("Mỗi lựa chọn trong các bước trắc nghiệm/từ vựng/đọc hiểu cần có nội dung tiếng Việt.");
       return;
     }
     if (steps.some((s) => s.explanationVi.trim().length === 0)) {
@@ -1186,12 +1179,13 @@ function LessonStudioSection({
     if (
       steps.some(
         (s) =>
-          s.content.hint1_vi.trim().length === 0 ||
-          s.content.hint2_vi.trim().length === 0 ||
-          s.content.hint3_vi.trim().length === 0,
+          s.content.type === "multiple_choice" &&
+          (s.content.hint1_vi.trim().length === 0 ||
+            s.content.hint2_vi.trim().length === 0 ||
+            s.content.hint3_vi.trim().length === 0),
       )
     ) {
-      setError("Mỗi bước cần đủ 3 gợi ý tăng dần để bé không bị bí khi làm bài.");
+      setError("Mỗi bước trắc nghiệm cần đủ 3 gợi ý tăng dần để bé không bị bí khi làm bài.");
       return;
     }
     if (editingLesson) {
@@ -1485,91 +1479,116 @@ function LessonStudioSection({
         </div>
 
         <div className="org-studio__steps">
-          {steps.map((step, index) => (
-            <fieldset className="org-studio__step" key={step.position}>
-              <legend>{`Bước ${step.position} · ${STEP_KIND_LABELS[step.kind]}`}</legend>
-              <label htmlFor={`org-step-prompt-${step.position}`}>
-                <span>Câu hỏi bằng tiếng Việt</span>
-                <input
-                  id={`org-step-prompt-${step.position}`}
-                  className="input"
-                  data-testid={`org-step-prompt-${step.position}`}
-                  value={step.content.question_vi}
-                  onChange={(e) =>
-                    updateStep(index, {
-                      content: { ...step.content, question_vi: e.target.value },
-                    })
-                  }
-                />
-              </label>
-              <div className="org-studio__choices">
-                {step.content.choices.map((choice, choiceIndex) => (
-                  <span className="org-studio__choice" key={choice.id}>
-                    <span className="org-studio__choice-id">{choice.id}</span>
-                    <input
-                      className="input"
-                      aria-label={`Đáp án ${choice.id} của bước ${step.position}`}
-                      data-testid={`org-step-choice-${step.position}-${choice.id}`}
-                      value={choice.label_vi}
-                      onChange={(e) =>
-                        updateStep(index, {
-                          content: {
-                            ...step.content,
-                            choices: step.content.choices.map((c, i) =>
-                              i === choiceIndex ? { ...c, label_vi: e.target.value } : c,
-                            ),
-                          },
-                        })
-                      }
-                    />
-                    <label className="org-studio__correct">
-                      <input
-                        type="radio"
-                        name={`org-step-correct-${step.position}`}
-                        checked={choice.correct}
-                        onChange={() =>
-                          updateStep(index, {
-                            content: {
-                              ...step.content,
-                              choices: step.content.choices.map((c, i) => ({ ...c, correct: i === choiceIndex })),
-                            },
-                            answerKey: { correctChoiceId: choice.id },
-                          })
-                        }
-                      />
-                      <span>Đáp án đúng</span>
-                    </label>
-                  </span>
-                ))}
-              </div>
-              <div className="org-studio__hints">
-                {(["hint1_vi", "hint2_vi", "hint3_vi"] as const).map((key) => (
-                  <label key={key} htmlFor={`org-step-${key}-${step.position}`}>
-                    <span>Gợi ý {key === "hint1_vi" ? "1" : key === "hint2_vi" ? "2" : "3"}</span>
-                    <input
-                      id={`org-step-${key}-${step.position}`}
-                      className="input"
-                      data-testid={`org-step-${key}-${step.position}`}
-                      value={step.content[key]}
-                      onChange={(e) =>
-                        updateStep(index, { content: { ...step.content, [key]: e.target.value } })
-                      }
-                    />
-                  </label>
-                ))}
-              </div>
-              <label htmlFor={`org-step-explanation-${step.position}`}>
-                <span>Giải thích hiện sau khi trả lời đúng</span>
-                <input
-                  id={`org-step-explanation-${step.position}`}
-                  className="input"
-                  data-testid={`org-step-explanation-${step.position}`}
-                  value={step.explanationVi}
-                  onChange={(e) => updateStep(index, { explanationVi: e.target.value })}
-                />
-              </label>
-            </fieldset>
-          ))}
+          {steps.map((step, index) => {
+            const spec = step.content;
+            return (
+              <fieldset className="org-studio__step" key={step.position}>
+                <legend>{`Bước ${step.position} · ${STEP_KIND_LABELS[step.kind]} (${spec.type})`}</legend>
+                <label htmlFor={`org-step-prompt-${step.position}`}>
+                  <span>Câu hỏi bằng tiếng Việt</span>
+                  <input
+                    id={`org-step-prompt-${step.position}`}
+                    className="input"
+                    data-testid={`org-step-prompt-${step.position}`}
+                    value={spec.question_vi}
+                    onChange={(e) =>
+                      updateStep(index, {
+                        content: { ...spec, question_vi: e.target.value } as ExerciseSpec,
+                      })
+                    }
+                  />
+                </label>
+                {spec.type === "multiple_choice" ? (
+                  <>
+                    <div className="org-studio__choices">
+                      {spec.choices.map((choice, choiceIndex) => (
+                        <span className="org-studio__choice" key={choice.id}>
+                          <span className="org-studio__choice-id">{choice.id}</span>
+                          <input
+                            className="input"
+                            aria-label={`Đáp án ${choice.id} của bước ${step.position}`}
+                            data-testid={`org-step-choice-${step.position}-${choice.id}`}
+                            value={choice.label_vi}
+                            onChange={(e) =>
+                              updateStep(index, {
+                                content: {
+                                  ...spec,
+                                  choices: spec.choices.map((c, i) =>
+                                    i === choiceIndex ? { ...c, label_vi: e.target.value } : c,
+                                  ),
+                                },
+                              })
+                            }
+                          />
+                          <label className="org-studio__correct">
+                            <input
+                              type="radio"
+                              name={`org-step-correct-${step.position}`}
+                              checked={choice.correct}
+                              onChange={() =>
+                                updateStep(index, {
+                                  content: {
+                                    ...spec,
+                                    choices: spec.choices.map((c, i) => ({
+                                      ...c,
+                                      correct: i === choiceIndex,
+                                    })),
+                                  },
+                                  answerKey: { correctChoiceId: choice.id },
+                                })
+                              }
+                            />
+                            <span>Đáp án đúng</span>
+                          </label>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="org-studio__hints">
+                      {(["hint1_vi", "hint2_vi", "hint3_vi"] as const).map((key) => (
+                        <label key={key} htmlFor={`org-step-${key}-${step.position}`}>
+                          <span>Gợi ý {key === "hint1_vi" ? "1" : key === "hint2_vi" ? "2" : "3"}</span>
+                          <input
+                            id={`org-step-${key}-${step.position}`}
+                            className="input"
+                            data-testid={`org-step-${key}-${step.position}`}
+                            value={spec[key]}
+                            onChange={(e) =>
+                              updateStep(index, { content: { ...spec, [key]: e.target.value } })
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                {spec.type === "fraction_visual" ? (
+                  <p className="org-studio__hint" data-testid={`org-step-fraction-summary-${step.position}`}>
+                    {`Dạng hình phân số (thanh ${spec.bar.parts} phần): ${spec.correctNumerator}/${spec.correctDenominator} (được bảo toàn cấu trúc khi lưu).`}
+                  </p>
+                ) : null}
+                {spec.type === "vocab_match" ? (
+                  <p className="org-studio__hint" data-testid={`org-step-vocab-summary-${step.position}`}>
+                    {`Dạng từ vựng (${spec.word} — hình ${spec.image}): bảo toàn cấu trúc từ vựng & câu điền từ khi lưu.`}
+                  </p>
+                ) : null}
+                {spec.type === "reading_comprehension" ? (
+                  <p className="org-studio__hint" data-testid={`org-step-reading-summary-${step.position}`}>
+                    {`Dạng đọc hiểu (${spec.passageTitle_vi}): bảo toàn đoạn văn & câu dẫn chứng khi lưu.`}
+                  </p>
+                ) : null}
+                <label htmlFor={`org-step-explanation-${step.position}`}>
+                  <span>Giải thích hiện sau khi trả lời đúng</span>
+                  <input
+                    id={`org-step-explanation-${step.position}`}
+                    className="input"
+                    data-testid={`org-step-explanation-${step.position}`}
+                    value={step.explanationVi}
+                    onChange={(e) => updateStep(index, { explanationVi: e.target.value })}
+                  />
+                </label>
+              </fieldset>
+            );
+          })}
         </div>
 
         <button type="submit" className="btn" data-testid="org-lesson-save-btn" disabled={busy}>

@@ -25,6 +25,7 @@ export function CompletedList({
             <br />
             <span className="row__meta">
               {subjectName(session.subjectId)} · {formatDate(session.completedAt)}
+              {session.purpose === "practice" ? " · Luyện tập gia đình" : ""}
             </span>
           </span>
           <span className="row__aside">

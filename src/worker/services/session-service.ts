@@ -104,6 +104,12 @@ export async function recordAttemptWithDerivation(
     throw new GuardError("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.", 403);
   }
 
+  const lesson = await repo.findLesson(db, session.lesson_id);
+  const sessionPurpose: "official" | "practice" =
+    session.purpose === "practice" || lesson?.purpose === "practice" || lesson?.ownership_type === "family"
+      ? "practice"
+      : "official";
+
   const clientHelpLevel = clampHelp(input.helpLevel);
 
   // ── Attempt + audit + derived state, re-derived on concurrency conflict ───
@@ -134,26 +140,30 @@ export async function recordAttemptWithDerivation(
     const attemptNo = stepSummary.nextAttemptNo;
     const attemptId = crypto.randomUUID();
     const evidenceKind: "observed" | "assisted" | "parent_correction" =
-      grade.outcome === "correct" &&
-      effectiveHelpLevel === 0 &&
-      attemptNo === 1 &&
-      stepSummary.priorAttemptCount === 0
-        ? "observed"
-        : "assisted";
+      sessionPurpose === "practice"
+        ? "assisted"
+        : grade.outcome === "correct" &&
+            effectiveHelpLevel === 0 &&
+            attemptNo === 1 &&
+            stepSummary.priorAttemptCount === 0
+          ? "observed"
+          : "assisted";
 
     let derivedState: CompetencyState | null = null;
     let review: { dueAt: number; intervalDays: number; reasonVi: string } | null = null;
     let expectedSkillAttemptCount = 0;
     const postAttemptStatements: D1PreparedStatement[] = [];
 
-    if (step.skillId) {
+    if (step.skillId && sessionPurpose === "official") {
       const [attempts, reviewRows, transferStepIds, currentEvidenceRows] = await Promise.all([
         repo.listAttemptsForLearner(db, input.learnerId),
         repo.listReviewScheduleForLearner(db, input.learnerId),
         repo.listTransferStepIds(db),
         repo.listSkillEvidenceForLearner(db, input.learnerId),
       ]);
-      const skillAttempts = attempts.filter((a) => a.skill_id === step.skillId);
+      const skillAttempts = attempts.filter(
+        (a) => a.skill_id === step.skillId && (a.purpose ?? "official") === "official",
+      );
       expectedSkillAttemptCount = skillAttempts.length;
 
       const priorDue = reviewRows.find((r) => r.skill_id === step.skillId)?.due_at ?? null;
@@ -261,6 +271,7 @@ export async function recordAttemptWithDerivation(
         helpLevel: effectiveHelpLevel,
         evidenceKind,
         attemptNo,
+        purpose: sessionPurpose,
         now: input.now,
         expectedStepAttemptCount: stepSummary.priorAttemptCount,
         expectedHintAuditCount: hintState.auditCount,
@@ -271,13 +282,24 @@ export async function recordAttemptWithDerivation(
         actor: `learner:${input.learnerId}`,
         action: "attempt.submitted",
         subject: step.stepId,
-        detail: JSON.stringify({
-          sessionId: input.sessionId,
-          attemptId,
-          outcome: grade.outcome,
-          attemptNo,
-          helpLevel: effectiveHelpLevel,
-        }),
+        detail: JSON.stringify(
+          sessionPurpose === "practice"
+            ? {
+                sessionId: input.sessionId,
+                attemptId,
+                outcome: grade.outcome,
+                attemptNo,
+                helpLevel: effectiveHelpLevel,
+                purpose: "practice",
+              }
+            : {
+                sessionId: input.sessionId,
+                attemptId,
+                outcome: grade.outcome,
+                attemptNo,
+                helpLevel: effectiveHelpLevel,
+              },
+        ),
         now: input.now,
       }),
       ...postAttemptStatements,
@@ -357,7 +379,12 @@ export async function recordParentCorrection(
   },
 ): Promise<void> {
   const attempts = await repo.listAttemptsForLearner(db, input.learnerId);
-  const skillAttempts = attempts.filter((a) => a.skill_id === input.skillId && a.evidence_kind !== "parent_correction");
+  const skillAttempts = attempts.filter(
+    (a) =>
+      a.skill_id === input.skillId &&
+      a.evidence_kind !== "parent_correction" &&
+      (a.purpose ?? "official") === "official",
+  );
   const independent = skillAttempts.filter((a) => isIndependentAttempt({
     attemptId: a.id,
     skillId: input.skillId,

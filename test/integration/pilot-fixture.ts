@@ -291,8 +291,8 @@ export async function seedPilotFixture(db: D1Database): Promise<{
   const lessonId = "pilot-lesson-math-01";
   await db
     .prepare(
-      `INSERT OR REPLACE INTO lessons (id, subject_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?3, ?4, ?4, 4, 4, 1, ?5, ?5)`,
+      `INSERT OR REPLACE INTO lessons (id, subject_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, ownership_type, purpose, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?3, ?4, ?4, 4, 4, 1, 'organization', 'official', ?5, ?5)`,
     )
     .bind(
       lessonId,

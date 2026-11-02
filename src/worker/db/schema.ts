@@ -56,6 +56,9 @@ export type SkillRow = {
   grade_to: number;
 };
 
+export type LessonOwnershipType = "catalogue" | "organization" | "family";
+export type LessonPurpose = "official" | "practice";
+
 export type LessonRow = {
   id: string;
   subject_id: string;
@@ -67,6 +70,11 @@ export type LessonRow = {
   grade_from: number;
   grade_to: number;
   version: number;
+  ownership_type?: LessonOwnershipType;
+  owner_parent_id?: string | null;
+  purpose?: LessonPurpose;
+  source_lesson_id?: string | null;
+  source_version?: number | null;
   created_at: number;
   updated_at: number;
 };
@@ -90,6 +98,7 @@ export type LessonStepRow = {
   answer_key: string;
   explanation_vi: string;
   content_version: number;
+  source_step_id?: string | null;
 };
 
 export type ReviewApprovalRow = {
@@ -114,6 +123,7 @@ export type LearningSessionRow = {
   status: SessionStatus;
   steps_seen: number;
   continuation_deadline: number | null;
+  purpose?: LessonPurpose;
 };
 
 export type LearningAttemptRow = {
@@ -129,6 +139,7 @@ export type LearningAttemptRow = {
   help_level: number;
   evidence_kind: "observed" | "assisted" | "parent_correction";
   attempt_no: number;
+  purpose?: LessonPurpose;
   created_at: number;
 };
 

@@ -299,8 +299,8 @@ async function writeLesson(db: D1Database, lessonId: string, version: number): P
       .prepare(
         `insert into lessons
            (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
-            grade_from, grade_to, version, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            grade_from, grade_to, version, ownership_type, owner_parent_id, purpose, source_lesson_id, source_version, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'catalogue', null, 'official', null, null, ?, ?)
          on conflict(id) do update set
            subject_id = excluded.subject_id,
            skill_id = excluded.skill_id,
@@ -311,6 +311,9 @@ async function writeLesson(db: D1Database, lessonId: string, version: number): P
            grade_from = excluded.grade_from,
            grade_to = excluded.grade_to,
            version = excluded.version,
+           ownership_type = 'catalogue',
+           owner_parent_id = null,
+           purpose = 'official',
            updated_at = excluded.updated_at`,
       )
       .bind(

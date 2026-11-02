@@ -274,10 +274,16 @@ describe("SUPREME COMMAND #08: Learner/Version Approval & Bounded Continuation",
     await db.prepare("INSERT INTO parents (id, password_hash, display_name, created_at, updated_at) VALUES ('parent-ver', ?1, 'Parent Version', ?2, ?2)").bind(passwordHash, now).run();
     await db.prepare("INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-ver', 'parent-ver', 'Bé Ver', 4, ?1, ?1)").bind(now).run();
 
-    const lesson = await db.prepare("SELECT id, version, subject_id, title_vi, objective_vi FROM lessons LIMIT 1").first<{ id: string; version: number; subject_id: string; title_vi: string; objective_vi: string }>();
-    const lessonId = lesson!.id;
+    const catalogueLesson = await db.prepare("SELECT id, version, subject_id, title_vi, objective_vi FROM lessons LIMIT 1").first<{ id: string; version: number; subject_id: string; title_vi: string; objective_vi: string }>();
 
     const parentJar = await createAuthenticatedJar("parent-ver", "Parent Version");
+    const forkRes = await callWithJar(parentJar, "/api/parent/lessons/fork", {
+      method: "POST",
+      json: { sourceLessonId: catalogueLesson!.id },
+    });
+    expect(forkRes.status).toBe(200);
+    const { lessonId, lesson } = (await forkRes.json()) as { lessonId: string; lesson: { titleVi: string; objectiveVi: string } };
+
     // Approve v1
     await callWithJar(parentJar, "/api/parent/lessons/approval", {
       method: "POST",
@@ -289,8 +295,8 @@ describe("SUPREME COMMAND #08: Learner/Version Approval & Bounded Continuation",
       method: "POST",
       json: {
         lessonId,
-        titleVi: lesson!.title_vi + " v2",
-        objectiveVi: lesson!.objective_vi,
+        titleVi: lesson.titleVi + " v2",
+        objectiveVi: lesson.objectiveVi,
         steps: [
           {
             position: 1,

@@ -46,6 +46,11 @@ export type SubjectSummary = {
   lessonCount: number;
 };
 
+export type LessonOwnershipTypeContract = "catalogue" | "organization" | "family";
+export type LessonPurposeContract = "official" | "practice";
+export type LessonOwnershipType = LessonOwnershipTypeContract;
+export type LessonPurpose = LessonPurposeContract;
+
 export type LearnerHomeResponse = {
   learner: { id: string; nickname: string };
   subjects: SubjectSummary[];
@@ -74,6 +79,7 @@ export type LearnerHomeResponse = {
     titleVi: string;
     subjectId: string;
     stepPosition: number;
+    purpose?: LessonPurposeContract;
   } | null;
   completedSessions: {
     sessionId: string;
@@ -82,6 +88,7 @@ export type LearnerHomeResponse = {
     completedAt: number;
     correctCount: number;
     attemptedCount: number;
+    purpose?: LessonPurposeContract;
   }[];
 };
 
@@ -94,6 +101,8 @@ export type StartSessionResponse = {
   lessonId: string;
   lessonTitleVi: string;
   subjectId: string;
+  purpose?: LessonPurposeContract;
+  ownershipType?: LessonOwnershipTypeContract;
   steps: LessonStepPayload[];
 };
 
@@ -142,10 +151,16 @@ export type SubmitAttemptResponse = {
   canAdvance: boolean;
   /** True when the interaction is a transfer check (well done message). */
   isTransfer: boolean;
+  purpose?: LessonPurposeContract;
 };
 
 export type FinalizeSessionRequest = { sessionId: string };
-export type FinalizeSessionResponse = { sessionId: string; status: SessionStatus; summary: SessionSummary };
+export type FinalizeSessionResponse = {
+  sessionId: string;
+  status: SessionStatus;
+  purpose?: LessonPurposeContract;
+  summary: SessionSummary;
+};
 
 export type SessionSummary = {
   attemptedCount: number;
@@ -155,6 +170,7 @@ export type SessionSummary = {
   /** Distinct hint levels used. */
   maxHelpLevel: number;
   stepsCompleted: number;
+  purpose?: LessonPurposeContract;
   skillsPracticed: { skillId: string; skillNameVi: string; subjectId: string }[];
   nextReview: {
     skillId: string;
@@ -179,6 +195,8 @@ export type ParentDashboardResponse = {
     sessionCount: number;
     independentAttempts: number;
     assistedAttempts: number;
+    practiceSessionCount?: number;
+    practiceAttemptCount?: number;
     skillsObserved: number;
     skillsIndependent: number;
     lastSessionAt: number | null;
@@ -200,6 +218,7 @@ export type ParentDashboardResponse = {
     correctCount: number;
     attemptedCount: number;
     independentCount: number;
+    purpose?: LessonPurposeContract;
   }[];
   skillEvidence: {
     skillId: string;
@@ -336,6 +355,8 @@ export type LearnerSubjectListResponse = {
       objectiveVi: string;
       gradeFrom: number;
       gradeTo: number;
+      purpose?: LessonPurposeContract;
+      ownershipType?: LessonOwnershipTypeContract;
     }[];
   })[];
 };
@@ -354,6 +375,11 @@ export type LessonListResponse = {
     stepCount: number;
     /** True when the parent has edited content since approval. */
     pendingReapproval: boolean;
+    ownershipType?: LessonOwnershipTypeContract;
+    ownerParentId?: string | null;
+    purpose?: LessonPurposeContract;
+    sourceLessonId?: string | null;
+    sourceVersion?: number | null;
     objectiveId?: string | null;
     provenance?: ProvenanceType;
     sourceRef?: string | null;
@@ -370,6 +396,11 @@ export type LessonDetailResponse = {
   objectiveVi: string;
   approvalStatus: ApprovalStatus;
   version: number;
+  ownershipType?: LessonOwnershipTypeContract;
+  ownerParentId?: string | null;
+  purpose?: LessonPurposeContract;
+  sourceLessonId?: string | null;
+  sourceVersion?: number | null;
   steps: {
     id: string;
     position: number;
@@ -377,7 +408,26 @@ export type LessonDetailResponse = {
     content: ExerciseSpec;
     explanationVi: string;
     answerKey: unknown;
+    sourceStepId?: string | null;
   }[];
+};
+
+export type ForkLessonRequest = {
+  sourceLessonId: string;
+  sourceVersion?: number;
+  titleVi?: string;
+  objectiveVi?: string;
+};
+
+export type ForkLessonResponse = {
+  lessonId: string;
+  version: number;
+  ownershipType: "family";
+  purpose: "practice";
+  sourceLessonId: string;
+  sourceVersion: number;
+  titleVi: string;
+  lesson: LessonDetailResponse;
 };
 
 export type SetApprovalRequest = {
@@ -402,6 +452,7 @@ export type UpdateContentRequest = {
     content: ExerciseSpec;
     answerKey: unknown;
     explanationVi: string;
+    sourceStepId?: string | null;
   }[];
 };
 export type UpdateContentResponse = { lessonId: string; version: number };

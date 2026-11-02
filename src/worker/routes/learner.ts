@@ -120,10 +120,14 @@ export const getLearnerHome: Handler = async (context) => {
 
   // Only APPROVED lessons count as available. A lesson the parent has not
   // reviewed must not appear to the learner. Additionally, center-authored
-  // lessons must be approved and assigned to the learner's enrolled classroom.
+  // lessons must be approved and assigned to the learner's enrolled classroom,
+  // and family-owned lessons must belong to this learner's parent.
   const visibleLessons = lessons.filter((l) => {
+    if (l.ownership_type === "family" && l.owner_parent_id !== context.parent.parentId) {
+      return false;
+    }
     if (approvals[l.id] !== "approved") return false;
-    if (allOrgLessonIds.has(l.id)) {
+    if (l.ownership_type === "organization" || allOrgLessonIds.has(l.id)) {
       return assignedOrgLessonIds.has(l.id);
     }
     return true;
@@ -151,7 +155,10 @@ export const getLearnerHome: Handler = async (context) => {
     .sort((a, b) => a.due_at - b.due_at)
     .map((r) => {
       const skill = skillById.get(r.skill_id);
-      const matchedLesson = visibleLessons.find((l) => l.skill_id === r.skill_id) ?? null;
+      const matchedLesson =
+        visibleLessons.find(
+          (l) => l.skill_id === r.skill_id && (l.purpose ?? "official") === "official",
+        ) ?? null;
       return {
         skillId: r.skill_id,
         skillNameVi: skill?.name_vi ?? r.skill_id,
@@ -177,6 +184,7 @@ export const getLearnerHome: Handler = async (context) => {
         titleVi: inProgressSnapshot?.title_vi ?? inProgressLesson.title_vi,
         subjectId: inProgressLesson.subject_id,
         stepPosition: inProgress.steps_seen,
+        purpose: (inProgress.purpose ?? inProgressLesson.purpose ?? "official") as "official" | "practice",
       }
     : null;
 
@@ -191,13 +199,15 @@ export const getLearnerHome: Handler = async (context) => {
   const completedSessions = completedSessionCandidates.map((s, idx) => {
     const tally = perSession.get(s.id);
     const snapshot = completedSnapshots[idx];
+    const lesson = lessonById.get(s.lesson_id);
     return {
       sessionId: s.id,
-      lessonTitleVi: snapshot?.title_vi ?? lessonById.get(s.lesson_id)?.title_vi ?? s.lesson_id,
-      subjectId: lessonById.get(s.lesson_id)?.subject_id ?? "",
+      lessonTitleVi: snapshot?.title_vi ?? lesson?.title_vi ?? s.lesson_id,
+      subjectId: lesson?.subject_id ?? "",
       completedAt: s.ended_at ?? s.started_at,
       correctCount: tally?.correct ?? 0,
       attemptedCount: tally?.attempted ?? 0,
+      purpose: (s.purpose ?? lesson?.purpose ?? "official") as "official" | "practice",
     };
   });
 
@@ -243,8 +253,11 @@ export const listSubjectsForLearner: Handler = async (context) => {
       lessons: lessons
         .filter((l) => {
           if (l.subject_id !== subject.id) return false;
+          if (l.ownership_type === "family" && l.owner_parent_id !== context.parent.parentId) {
+            return false;
+          }
           if (approvals[l.id] !== "approved") return false;
-          if (allOrgLessonIds.has(l.id)) {
+          if (l.ownership_type === "organization" || allOrgLessonIds.has(l.id)) {
             return assignedOrgLessonIds.has(l.id);
           }
           return true;
@@ -256,6 +269,8 @@ export const listSubjectsForLearner: Handler = async (context) => {
           objectiveVi: l.objective_vi,
           gradeFrom: l.grade_from,
           gradeTo: l.grade_to,
+          ownershipType: l.ownership_type ?? (allOrgLessonIds.has(l.id) ? "organization" : "catalogue"),
+          purpose: l.purpose ?? "official",
         })),
     })),
   });
@@ -284,6 +299,9 @@ export const startSession: Handler = async (context) => {
 
   const lesson = await repo.findLesson(context.env.DB, body.lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
+  if (lesson.ownership_type === "family" && lesson.owner_parent_id !== context.parent.parentId) {
+    return forbidden("Bài luyện tập riêng này không thuộc về gia đình của bạn.");
+  }
 
   const existing = await repo.findInProgressSessionForLearner(context.env.DB, learner.id);
 
@@ -312,11 +330,17 @@ export const startSession: Handler = async (context) => {
         return forbidden("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.");
       }
 
+      const resumedPurpose: "official" | "practice" =
+        refreshed.purpose === "practice" || lesson.purpose === "practice" || lesson.ownership_type === "family"
+          ? "practice"
+          : "official";
+
       return ok<StartSessionResponse>({
         sessionId: existing.id,
         lessonId: existing.lesson_id,
         lessonTitleVi: versionSnapshot?.title_vi ?? lesson.title_vi,
         subjectId: lesson.subject_id,
+        purpose: resumedPurpose,
         steps: sessionSteps,
       });
     }
@@ -333,8 +357,8 @@ export const startSession: Handler = async (context) => {
 
   // If this is a center-authored lesson, verify center approval and classroom assignment with active consent
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
-  if (orgLesson) {
-    if (orgLesson.review_status !== "org_approved") {
+  if (lesson.ownership_type === "organization" || orgLesson) {
+    if (!orgLesson || orgLesson.review_status !== "org_approved") {
       return forbidden("Bài học của trung tâm chưa được kiểm duyệt hoàn tất.");
     }
     const assigned = await repo.isLessonAssignedToLearner(context.env.DB, {
@@ -357,6 +381,8 @@ export const startSession: Handler = async (context) => {
   const schoolYearId = await resolveSchoolYear(context, learner);
   const sessionId = crypto.randomUUID();
   const commitNow = Date.now();
+  const sessionPurpose: "official" | "practice" =
+    lesson.purpose === "practice" || lesson.ownership_type === "family" ? "practice" : "official";
   const startStatements: D1PreparedStatement[] = [];
 
   // A different lesson was unfinished: close it out atomically in the same batch so only one is in progress.
@@ -379,6 +405,7 @@ export const startSession: Handler = async (context) => {
       lessonId: lesson.id,
       lessonVersion: lesson.version,
       schoolYearId,
+      purpose: sessionPurpose,
       now: commitNow,
     }),
     repo.auditInsert(context.env.DB, {
@@ -386,7 +413,12 @@ export const startSession: Handler = async (context) => {
       actor: `parent:${context.parent.parentId}`,
       action: "session.started",
       subject: sessionId,
-      detail: JSON.stringify({ lessonId: lesson.id, lessonVersion: lesson.version, learnerId: learner.id }),
+      detail: JSON.stringify({
+        lessonId: lesson.id,
+        lessonVersion: lesson.version,
+        learnerId: learner.id,
+        purpose: sessionPurpose,
+      }),
       now: commitNow,
     }),
   );
@@ -406,6 +438,7 @@ export const startSession: Handler = async (context) => {
     lessonId: lesson.id,
     lessonTitleVi: newVersionSnapshot?.title_vi ?? lesson.title_vi,
     subjectId: lesson.subject_id,
+    purpose: sessionPurpose,
     steps,
   });
 };
@@ -619,20 +652,24 @@ export const finalizeSession: Handler = async (context) => {
 
   const skillsPracticed: FinalizeSessionResponse["summary"]["skillsPracticed"] = [];
   const nextReview: FinalizeSessionResponse["summary"]["nextReview"] = [];
+  const sessionPurpose: "official" | "practice" =
+    session.purpose === "practice" ? "practice" : "official";
   const skillIds = [...new Set(attempts.map((a) => a.skill_id).filter((id): id is string => !!id))];
   for (const skillId of skillIds) {
     const skill = await repo.findSkill(context.env.DB, skillId);
     if (!skill) continue;
     skillsPracticed.push({ skillId, skillNameVi: skill.name_vi, subjectId: skill.subject_id });
-    const row = reviewRows.find((r) => r.skill_id === skillId);
-    if (row) {
-      nextReview.push({
-        skillId,
-        skillNameVi: skill.name_vi,
-        dueAt: row.due_at,
-        intervalDays: row.interval_days,
-        reasonVi: `Ôn lại sau ${row.interval_days} ngày.`,
-      });
+    if (sessionPurpose === "official") {
+      const row = reviewRows.find((r) => r.skill_id === skillId);
+      if (row) {
+        nextReview.push({
+          skillId,
+          skillNameVi: skill.name_vi,
+          dueAt: row.due_at,
+          intervalDays: row.interval_days,
+          reasonVi: `Ôn lại sau ${row.interval_days} ngày.`,
+        });
+      }
     }
   }
 
@@ -656,6 +693,7 @@ export const finalizeSession: Handler = async (context) => {
           learnerId: learner.id,
           detail: JSON.stringify({
             lessonId: session.lesson_id,
+            purpose: sessionPurpose,
             attempted: attempts.length,
             correct: correctCount,
             assisted: assistedCount,
@@ -675,6 +713,7 @@ export const finalizeSession: Handler = async (context) => {
   return ok<FinalizeSessionResponse>({
     sessionId: session.id,
     status,
+    purpose: sessionPurpose,
     summary: {
       attemptedCount: attempts.length,
       correctCount,

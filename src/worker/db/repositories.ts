@@ -366,7 +366,8 @@ export async function listLessons(db: Db): Promise<LessonRow[]> {
   const result = await db
     .prepare(
       `SELECT id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
-              grade_from, grade_to, version, created_at, updated_at
+              grade_from, grade_to, version, ownership_type, owner_parent_id, purpose,
+              source_lesson_id, source_version, created_at, updated_at
        FROM lessons ORDER BY subject_id, grade_from, title_vi`,
     )
     .all<LessonRow>();
@@ -377,7 +378,8 @@ export async function listLessonsBySubject(db: Db, subjectId: string): Promise<L
   const result = await db
     .prepare(
       `SELECT id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
-              grade_from, grade_to, version, created_at, updated_at
+              grade_from, grade_to, version, ownership_type, owner_parent_id, purpose,
+              source_lesson_id, source_version, created_at, updated_at
        FROM lessons WHERE subject_id = ?1 ORDER BY grade_from, title_vi`,
     )
     .bind(subjectId)
@@ -389,7 +391,8 @@ export async function findLesson(db: Db, lessonId: string): Promise<LessonRow | 
   const row = await db
     .prepare(
       `SELECT id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
-              grade_from, grade_to, version, created_at, updated_at
+              grade_from, grade_to, version, ownership_type, owner_parent_id, purpose,
+              source_lesson_id, source_version, created_at, updated_at
        FROM lessons WHERE id = ?1`,
     )
     .bind(lessonId)
@@ -498,14 +501,14 @@ export async function listStepsForLesson(
   const result = contentVersion !== undefined
     ? await db
         .prepare(
-          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
+          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id
            FROM lesson_steps WHERE lesson_id = ?1 AND content_version = ?2 ORDER BY position ASC`,
         )
         .bind(lessonId, contentVersion)
         .all<LessonStepRow>()
     : await db
         .prepare(
-          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
+          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id
            FROM lesson_steps
            WHERE lesson_id = ?1
              AND content_version = (SELECT version FROM lessons WHERE id = ?1)
@@ -521,10 +524,25 @@ export async function findStepsForLessons(db: Db, lessonIds: readonly string[]):
   const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
   const result = await db
     .prepare(
-      `SELECT ls.id, ls.lesson_id, ls.position, ls.kind, ls.content, ls.answer_key, ls.explanation_vi, ls.content_version
+      `SELECT ls.id, ls.lesson_id, ls.position, ls.kind, ls.content, ls.answer_key, ls.explanation_vi, ls.content_version, ls.source_step_id
        FROM lesson_steps ls
        JOIN lessons l ON l.id = ls.lesson_id AND ls.content_version = l.version
        WHERE ls.lesson_id IN (${placeholders}) ORDER BY ls.lesson_id, ls.position ASC`,
+    )
+    .bind(...lessonIds)
+    .all<LessonStepRow>();
+  return result.results ?? [];
+}
+
+export async function findAllStepsForLessons(db: Db, lessonIds: readonly string[]): Promise<LessonStepRow[]> {
+  if (lessonIds.length === 0) return [];
+  const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
+  const result = await db
+    .prepare(
+      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id
+       FROM lesson_steps
+       WHERE lesson_id IN (${placeholders})
+       ORDER BY lesson_id ASC, content_version ASC, position ASC`,
     )
     .bind(...lessonIds)
     .all<LessonStepRow>();
@@ -549,10 +567,41 @@ export async function findLessonVersionsForLessons(
   return result.results ?? [];
 }
 
+export async function findLessonVersionsForPairs(
+  db: Db,
+  pairs: readonly { lessonId: string; version: number }[],
+): Promise<LessonVersionRow[]> {
+  if (pairs.length === 0) return [];
+  const lessonIds = Array.from(new Set(pairs.map((p) => p.lessonId)));
+  const allRows = await findLessonVersionsForLessons(db, lessonIds);
+  const allowedKeys = new Set(pairs.map((p) => `${p.lessonId}:::${p.version}`));
+  return allRows.filter((r) => allowedKeys.has(`${r.lesson_id}:::${r.version}`));
+}
+
+export async function findStepsForLessonVersionPairs(
+  db: Db,
+  pairs: readonly { lessonId: string; version: number }[],
+): Promise<LessonStepRow[]> {
+  if (pairs.length === 0) return [];
+  const lessonIds = Array.from(new Set(pairs.map((p) => p.lessonId)));
+  const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
+  const result = await db
+    .prepare(
+      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id
+       FROM lesson_steps
+       WHERE lesson_id IN (${placeholders})
+       ORDER BY lesson_id ASC, content_version ASC, position ASC`,
+    )
+    .bind(...lessonIds)
+    .all<LessonStepRow>();
+  const allowedKeys = new Set(pairs.map((p) => `${p.lessonId}:::${p.version}`));
+  return (result.results ?? []).filter((r) => allowedKeys.has(`${r.lesson_id}:::${r.content_version}`));
+}
+
 export async function findStep(db: Db, stepId: string): Promise<LessonStepRow | null> {
   const row = await db
     .prepare(
-      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version
+      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id
        FROM lesson_steps WHERE id = ?1`,
     )
     .bind(stepId)
@@ -674,16 +723,18 @@ export function createSessionInsert(
     lessonId: string;
     lessonVersion: number;
     schoolYearId: string | null;
+    purpose?: "official" | "practice";
     now: number;
   },
 ): D1PreparedStatement {
+  const purpose = input.purpose ?? "official";
   return db
     .prepare(
       `INSERT INTO learning_sessions
-         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', 0)`,
+         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen, purpose)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', 0, ?7)`,
     )
-    .bind(input.id, input.learnerId, input.lessonId, input.lessonVersion, input.schoolYearId, input.now);
+    .bind(input.id, input.learnerId, input.lessonId, input.lessonVersion, input.schoolYearId, input.now, purpose);
 }
 
 /**
@@ -693,8 +744,10 @@ export function createSessionInsert(
  *   1. The lesson is still at `input.lessonVersion`.
  *   2. An explicit `approved` row in `review_approvals` exists for `(learnerId, lessonId, lessonVersion)`
  *      decided by `input.parentId`.
- *   3. If the lesson belongs to an organization (`organization_lessons`), its `review_status` is
- *      `'org_approved'` and the learner has an active classroom assignment + active parent consent.
+ *   3. If the lesson belongs to an organization (`organization_lessons` or `ownership_type = 'organization'`),
+ *      its `review_status` is `'org_approved'` and the learner has an active classroom assignment + active parent consent.
+ *   4. If the lesson is a family practice lesson (`ownership_type = 'family'`), its `owner_parent_id` equals `input.parentId`.
+ *   5. Stamps `purpose` directly from the lesson's server-side `purpose` column (or `input.purpose`).
  *
  * If a concurrent revocation or version bump landed between the route's read check and the batch commit,
  * `lesson_version` evaluates to `NULL` and aborts the batch with a `NOT NULL` constraint error.
@@ -708,19 +761,24 @@ export function createSessionGuardedInsert(
     lessonId: string;
     lessonVersion: number;
     schoolYearId: string | null;
+    purpose?: "official" | "practice";
     now: number;
   },
 ): D1PreparedStatement {
+  const fallbackPurpose = input.purpose ?? "official";
   return db
     .prepare(
       `INSERT INTO learning_sessions
-         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen)
+         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen, purpose)
        VALUES (
          ?1, ?2, ?3,
          (
            SELECT ?4
            WHERE EXISTS (
-             SELECT 1 FROM lessons WHERE id = ?3 AND version = ?4
+             SELECT 1 FROM lessons
+             WHERE id = ?3
+               AND version = ?4
+               AND (ownership_type != 'family' OR owner_parent_id = ?7)
            )
            AND EXISTS (
              SELECT 1 FROM review_approvals
@@ -743,7 +801,8 @@ export function createSessionGuardedInsert(
              )
            )
          ),
-         ?5, ?6, 'in_progress', 0
+         ?5, ?6, 'in_progress', 0,
+         COALESCE((SELECT purpose FROM lessons WHERE id = ?3), ?8)
        )`,
     )
     .bind(
@@ -754,6 +813,7 @@ export function createSessionGuardedInsert(
       input.schoolYearId,
       input.now,
       input.parentId,
+      fallbackPurpose,
     );
 }
 
@@ -765,6 +825,7 @@ export async function createSession(
     lessonId: string;
     lessonVersion: number;
     schoolYearId: string | null;
+    purpose?: "official" | "practice";
     now: number;
   },
 ): Promise<void> {
@@ -779,7 +840,7 @@ export async function findSession(
   const row = await db
     .prepare(
       `SELECT s.id, s.learner_id, s.lesson_id, s.lesson_version, s.school_year_id,
-              s.started_at, s.ended_at, s.status, s.steps_seen, s.continuation_deadline, l.parent_id,
+              s.started_at, s.ended_at, s.status, s.steps_seen, s.continuation_deadline, s.purpose, l.parent_id,
               CASE WHEN s.continuation_deadline IS NOT NULL AND ${SQL_UTC_NOW_MS_EXPR} >= s.continuation_deadline THEN 1 ELSE 0 END AS is_continuation_expired
        FROM learning_sessions s
        JOIN learners l ON l.id = s.learner_id
@@ -796,7 +857,7 @@ export async function findInProgressSessionForLearner(
 ): Promise<(LearningSessionRow & { is_continuation_expired: number }) | null> {
   const row = await db
     .prepare(
-      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline,
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline, purpose,
               CASE WHEN continuation_deadline IS NOT NULL AND ${SQL_UTC_NOW_MS_EXPR} >= continuation_deadline THEN 1 ELSE 0 END AS is_continuation_expired
        FROM learning_sessions WHERE learner_id = ?1 AND status = 'in_progress'
        ORDER BY started_at DESC LIMIT 1`,
@@ -934,7 +995,7 @@ export async function listSessionsForLearner(
 ): Promise<(LearningSessionRow & { is_continuation_expired: number })[]> {
   const result = await db
     .prepare(
-      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline,
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline, purpose,
               CASE WHEN continuation_deadline IS NOT NULL AND ${SQL_UTC_NOW_MS_EXPR} >= continuation_deadline THEN 1 ELSE 0 END AS is_continuation_expired
        FROM learning_sessions WHERE learner_id = ?1 ORDER BY started_at DESC LIMIT ?2`,
     )
@@ -1055,6 +1116,7 @@ export async function recordAttempt(
     helpLevel: number;
     evidenceKind: "observed" | "assisted" | "parent_correction";
     attemptNo: number;
+    purpose?: "official" | "practice";
     now: number;
   },
 ): Promise<void> {
@@ -1082,15 +1144,17 @@ export function attemptInsert(
     helpLevel: number;
     evidenceKind: "observed" | "assisted" | "parent_correction";
     attemptNo: number;
+    purpose?: "official" | "practice";
     now: number;
   },
 ): D1PreparedStatement {
+  const purpose = input.purpose ?? "official";
   return db
     .prepare(
       `INSERT INTO learning_attempts
          (id, session_id, learner_id, lesson_id, step_id, step_version, skill_id,
-          submitted, outcome, help_level, evidence_kind, attempt_no, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+          submitted, outcome, help_level, evidence_kind, attempt_no, purpose, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?14, ?13)`,
     )
     .bind(
       input.id,
@@ -1106,6 +1170,7 @@ export function attemptInsert(
       input.evidenceKind,
       input.attemptNo,
       input.now,
+      purpose,
     );
 }
 
@@ -1144,17 +1209,19 @@ export function attemptInsertGuarded(
     helpLevel: number;
     evidenceKind: "observed" | "assisted" | "parent_correction";
     attemptNo: number;
+    purpose?: "official" | "practice";
     now: number;
     expectedStepAttemptCount: number;
     expectedHintAuditCount: number;
     expectedSkillAttemptCount: number;
   },
 ): D1PreparedStatement {
+  const purpose = input.purpose ?? "official";
   return db
     .prepare(
       `INSERT INTO learning_attempts
          (id, session_id, learner_id, lesson_id, step_id, step_version, skill_id,
-          submitted, outcome, help_level, evidence_kind, attempt_no, created_at)
+          submitted, outcome, help_level, evidence_kind, attempt_no, purpose, created_at)
        VALUES (
          ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
          (
@@ -1210,6 +1277,7 @@ export function attemptInsertGuarded(
              )
            )
          ),
+         ?17,
          ?13
        )`,
     )
@@ -1230,6 +1298,7 @@ export function attemptInsertGuarded(
       input.expectedStepAttemptCount,
       input.expectedHintAuditCount,
       input.expectedSkillAttemptCount,
+      purpose,
     );
 }
 
@@ -1237,7 +1306,7 @@ export async function listAttemptsForSession(db: Db, sessionId: string): Promise
   const result = await db
     .prepare(
       `SELECT id, session_id, learner_id, lesson_id, step_id, step_version, skill_id,
-              submitted, outcome, help_level, evidence_kind, attempt_no, created_at
+              submitted, outcome, help_level, evidence_kind, attempt_no, purpose, created_at
        FROM learning_attempts WHERE session_id = ?1 ORDER BY created_at ASC`,
     )
     .bind(sessionId)
@@ -1249,7 +1318,7 @@ export async function listAttemptsForLearner(db: Db, learnerId: string): Promise
   const result = await db
     .prepare(
       `SELECT id, session_id, learner_id, lesson_id, step_id, step_version, skill_id,
-              submitted, outcome, help_level, evidence_kind, attempt_no, created_at
+              submitted, outcome, help_level, evidence_kind, attempt_no, purpose, created_at
        FROM learning_attempts WHERE learner_id = ?1 ORDER BY created_at ASC`,
     )
     .bind(learnerId)
@@ -2785,8 +2854,8 @@ export async function createOrganizationLesson(
   statements.push(
     db
       .prepare(
-        `INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)`,
+        `INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, ownership_type, owner_parent_id, purpose, source_lesson_id, source_version, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 'organization', NULL, 'official', NULL, NULL, ?10, ?10)`,
       )
       .bind(
         input.lesson.id,
@@ -2824,8 +2893,8 @@ export async function createOrganizationLesson(
     statements.push(
       db
         .prepare(
-          `INSERT INTO lesson_steps (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)`,
+          `INSERT INTO lesson_steps (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, NULL)`,
         )
         .bind(
           step.id,
@@ -2847,6 +2916,135 @@ export async function createOrganizationLesson(
          VALUES (?1, ?2, ?3, 'draft', ?4, ?4)`,
       )
       .bind(input.lesson.id, input.organizationId, input.authorId, input.now),
+  );
+
+  await db.batch(statements);
+}
+
+export async function createFamilyForkedLesson(
+  db: Db,
+  input: {
+    lesson: {
+      id: string;
+      subjectId: string;
+      skillId: string | null;
+      titleVi: string;
+      titleEn: string;
+      objectiveVi: string;
+      objectiveEn: string;
+      gradeFrom: number;
+      gradeTo: number;
+      ownerParentId: string;
+      sourceLessonId: string;
+      sourceVersion: number;
+    };
+    steps: {
+      id: string;
+      position: number;
+      kind: string;
+      content: string;
+      answerKey: string;
+      explanationVi: string;
+      sourceStepId: string;
+    }[];
+    metadata?: {
+      objectiveId: string | null;
+      provenance: "gdpt_2018_objective" | "parent_textbook" | "original_supplemental" | "unverified_assumption";
+      sourceRef: string | null;
+      expectedDurationMinutes: number;
+      reviewRecommendationVi: string | null;
+    } | null;
+    auditId: string;
+    now: number;
+  },
+): Promise<void> {
+  const statements: D1PreparedStatement[] = [
+    db
+      .prepare(
+        `INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, ownership_type, owner_parent_id, purpose, source_lesson_id, source_version, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 'family', ?10, 'practice', ?11, ?12, ?13, ?13)`,
+      )
+      .bind(
+        input.lesson.id,
+        input.lesson.subjectId,
+        input.lesson.skillId,
+        input.lesson.titleVi,
+        input.lesson.titleEn,
+        input.lesson.objectiveVi,
+        input.lesson.objectiveEn,
+        input.lesson.gradeFrom,
+        input.lesson.gradeTo,
+        input.lesson.ownerParentId,
+        input.lesson.sourceLessonId,
+        input.lesson.sourceVersion,
+        input.now,
+      ),
+    db
+      .prepare(
+        `INSERT INTO lesson_versions (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+         VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6)`,
+      )
+      .bind(
+        input.lesson.id,
+        input.lesson.titleVi,
+        input.lesson.titleEn,
+        input.lesson.objectiveVi,
+        input.lesson.objectiveEn,
+        input.now,
+      ),
+  ];
+
+  for (const step of input.steps) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO lesson_steps (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)`,
+        )
+        .bind(
+          step.id,
+          input.lesson.id,
+          step.position,
+          step.kind,
+          step.content,
+          step.answerKey,
+          step.explanationVi,
+          step.sourceStepId,
+        ),
+    );
+  }
+
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO lesson_metadata (lesson_id, objective_id, provenance, source_ref, expected_duration_minutes, review_recommendation_vi, is_baseline, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)`,
+      )
+      .bind(
+        input.lesson.id,
+        input.metadata?.objectiveId ?? null,
+        input.metadata?.provenance ?? "original_supplemental",
+        input.metadata?.sourceRef ?? `fork:${input.lesson.sourceLessonId}@v${input.lesson.sourceVersion}`,
+        input.metadata?.expectedDurationMinutes ?? 20,
+        input.metadata?.reviewRecommendationVi ?? null,
+        input.now,
+      ),
+    db
+      .prepare(
+        `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
+         VALUES (?1, ?2, 'lesson.forked', ?3, ?4, ?5)`,
+      )
+      .bind(
+        input.auditId,
+        `parent:${input.lesson.ownerParentId}`,
+        input.lesson.id,
+        JSON.stringify({
+          sourceLessonId: input.lesson.sourceLessonId,
+          sourceVersion: input.lesson.sourceVersion,
+          stepCount: input.steps.length,
+        }),
+        input.now,
+      ),
   );
 
   await db.batch(statements);
