@@ -153,9 +153,10 @@ export const addOrganizationMemberRoute: Handler = async (context) => {
     userId: body.userId,
     role: body.role,
     now,
+    requesterRole,
   });
   if (!applied) {
-    return badRequest("Không thể hạ vai trò của chủ sở hữu (owner) duy nhất trong tổ chức.");
+    return badRequest("Không thể cập nhật vai trò thành viên (không được phép ghi đè hoặc hạ chủ sở hữu duy nhất).");
   }
 
   return ok<AddOrganizationMemberResponse>({ success: true });

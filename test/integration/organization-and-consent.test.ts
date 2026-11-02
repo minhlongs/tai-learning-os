@@ -531,5 +531,18 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
       json: { organizationId: orgId, lessonId },
     });
     expect(resubmitAfterEditRes.status).toBe(200);
+
+    // Future version approvals (e.g., version 99) or parent approval while org lesson is not org_approved must be rejected with 400
+    const futureVersionApprovalRes = await callWithJar(ownerJar, "/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, status: "approved", version: 99 },
+    });
+    expect(futureVersionApprovalRes.status).toBe(400);
+
+    const unapprovedOrgLessonParentApproveRes = await callWithJar(ownerJar, "/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, status: "approved", version: 2 },
+    });
+    expect(unapprovedOrgLessonParentApproveRes.status).toBe(400);
   });
 });

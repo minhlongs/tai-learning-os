@@ -141,12 +141,21 @@ export const submitOrgLessonReviewRoute: Handler = async (context) => {
     return badRequest("Bài học đã được trung tâm phê duyệt (org_approved), không thể gửi duyệt lại khi chưa cập nhật nội dung mới.");
   }
 
+  const lesson = await repo.findLesson(context.env.DB, body.lessonId);
+  if (!lesson) {
+    return notFound("Không tìm thấy bài học.");
+  }
+
   const now = Date.now();
-  await repo.submitOrganizationLessonForReview(context.env.DB, {
+  const submitted = await repo.submitOrganizationLessonForReview(context.env.DB, {
     lessonId: body.lessonId,
     organizationId: body.organizationId,
+    expectedVersion: lesson.version,
     now,
   });
+  if (!submitted) {
+    return badRequest("Không thể gửi duyệt bài học do phiên bản hoặc trạng thái vừa thay đổi. Vui lòng tải lại.");
+  }
 
   return ok<SubmitOrgLessonReviewResponse>({
     success: true,
@@ -180,11 +189,17 @@ export const reviewOrgLessonRoute: Handler = async (context) => {
     return notFound("Không tìm thấy bài học trong tổ chức.");
   }
 
+  const lesson = await repo.findLesson(context.env.DB, body.lessonId);
+  if (!lesson) {
+    return notFound("Không tìm thấy bài học.");
+  }
+
   const now = Date.now();
   const statements: D1PreparedStatement[] = [
     repo.reviewOrganizationLessonStatement(context.env.DB, {
       lessonId: body.lessonId,
       organizationId: body.organizationId,
+      expectedVersion: lesson.version,
       decision: body.decision,
       reviewedBy: context.parent.parentId,
       note: body.note?.trim() ?? null,
@@ -201,7 +216,10 @@ export const reviewOrgLessonRoute: Handler = async (context) => {
     );
   }
 
-  await context.env.DB.batch(statements);
+  const batchResults = await context.env.DB.batch(statements);
+  if (Number(batchResults[0]?.meta?.changes ?? 0) === 0) {
+    return badRequest("Phiên bản bài học đã thay đổi trong lúc duyệt. Vui lòng tải lại trước khi phê duyệt.");
+  }
 
   return ok<ReviewOrgLessonResponse>({
     success: true,
