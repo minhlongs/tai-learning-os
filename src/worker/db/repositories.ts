@@ -466,10 +466,14 @@ export async function listApprovalStatuses(
   if (learnerId === null || (learnerId !== undefined && learnerId.trim().length === 0)) {
     return {};
   }
+  const assignedVersions = learnerId
+    ? await listAssignedOrgLessonVersionsForLearner(db, learnerId)
+    : new Map<string, number>();
+
   let query = `
-    SELECT ra.lesson_id, ra.status, ra.learner_id
+    SELECT ra.lesson_id, ra.status, ra.learner_id, ra.lesson_version, l.version AS live_version
     FROM review_approvals ra
-    JOIN lessons l ON l.id = ra.lesson_id AND ra.lesson_version = l.version
+    JOIN lessons l ON l.id = ra.lesson_id
     WHERE 1=1
   `;
   const binds: (string | number)[] = [];
@@ -484,11 +488,26 @@ export async function listApprovalStatuses(
     query += " AND ra.learner_id IS NOT NULL";
   }
   const result = binds.length > 0
-    ? await db.prepare(query).bind(...binds).all<{ lesson_id: string; status: ApprovalStatus; learner_id: string | null }>()
-    : await db.prepare(query).all<{ lesson_id: string; status: ApprovalStatus; learner_id: string | null }>();
+    ? await db.prepare(query).bind(...binds).all<{
+        lesson_id: string;
+        status: ApprovalStatus;
+        learner_id: string | null;
+        lesson_version: number;
+        live_version: number;
+      }>()
+    : await db.prepare(query).all<{
+        lesson_id: string;
+        status: ApprovalStatus;
+        learner_id: string | null;
+        lesson_version: number;
+        live_version: number;
+      }>();
   const map: Record<string, ApprovalStatus> = {};
   for (const row of result.results ?? []) {
-    map[row.lesson_id] = row.status;
+    const expectedVersion = assignedVersions.get(row.lesson_id) ?? row.live_version;
+    if (row.lesson_version === expectedVersion) {
+      map[row.lesson_id] = row.status;
+    }
   }
   return map;
 }
@@ -777,7 +796,11 @@ export function createSessionGuardedInsert(
            WHERE EXISTS (
              SELECT 1 FROM lessons
              WHERE id = ?3
-               AND version = ?4
+               AND version >= ?4
+               AND (
+                 version = ?4
+                 OR EXISTS (SELECT 1 FROM organization_lessons WHERE lesson_id = ?3)
+               )
                AND (ownership_type != 'family' OR owner_parent_id = ?7)
            )
            AND EXISTS (
@@ -796,8 +819,11 @@ export function createSessionGuardedInsert(
                JOIN classrooms c ON c.id = cla.classroom_id
                JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?2 AND ce.status = 'enrolled'
                JOIN learner_consents lc ON lc.learner_id = ?2 AND lc.organization_id = c.organization_id AND lc.status = 'active'
-               JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'
+               JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
+               JOIN lessons l ON l.id = cla.lesson_id
                WHERE cla.lesson_id = ?3
+                 AND cla.assigned_version = ?4
+                 AND (ol.review_status = 'org_approved' OR cla.assigned_version < l.version)
              )
            )
          ),
@@ -2358,8 +2384,26 @@ export async function deletePlanItemsForLearner(db: Db, learnerId: string): Prom
 
 export function completeNextScheduledPlanItemStatement(
   db: Db,
-  input: { learnerId: string; lessonId: string; now: number },
+  input: { learnerId: string; lessonId: string; schoolYearLabel?: string | null; now: number },
 ): D1PreparedStatement {
+  if (input.schoolYearLabel) {
+    return db
+      .prepare(
+        `UPDATE learning_plan_items
+         SET status = 'completed',
+             updated_at = ?3
+         WHERE id = (
+           SELECT id FROM learning_plan_items
+           WHERE learner_id = ?1
+             AND lesson_id = ?2
+             AND school_year_label = ?4
+             AND status IN ('scheduled', 'rescheduled')
+           ORDER BY week_index ASC, day_of_week ASC, created_at ASC
+           LIMIT 1
+         )`,
+      )
+      .bind(input.learnerId, input.lessonId, input.now, input.schoolYearLabel);
+  }
   return db
     .prepare(
       `UPDATE learning_plan_items
@@ -3289,6 +3333,7 @@ export async function listClassroomAssignedLessons(
     classroomId: string;
     lessonId: string;
     assignedVersion: number;
+    liveVersion: number;
     titleVi: string;
     subjectId: string;
     gradeFrom: number;
@@ -3302,6 +3347,7 @@ export async function listClassroomAssignedLessons(
     .prepare(
       `SELECT cla.id AS assignmentId, cla.classroom_id AS classroomId, cla.lesson_id AS lessonId,
               COALESCE(cla.assigned_version, l.version, 1) AS assignedVersion,
+              l.version AS liveVersion,
               COALESCE(lv.title_vi, l.title_vi) AS titleVi,
               l.subject_id AS subjectId, l.grade_from AS gradeFrom, l.grade_to AS gradeTo,
               cla.assigned_at AS assignedAt, cla.due_at AS dueAt,
@@ -3320,6 +3366,7 @@ export async function listClassroomAssignedLessons(
       classroomId: string;
       lessonId: string;
       assignedVersion: number;
+      liveVersion: number;
       titleVi: string;
       subjectId: string;
       gradeFrom: number;
@@ -3370,7 +3417,7 @@ export async function getClassroomProgressMatrix(
 
   const assignedRows = await listClassroomAssignedLessons(db, classroomId);
   const assignments = assignedRows
-    .filter((a) => a.orgReviewStatus === "org_approved")
+    .filter((a) => a.orgReviewStatus === "org_approved" || a.assignedVersion < a.liveVersion)
     .map((a) => ({
       lessonId: a.lessonId,
       titleVi: a.titleVi,
@@ -3483,42 +3530,88 @@ export async function getClassroomProgressMatrix(
   return { learners, assignments, progress };
 }
 
-export async function isLessonAssignedToLearner(
+export async function findAssignedLessonVersionForLearner(
   db: Db,
   input: { learnerId: string; lessonId: string },
-): Promise<boolean> {
+): Promise<number | null> {
   const row = await db
     .prepare(
-      `SELECT 1 AS ok
+      `SELECT MAX(cla.assigned_version) AS assigned_version
        FROM classroom_lesson_assignments cla
        JOIN classrooms c ON c.id = cla.classroom_id
        JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
        JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
-       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
+       JOIN lessons l ON l.id = cla.lesson_id
        WHERE cla.lesson_id = ?2
-       LIMIT 1`,
+         AND (ol.review_status = 'org_approved' OR cla.assigned_version < l.version)`,
     )
     .bind(input.learnerId, input.lessonId)
-    .first<{ ok: number }>();
-  return (row?.ok ?? 0) === 1;
+    .first<{ assigned_version: number | null }>();
+  return typeof row?.assigned_version === "number" ? row.assigned_version : null;
+}
+
+export async function isLessonAssignedToLearner(
+  db: Db,
+  input: { learnerId: string; lessonId: string; version?: number },
+): Promise<boolean> {
+  if (input.version !== undefined) {
+    const row = await db
+      .prepare(
+        `SELECT 1 AS ok
+         FROM classroom_lesson_assignments cla
+         JOIN classrooms c ON c.id = cla.classroom_id
+         JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
+         JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
+         JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
+         JOIN lessons l ON l.id = cla.lesson_id
+         WHERE cla.lesson_id = ?2
+           AND cla.assigned_version = ?3
+           AND (ol.review_status = 'org_approved' OR cla.assigned_version < l.version)
+         LIMIT 1`,
+      )
+      .bind(input.learnerId, input.lessonId, input.version)
+      .first<{ ok: number }>();
+    return (row?.ok ?? 0) === 1;
+  }
+  const assignedVer = await findAssignedLessonVersionForLearner(db, {
+    learnerId: input.learnerId,
+    lessonId: input.lessonId,
+  });
+  return assignedVer !== null;
+}
+
+export async function listAssignedOrgLessonVersionsForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<Map<string, number>> {
+  const result = await db
+    .prepare(
+      `SELECT cla.lesson_id, MAX(cla.assigned_version) AS assigned_version
+       FROM classroom_lesson_assignments cla
+       JOIN classrooms c ON c.id = cla.classroom_id
+       JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
+       JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
+       JOIN lessons l ON l.id = cla.lesson_id
+       WHERE (ol.review_status = 'org_approved' OR cla.assigned_version < l.version)
+       GROUP BY cla.lesson_id`,
+    )
+    .bind(learnerId)
+    .all<{ lesson_id: string; assigned_version: number }>();
+  const map = new Map<string, number>();
+  for (const r of result.results ?? []) {
+    map.set(r.lesson_id, Number(r.assigned_version));
+  }
+  return map;
 }
 
 export async function listAssignedOrgLessonIdsForLearner(
   db: Db,
   learnerId: string,
 ): Promise<Set<string>> {
-  const result = await db
-    .prepare(
-      `SELECT cla.lesson_id
-       FROM classroom_lesson_assignments cla
-       JOIN classrooms c ON c.id = cla.classroom_id
-       JOIN classroom_enrollments ce ON ce.classroom_id = c.id AND ce.learner_id = ?1 AND ce.status = 'enrolled'
-       JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
-       JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id AND ol.review_status = 'org_approved'`,
-    )
-    .bind(learnerId)
-    .all<{ lesson_id: string }>();
-  return new Set((result.results ?? []).map((r) => r.lesson_id));
+  const versionMap = await listAssignedOrgLessonVersionsForLearner(db, learnerId);
+  return new Set(versionMap.keys());
 }
 
 export async function listAllOrgLessonIds(db: Db): Promise<Set<string>> {

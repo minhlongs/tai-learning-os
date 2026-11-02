@@ -367,7 +367,7 @@ export const listLessons: Handler = async (context) => {
   }
 
   const lessons = await repo.listLessons(context.env.DB);
-  const [approvalsResult, steps, metadataRows, orgLessonsResult, parentMemberships, assignedOrgLessonsForTarget] =
+  const [approvalsResult, steps, metadataRows, orgLessonsResult, parentMemberships, assignedOrgVersionsForTarget] =
     await Promise.all([
       targetLearner
         ? context.env.DB
@@ -390,8 +390,8 @@ export const listLessons: Handler = async (context) => {
         .bind(context.parent.parentId)
         .all<{ organization_id: string }>(),
       targetLearner
-        ? repo.listAssignedOrgLessonIdsForLearner(context.env.DB, targetLearner.id)
-        : Promise.resolve(new Set<string>()),
+        ? repo.listAssignedOrgLessonVersionsForLearner(context.env.DB, targetLearner.id)
+        : Promise.resolve(new Map<string, number>()),
     ]);
 
   const memberOrgIds = new Set((parentMemberships.results ?? []).map((m) => m.organization_id));
@@ -406,11 +406,19 @@ export const listLessons: Handler = async (context) => {
       return lesson.ownership_type !== "organization";
     }
     if (memberOrgIds.has(orgLesson.organization_id)) return true; // Parent is member/staff of this center
-    if (assignedOrgLessonsForTarget.has(lesson.id)) return true; // Assigned to the target learner
+    if (assignedOrgVersionsForTarget.has(lesson.id)) return true; // Assigned to the target learner
     return false; // Other center's or unassigned sibling's lesson
   });
 
-  const lessonVersionMap = new Map(lessons.map((l) => [l.id, l.version]));
+  const lessonVersionMap = new Map(
+    lessons.map((l) => {
+      const orgLesson = orgLessonMap.get(l.id);
+      if (orgLesson && !memberOrgIds.has(orgLesson.organization_id)) {
+        return [l.id, assignedOrgVersionsForTarget.get(l.id) ?? l.version] as const;
+      }
+      return [l.id, l.version] as const;
+    }),
+  );
   const approvalByLesson = new Map<string, { status: ApprovalStatus; decidedAt: number }>();
   const staleApprovedLessons = new Set<string>();
   for (const row of approvalsResult.results ?? []) {
@@ -447,6 +455,7 @@ export const listLessons: Handler = async (context) => {
             : "catalogue";
       const purpose: LessonPurpose =
         lesson.purpose ?? (ownershipType === "family" ? "practice" : "official");
+      const effectiveVersion = lessonVersionMap.get(lesson.id) ?? lesson.version;
       return {
         id: lesson.id,
         subjectId: lesson.subject_id,
@@ -455,7 +464,7 @@ export const listLessons: Handler = async (context) => {
         objectiveVi: lesson.objective_vi,
         gradeFrom: lesson.grade_from,
         gradeTo: lesson.grade_to,
-        version: lesson.version,
+        version: effectiveVersion,
         approvalStatus: status,
         stepCount: stepCountByLesson.get(lesson.id) ?? 0,
         // Content edits bump the version and updated_at; an approval decided
@@ -500,26 +509,32 @@ export const getLessonDetail: Handler = async (context) => {
 
   // Tenant / visibility check parity: if org lesson, caller must be org member or parent of the assigned target learner
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
+  let pinnedOrgAssignedVersion: number | null = null;
   if (lesson.ownership_type === "organization" || orgLesson) {
     if (!orgLesson) {
       return forbidden("Bạn không có quyền truy cập bài học của trung tâm này.");
     }
     const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
     if (!role) {
-      const assigned = targetLearner
-        ? await repo.isLessonAssignedToLearner(context.env.DB, {
+      pinnedOrgAssignedVersion = targetLearner
+        ? await repo.findAssignedLessonVersionForLearner(context.env.DB, {
             learnerId: targetLearner.id,
             lessonId: lesson.id,
           })
-        : false;
-      if (!assigned) {
+        : null;
+      if (pinnedOrgAssignedVersion === null) {
         return forbidden("Bạn không có quyền truy cập bài học của trung tâm này.");
       }
     }
   }
 
   const queryVersion = context.url.searchParams.get("version");
-  const targetVersion = queryVersion ? parseInt(queryVersion, 10) : lesson.version;
+  const targetVersion = queryVersion
+    ? parseInt(queryVersion, 10)
+    : (pinnedOrgAssignedVersion ?? lesson.version);
+  if (pinnedOrgAssignedVersion !== null && targetVersion !== pinnedOrgAssignedVersion) {
+    return forbidden("Phiên bản bài học này chưa được phân công cho lớp của học sinh.");
+  }
 
   const [steps, approval, versionSnapshot] = await Promise.all([
     repo.listStepsForLesson(context.env.DB, lesson.id, targetVersion),
@@ -622,24 +637,24 @@ export const setLessonApproval: Handler = async (context) => {
 
   // Enforce organization-lesson tenant visibility parity before recording parent approval
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
+  let pinnedOrgAssignedVersion: number | null = null;
   if (lesson.ownership_type === "organization" || orgLesson) {
     if (!orgLesson) {
       return forbidden("Bạn không có quyền phê duyệt bài học của trung tâm này.");
     }
-    if (body.status === "approved" && orgLesson.review_status !== "org_approved") {
-      return badRequest("Bài học của trung tâm chưa được trung tâm phê duyệt (org_approved), không thể phê duyệt cho học sinh.");
-    }
     const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
     if (!role) {
-      const assigned = learnerId
-        ? await repo.isLessonAssignedToLearner(context.env.DB, {
+      pinnedOrgAssignedVersion = learnerId
+        ? await repo.findAssignedLessonVersionForLearner(context.env.DB, {
             learnerId,
             lessonId: lesson.id,
           })
-        : false;
-      if (!assigned) {
+        : null;
+      if (pinnedOrgAssignedVersion === null) {
         return forbidden("Bạn không có quyền phê duyệt bài học của trung tâm này.");
       }
+    } else if (body.status === "approved" && orgLesson.review_status !== "org_approved") {
+      return badRequest("Bài học của trung tâm chưa được trung tâm phê duyệt (org_approved), không thể phê duyệt cho học sinh.");
     }
   }
 
@@ -652,7 +667,13 @@ export const setLessonApproval: Handler = async (context) => {
   ) {
     return badRequest("Phiên bản bài học cần phê duyệt không hợp lệ hoặc vượt quá phiên bản hiện tại.");
   }
-  const version = typeof body.version === "number" ? body.version : lesson.version;
+  const version =
+    typeof body.version === "number"
+      ? body.version
+      : (pinnedOrgAssignedVersion ?? lesson.version);
+  if (pinnedOrgAssignedVersion !== null && version !== pinnedOrgAssignedVersion) {
+    return forbidden("Phiên bản bài học cần phê duyệt không khớp với phiên bản đã phân công cho lớp học.");
+  }
   const now = Date.now();
   const note = typeof body.note === "string" ? body.note.slice(0, 500) : null;
 

@@ -132,12 +132,16 @@ export const exportRecord: Handler = async (context) => {
         .all<{ version: number; description: string }>(),
     ]);
 
-  const learnerVisibleLessons = await filterVisibleLessonsForParent(
-    db,
-    context.parent.parentId,
-    learner.id,
-    rawLessons,
-  );
+  const [learnerVisibleLessons, assignedOrgVersions, allOrgLessonIds] = await Promise.all([
+    filterVisibleLessonsForParent(
+      db,
+      context.parent.parentId,
+      learner.id,
+      rawLessons,
+    ),
+    repo.listAssignedOrgLessonVersionsForLearner(db, learner.id),
+    repo.listAllOrgLessonIds(db),
+  ]);
   const visibleLessonIds = new Set<string>(learnerVisibleLessons.map((l) => l.id));
   const referencedLessonIds = new Set<string>(learnerVisibleLessons.map((l) => l.id));
   for (const row of sessions.results ?? []) referencedLessonIds.add(String(row.lesson_id));
@@ -150,7 +154,7 @@ export const exportRecord: Handler = async (context) => {
 
   // Compute version-scoped authorization set `authorizedLessonVersions`:
   //   - For currently visible lessons (catalogue, owned family lessons, or assigned org lessons),
-  //     the current `l.version` is authorized. For owned family lessons, all versions are owned by this family.
+  //     catalogue lessons use `l.version`, assigned org lessons use `assigned_version`, and owned family lessons authorize all versions.
   //   - For any lesson (including previously assigned org lessons whose current version was edited
   //     after assignment revocation), only the exact `(lesson_id, version)` pairs referenced by the
   //     learner's historical `learning_sessions`, `learning_attempts`, or `review_approvals` are authorized.
@@ -163,7 +167,9 @@ export const exportRecord: Handler = async (context) => {
         authorizedLessonVersions.add(`${l.id}@${v}`);
       }
     } else if (visibleLessonIds.has(l.id)) {
-      authorizedLessonVersions.add(`${l.id}@${l.version}`);
+      const isOrg = l.ownership_type === "organization" || allOrgLessonIds.has(l.id);
+      const pinnedVer = isOrg ? (assignedOrgVersions.get(l.id) ?? l.version) : l.version;
+      authorizedLessonVersions.add(`${l.id}@${pinnedVer}`);
     }
   }
   for (const row of sessions.results ?? []) {
@@ -290,8 +296,9 @@ export const exportRecord: Handler = async (context) => {
       prerequisiteId: String(row.prerequisite_id),
     })),
     lessons: exportableLessons.map((l) => {
+      const isOrg = l.ownership_type === "organization" || allOrgLessonIds.has(l.id);
       const effectiveVer = visibleLessonIds.has(l.id)
-        ? l.version
+        ? (isOrg ? (assignedOrgVersions.get(l.id) ?? l.version) : l.version)
         : maxAuthorizedVersionByLesson.get(l.id)!;
       const pinnedSnapshot = lessonVersionRowMap.get(`${l.id}@${effectiveVer}`);
       return {
@@ -728,17 +735,31 @@ async function detectLessonImportCollision(
   const lessonIds = [...referencedLessonIdSet];
   if (lessonIds.length === 0) return null;
 
-  const [existingLessons, existingVersions, existingSteps] = await Promise.all([
-    repo.listLessons(db),
-    repo.findLessonVersionsForLessons(db, lessonIds),
-    repo.findAllStepsForLessons(db, lessonIds),
+  const [existingLessons, existingVersions, existingSteps, existingSubjects, existingSkills] =
+    await Promise.all([
+      repo.listLessons(db),
+      repo.findLessonVersionsForLessons(db, lessonIds),
+      repo.findAllStepsForLessons(db, lessonIds),
+      repo.listSubjects(db),
+      repo.listSkills(db),
+    ]);
+
+  const existingSubjectIds = new Set<string>([
+    ...existingSubjects.map((s) => s.id),
+    ...(data.subjects ?? []).map((s) => s.id),
+  ]);
+  const existingSkillIds = new Set<string>([
+    ...existingSkills.map((s) => s.id),
+    ...(data.skills ?? []).map((s) => s.id),
   ]);
 
   const existingLessonById = new Map(existingLessons.map((l) => [l.id, l]));
   for (const importedLesson of data.lessons) {
     const existing = existingLessonById.get(importedLesson.id);
     if (!existing) {
-      const importedOwnership = importedLesson.ownershipType ?? "catalogue";
+      const importedOwnership =
+        importedLesson.ownershipType ??
+        (importedLesson.purpose === "practice" ? "family" : "catalogue");
       if (importedOwnership !== "family") {
         return `Xung đột dữ liệu bài học (${importedLesson.id}): không được phép chèn mới bài học thư viện chung hoặc trung tâm từ tệp sao lưu.`;
       }
@@ -749,6 +770,12 @@ async function detectLessonImportCollision(
     const importedOwnership = importedLesson.ownershipType ?? existingOwnership;
     if (existingOwnership !== importedOwnership) {
       return `Xung đột dữ liệu bài học (${importedLesson.id}): loại quyền sở hữu trong tệp (${importedOwnership}) khác với cơ sở dữ liệu (${existingOwnership}).`;
+    }
+    const existingPurpose = existing.purpose ?? (existingOwnership === "family" ? "practice" : "official");
+    const importedPurpose =
+      importedLesson.purpose ?? (importedOwnership === "family" ? "practice" : "official");
+    if (existingPurpose !== importedPurpose) {
+      return `Xung đột dữ liệu bài học (${importedLesson.id}): mục đích bài học trong tệp (${importedPurpose}) khác với cơ sở dữ liệu (${existingPurpose}).`;
     }
     if (existingOwnership === "family" && existing.owner_parent_id !== importingParentId) {
       return `Xung đột dữ liệu bài học (${importedLesson.id}): bài học riêng đã thuộc về một gia đình khác.`;
@@ -799,12 +826,26 @@ async function detectLessonImportCollision(
 
   const importedLessonById = new Map(data.lessons.map((l) => [l.id, l]));
   for (const item of data.learningPlanItems ?? []) {
+    if (!existingSubjectIds.has(item.subjectId)) {
+      return `Xung đột mục kế hoạch (${item.id}): mã môn học (${item.subjectId}) không tồn tại trong hệ thống.`;
+    }
+    if (item.skillId && !existingSkillIds.has(item.skillId)) {
+      return `Xung đột mục kế hoạch (${item.id}): mã kỹ năng (${item.skillId}) không tồn tại trong hệ thống.`;
+    }
     if (!item.lessonId) continue;
     const existing = existingLessonById.get(item.lessonId);
     const imported = importedLessonById.get(item.lessonId);
-    const isPractice =
-      (existing && ((existing.ownership_type ?? "catalogue") === "family" || existing.purpose === "practice")) ||
-      (imported && ((imported.ownershipType ?? "catalogue") === "family" || imported.purpose === "practice"));
+    if (!existing && !imported) {
+      return `Xung đột mục kế hoạch (${item.id}): bài học tham chiếu (${item.lessonId}) không tồn tại trong tệp hoặc hệ thống.`;
+    }
+    const isPractice = existing
+      ? (existing.ownership_type ?? "catalogue") === "family" &&
+        (existing.purpose ?? "practice") === "practice"
+      : imported
+        ? (imported.ownershipType ?? (imported.purpose === "practice" ? "family" : "catalogue")) ===
+            "family" &&
+          (imported.purpose ?? "practice") === "practice"
+        : false;
     if (item.itemKind === "practice" && !isPractice) {
       return `Xung đột mục kế hoạch (${item.id}): mục luyện tập (itemKind = 'practice') chỉ được phép trỏ tới bài luyện tập riêng của gia đình (${item.lessonId}).`;
     }
@@ -1455,7 +1496,7 @@ function filterExportedAuditEvents(
       } else if (action === "goal.created" && subject !== null && scope.goalIds.has(subject)) {
         matchesLearner = true;
       } else if (
-        action.startsWith("planner.item_") &&
+        (action.startsWith("planner.item_") || action === "planner.practice_scheduled") &&
         subject !== null &&
         scope.planItemIds.has(subject)
       ) {

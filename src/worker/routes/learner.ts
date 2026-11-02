@@ -346,34 +346,39 @@ export const startSession: Handler = async (context) => {
     }
   }
 
-  // To start a NEW session (or start a different lesson): check strict approval for (learner.id, lesson.id, lesson.version)
+  // If this is a center-authored lesson, verify center approval and classroom assignment with active consent
+  const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
+  let targetLessonVersion = lesson.version;
+  if (lesson.ownership_type === "organization" || orgLesson) {
+    if (!orgLesson) {
+      return forbidden("Bài học của trung tâm chưa được kiểm duyệt hoàn tất.");
+    }
+    const assignedVersion = await repo.findAssignedLessonVersionForLearner(context.env.DB, {
+      learnerId: learner.id,
+      lessonId: lesson.id,
+    });
+    if (assignedVersion === null) {
+      if (orgLesson.review_status !== "org_approved") {
+        return forbidden("Bài học của trung tâm chưa được kiểm duyệt hoàn tất.");
+      }
+      return forbidden("Bài học này không thuộc lớp học được phân công của học sinh.");
+    }
+    targetLessonVersion = assignedVersion;
+  }
+
+  // To start a NEW session (or start a different lesson): check strict approval for (learner.id, lesson.id, targetLessonVersion)
   const approval = await repo.getApproval(context.env.DB, lesson.id, {
     learnerId: learner.id,
-    version: lesson.version,
+    version: targetLessonVersion,
   });
   if (approval?.status !== "approved" || approval.decided_by !== context.parent.parentId) {
     return forbidden("Bài học này chưa được phụ huynh phê duyệt.");
   }
 
-  // If this is a center-authored lesson, verify center approval and classroom assignment with active consent
-  const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
-  if (lesson.ownership_type === "organization" || orgLesson) {
-    if (!orgLesson || orgLesson.review_status !== "org_approved") {
-      return forbidden("Bài học của trung tâm chưa được kiểm duyệt hoàn tất.");
-    }
-    const assigned = await repo.isLessonAssignedToLearner(context.env.DB, {
-      learnerId: learner.id,
-      lessonId: lesson.id,
-    });
-    if (!assigned) {
-      return forbidden("Bài học này không thuộc lớp học được phân công của học sinh.");
-    }
-  }
-
   // Checked before any session row is written, so a broken lesson leaves nothing behind to resume.
   const [rawNewSteps, newVersionSnapshot] = await Promise.all([
-    loadStepContexts(context.env.DB, lesson.id, lesson.version),
-    repo.findLessonVersion(context.env.DB, lesson.id, lesson.version),
+    loadStepContexts(context.env.DB, lesson.id, targetLessonVersion),
+    repo.findLessonVersion(context.env.DB, lesson.id, targetLessonVersion),
   ]);
   const steps = toStepPayloads(rawNewSteps);
   if (!steps) return serverError();
@@ -403,7 +408,7 @@ export const startSession: Handler = async (context) => {
       learnerId: learner.id,
       parentId: context.parent.parentId,
       lessonId: lesson.id,
-      lessonVersion: lesson.version,
+      lessonVersion: targetLessonVersion,
       schoolYearId,
       purpose: sessionPurpose,
       now: commitNow,
@@ -415,7 +420,7 @@ export const startSession: Handler = async (context) => {
       subject: sessionId,
       detail: JSON.stringify({
         lessonId: lesson.id,
-        lessonVersion: lesson.version,
+        lessonVersion: targetLessonVersion,
         learnerId: learner.id,
         purpose: sessionPurpose,
       }),
@@ -677,35 +682,48 @@ export const finalizeSession: Handler = async (context) => {
   if (session.status === "in_progress") {
     status = "completed";
     const commitNow = Date.now();
-    try {
-      await context.env.DB.batch([
-        repo.finalizeSessionUpdateGuarded(context.env.DB, {
-          sessionId: session.id,
-          learnerId: learner.id,
-          status,
-          stepsSeen: stepsCompleted,
-          endedAt: commitNow,
-        }),
+    const activeSchoolYear = await repo.findActiveSchoolYear(
+      context.env.DB,
+      learner.id,
+      new Date(commitNow).toISOString().slice(0, 10),
+    );
+    const finalizeStatements: D1PreparedStatement[] = [
+      repo.finalizeSessionUpdateGuarded(context.env.DB, {
+        sessionId: session.id,
+        learnerId: learner.id,
+        status,
+        stepsSeen: stepsCompleted,
+        endedAt: commitNow,
+      }),
+    ];
+    if (stepsCompleted > 0) {
+      finalizeStatements.push(
         repo.completeNextScheduledPlanItemStatement(context.env.DB, {
           learnerId: learner.id,
           lessonId: session.lesson_id,
+          schoolYearLabel: activeSchoolYear?.label ?? null,
           now: commitNow,
         }),
-        repo.finalizeSessionAuditInsertGuarded(context.env.DB, {
-          id: crypto.randomUUID(),
-          actor: `parent:${context.parent.parentId}`,
-          sessionId: session.id,
-          learnerId: learner.id,
-          detail: JSON.stringify({
-            lessonId: session.lesson_id,
-            purpose: sessionPurpose,
-            attempted: attempts.length,
-            correct: correctCount,
-            assisted: assistedCount,
-          }),
-          now: commitNow,
+      );
+    }
+    finalizeStatements.push(
+      repo.finalizeSessionAuditInsertGuarded(context.env.DB, {
+        id: crypto.randomUUID(),
+        actor: `parent:${context.parent.parentId}`,
+        sessionId: session.id,
+        learnerId: learner.id,
+        detail: JSON.stringify({
+          lessonId: session.lesson_id,
+          purpose: sessionPurpose,
+          attempted: attempts.length,
+          correct: correctCount,
+          assisted: assistedCount,
         }),
-      ]);
+        now: commitNow,
+      }),
+    );
+    try {
+      await context.env.DB.batch(finalizeStatements);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("NOT NULL constraint failed: audit_events.action")) {
