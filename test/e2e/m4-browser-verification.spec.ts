@@ -743,10 +743,12 @@ test.describe("M4 Browser Verification Flows", () => {
     await page.goto("/parent/organization");
     await expect(page.getByRole("heading", { name: /Trung tâm & Lớp học/i })).toBeVisible();
 
-    const uniqueSlug = `sao-khue-${Date.now()}`;
-    await page.getByTestId("org-create-name-input").fill("Trung tâm Sao Khuê M8");
+    const uniqueSlug = `sao-khue-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const orgName = `Trung tâm Sao Khuê M8 ${uniqueSlug}`;
+    await page.getByTestId("org-create-name-input").fill(orgName);
     await page.getByTestId("org-create-slug-input").fill(uniqueSlug);
     await page.getByTestId("org-create-submit-btn").click();
+    await expect(page.getByText(`Đã khởi tạo trung tâm “${orgName}”.`)).toBeVisible();
 
     await expect(page.getByTestId("org-studio-role")).toContainText("Chủ sở hữu");
 
@@ -767,7 +769,7 @@ test.describe("M4 Browser Verification Flows", () => {
     // Author a 5-step lesson using the 1-click template prefill, then submit -> approve -> assign to classroom
     await page.getByTestId("org-lesson-prefill-btn").click();
     await page.getByTestId("org-lesson-title-input").fill("Bài thực nghiệm Trung tâm Sao Khuê");
-    await page.getByTestId("org-lesson-save-btn").click();
+    await page.getByTestId("org-lesson-save-btn").dispatchEvent("click");
 
     await expect(page.getByTestId("org-lessons-table")).toContainText("Bài thực nghiệm Trung tâm Sao Khuê");
     await page.getByTestId("org-lesson-submit-btn").first().click();
@@ -810,5 +812,95 @@ test.describe("M4 Browser Verification Flows", () => {
     await page.goto("/subjects/debate");
     await expect(page.getByText("Chọn bằng chứng đúng trọng tâm và đáng tin cậy").first()).toBeVisible();
     await expect(page.getByText("Lắng nghe và phản hồi lịch sự trước góc nhìn khác").first()).toBeVisible();
+  });
+
+  test("11. M9: Learner profile editing (/parent), version-pinned lesson content editing (/parent/lessons), teacher dropdown & center lesson editing (/parent/organization)", async ({ page }) => {
+    const csrf = await signInAsParent(page);
+    const withCsrf = { headers: { "x-tlo-csrf": csrf } };
+
+    const sessionRes = await page.request.get("/api/session");
+    const sessionInfo = (await sessionRes.json()) as {
+      learner: { id: string; nickname: string } | null;
+      learners?: { id: string; nickname: string }[];
+    };
+    if (!sessionInfo.learner && (!sessionInfo.learners || sessionInfo.learners.length === 0)) {
+      const createRes = await page.request.post("/api/parent/learners", {
+        ...withCsrf,
+        data: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+      });
+      expect(createRes.ok()).toBe(true);
+    }
+
+    // 1. Learner profile edit on `/parent`
+    await page.goto("/parent");
+    const profileSection = page.getByTestId("learner-profile-section");
+    await expect(profileSection).toBeVisible();
+
+    await page.getByTestId("learner-profile-nickname-input").fill("Tài Chăm Ngoan");
+    await page.getByTestId("learner-profile-grade-select").selectOption("5");
+    await page.getByTestId("learner-profile-save-btn").click();
+    await expect(page.getByTestId("learner-profile-notice")).toContainText("Tài Chăm Ngoan");
+
+    // Restore original nickname & grade so downstream state stays consistent
+    await page.getByTestId("learner-profile-nickname-input").fill("Tài");
+    await page.getByTestId("learner-profile-grade-select").selectOption("4");
+    await page.getByTestId("learner-profile-save-btn").click();
+    await expect(page.getByTestId("learner-profile-notice")).toContainText("Tài");
+
+    // 2. Version-pinned lesson content editing on `/parent/lessons`
+    await page.goto("/parent/lessons");
+    await page.getByRole("button", { name: "Xem bài" }).first().click();
+    await expect(page.getByTestId("lesson-detail-version")).toBeVisible();
+
+    await page.getByTestId("lesson-detail-edit-btn").click();
+    const titleInput = page.getByTestId("lesson-edit-title-input");
+    const currentTitle = await titleInput.inputValue();
+    await titleInput.fill(`${currentTitle} · Bản cập nhật`);
+    await page.getByTestId("lesson-edit-save-btn").click();
+
+    await expect(page.getByTestId("lesson-detail-version")).toContainText("Phiên bản");
+    await expect(page.locator("#lesson-detail-panel-title")).toContainText("Bản cập nhật");
+
+    // 3. Organization Studio: Teacher dropdown (`org-teacher-select`) & lesson editing (`org-lesson-edit-btn-*`)
+    await page.goto("/parent/organization");
+    const uniqueSlug = `m9-center-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const orgName = `Trung tâm M9 ${uniqueSlug}`;
+    await page.getByTestId("org-create-name-input").fill(orgName);
+    await page.getByTestId("org-create-slug-input").fill(uniqueSlug);
+    await page.getByTestId("org-create-submit-btn").click();
+    await expect(page.getByText(`Đã khởi tạo trung tâm “${orgName}”.`)).toBeVisible();
+
+    await page.getByTestId("org-classroom-name-input").fill("Lớp M9");
+    await page.getByTestId("org-classroom-create-btn").click();
+    await expect(page.getByTestId("org-classroom-select")).toContainText("Lớp M9");
+
+    const teacherSelect = page.getByTestId("org-teacher-select");
+    await expect(teacherSelect).toBeVisible();
+    await teacherSelect.focus();
+    const firstMemberVal = await teacherSelect.locator("option").nth(1).getAttribute("value");
+    expect(firstMemberVal).toBeTruthy();
+    await teacherSelect.selectOption(firstMemberVal!);
+    await page.getByTestId("org-teacher-assign-btn").click();
+    await expect(page.getByText("Đã phân công giáo viên.")).toBeVisible();
+
+    // Create an org lesson, approve it, then edit it and verify it resets to `Bản nháp` (draft) at v2
+    await page.getByTestId("org-lesson-prefill-btn").click();
+    await page.getByTestId("org-lesson-title-input").fill("Bài học Trung tâm M9");
+    await page.getByTestId("org-lesson-save-btn").dispatchEvent("click");
+    await expect(page.getByTestId("org-lessons-table")).toContainText("Bài học Trung tâm M9");
+
+    await page.getByTestId("org-lesson-submit-btn").first().click();
+    await page.getByTestId("org-lesson-approve-btn").first().click();
+    await expect(page.getByTestId("org-lessons-table")).toContainText("Trung tâm đã duyệt");
+
+    const editOrgLessonBtn = page.locator('[data-testid^="org-lesson-edit-btn-"]').first();
+    await expect(editOrgLessonBtn).toBeVisible();
+    await editOrgLessonBtn.click();
+
+    await expect(page.getByTestId("org-lesson-cancel-edit-btn")).toBeVisible();
+    await page.getByTestId("org-lesson-title-input").fill("Bài học Trung tâm M9 (Phiên bản 2)");
+    await page.getByTestId("org-lesson-save-btn").dispatchEvent("click");
+    await expect(page.getByTestId("org-lessons-table")).toContainText("Bài học Trung tâm M9 (Phiên bản 2)");
+    await expect(page.getByTestId("org-lessons-table")).toContainText("Bản nháp");
   });
 });

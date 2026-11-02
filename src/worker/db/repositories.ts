@@ -531,6 +531,24 @@ export async function findStepsForLessons(db: Db, lessonIds: readonly string[]):
   return result.results ?? [];
 }
 
+export async function findLessonVersionsForLessons(
+  db: Db,
+  lessonIds: readonly string[],
+): Promise<LessonVersionRow[]> {
+  if (lessonIds.length === 0) return [];
+  const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
+  const result = await db
+    .prepare(
+      `SELECT lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at
+       FROM lesson_versions
+       WHERE lesson_id IN (${placeholders})
+       ORDER BY lesson_id ASC, version ASC`,
+    )
+    .bind(...lessonIds)
+    .all<LessonVersionRow>();
+  return result.results ?? [];
+}
+
 export async function findStep(db: Db, stepId: string): Promise<LessonStepRow | null> {
   const row = await db
     .prepare(

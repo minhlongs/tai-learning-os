@@ -18,6 +18,7 @@ import type { LessonStepKind } from "./schemas/attempt";
 /** Returned by GET /api/session and by every authenticated response. */
 export type SessionInfo = {
   authenticated: boolean;
+  parentId?: string | null;
   parentDisplayName: string | null;
   /** Learner the parent manages, or null when none is enrolled yet. */
   learner: { id: string; nickname: string } | null;
@@ -369,7 +370,14 @@ export type LessonDetailResponse = {
   objectiveVi: string;
   approvalStatus: ApprovalStatus;
   version: number;
-  steps: (LessonStepPayload & { answerKey: unknown })[];
+  steps: {
+    id: string;
+    position: number;
+    kind: LessonStepKind;
+    content: ExerciseSpec;
+    explanationVi: string;
+    answerKey: unknown;
+  }[];
 };
 
 export type SetApprovalRequest = {

@@ -48,6 +48,7 @@ export async function getSessionInfo(context: {
   if (!token) {
     return ok<SessionInfo>({
       authenticated: false,
+      parentId: null,
       parentDisplayName: null,
       learner: null,
       csrfToken: null,
@@ -61,6 +62,7 @@ export async function getSessionInfo(context: {
   if (!verified.ok) {
     return ok<SessionInfo>({
       authenticated: false,
+      parentId: null,
       parentDisplayName: null,
       learner: null,
       csrfToken: null,
@@ -72,6 +74,7 @@ export async function getSessionInfo(context: {
   if (!parent) {
     return ok<SessionInfo>({
       authenticated: false,
+      parentId: null,
       parentDisplayName: null,
       learner: null,
       csrfToken: null,
@@ -83,6 +86,7 @@ export async function getSessionInfo(context: {
 
   return ok<SessionInfo>({
     authenticated: true,
+    parentId: parent.id,
     parentDisplayName: parent.display_name,
     learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
     learners,
@@ -183,6 +187,7 @@ export async function switchSessionMode(context: {
 
   const response = ok<SessionInfo>({
     authenticated: true,
+    parentId: parent.id,
     parentDisplayName: parent.display_name,
     learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
     learners,
@@ -275,6 +280,7 @@ export async function login(context: { request: Request; env: AppEnv }): Promise
 
   const info: SessionInfo = {
     authenticated: true,
+    parentId: parent.id,
     parentDisplayName: parent.display_name,
     learner: learner ? { id: learner.id, nickname: learner.nickname } : null,
     learners,

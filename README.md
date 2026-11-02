@@ -74,10 +74,10 @@ npm run lint
 # Chạy toàn bộ Unit Tests (191 tests across 11 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với workerd D1 (136 tests across 13 files)
+# Chạy toàn bộ Integration Tests với workerd D1 (137 tests across 13 files)
 npm run test:integration
 
-# Chạy Playwright End-to-End Tests (48 tests, Desktop + Tablet + Mobile)
+# Chạy Playwright End-to-End Tests (51 tests, Desktop + Tablet + Mobile)
 npm run test:e2e
 
 # Xác thực toàn diện tất cả các cổng (typecheck, lint, test, validate:lessons, build)

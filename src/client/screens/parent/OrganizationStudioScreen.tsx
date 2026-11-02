@@ -38,6 +38,7 @@ import type {
   CreateOrgLessonResponse,
   EnrollLearnerRequest,
   EnrollLearnerResponse,
+  LessonDetailResponse,
   MemberOrganizationListResponse,
   OrganizationLessonListResponse,
   OrganizationMemberListResponse,
@@ -46,6 +47,8 @@ import type {
   ReviewOrgLessonResponse,
   SubmitOrgLessonReviewRequest,
   SubmitOrgLessonReviewResponse,
+  UpdateContentRequest,
+  UpdateContentResponse,
 } from "../../../shared/api-contract";
 import type { LessonStepKind } from "../../../shared/schemas/attempt";
 import type { MultipleChoiceSpec } from "../../../shared/schemas/exercise";
@@ -210,6 +213,12 @@ export function OrganizationStudioScreen({
         setCreateOrgError(failureMessage(res.failure));
         return;
       }
+      const createdOrg: OrganizationRow = {
+        ...res.value.organization,
+        role: "owner",
+      };
+      setOrganizations((current) => [createdOrg, ...current.filter((o) => o.id !== createdOrg.id)]);
+      setActiveOrgId(createdOrg.id);
       setNewOrgName("");
       setNewOrgSlug("");
       setCreateOrgNotice(`Đã khởi tạo trung tâm “${res.value.organization.name}”.`);
@@ -340,7 +349,13 @@ export function OrganizationStudioScreen({
             <MembersSection key={`members:${activeOrg.id}`} organizationId={activeOrg.id} canManage={canManage} myRole={activeOrg.role} />
             {canManage ? <ConsentSection key={`consent:${activeOrg.id}`} organizationId={activeOrg.id} canManage={canManage} /> : null}
             <ClassroomSection key={`classrooms:${activeOrg.id}`} organizationId={activeOrg.id} canManage={canManage} />
-            <LessonStudioSection key={`lessons:${activeOrg.id}`} organizationId={activeOrg.id} canManage={canManage} />
+            <LessonStudioSection
+              key={`lessons:${activeOrg.id}`}
+              organizationId={activeOrg.id}
+              canManage={canManage}
+              myRole={activeOrg.role}
+              currentUserId={session.parentId ?? null}
+            />
           </>
         ) : null}
       </div>
@@ -626,6 +641,7 @@ function ClassroomSection({
 }): React.JSX.Element {
   const [classrooms, setClassrooms] = useState<ClassroomRow[] | null>(null);
   const [consented, setConsented] = useState<ConsentedLearner[]>([]);
+  const [orgMembers, setOrgMembers] = useState<MemberRow[]>([]);
   const [orgLessons, setOrgLessons] = useState<OrgLessonRow[]>([]);
   const [activeClassroomId, setActiveClassroomId] = useState<string | null>(null);
   const [classLearners, setClassLearners] = useState<{ id: string; nickname: string; grade: number | null }[]>([]);
@@ -672,11 +688,21 @@ function ClassroomSection({
       });
   }, [canManage, organizationId]);
 
+  const loadOrgMembers = useCallback(() => {
+    if (!canManage) return;
+    void api
+      .get<OrganizationMemberListResponse>(`${endpoints.orgMembers}?organizationId=${encodeURIComponent(organizationId)}`)
+      .then((res) => {
+        if (res.ok) setOrgMembers(res.value.members ?? []);
+      });
+  }, [canManage, organizationId]);
+
   useEffect(() => {
     loadClassrooms();
     loadOrgLessons();
     loadConsented();
-  }, [loadClassrooms, loadOrgLessons, loadConsented]);
+    loadOrgMembers();
+  }, [loadClassrooms, loadOrgLessons, loadConsented, loadOrgMembers]);
 
   useEffect(() => {
     if (!activeClassroomId) return;
@@ -741,7 +767,7 @@ function ClassroomSection({
     setError(null);
     setNotice(null);
     if (!activeClassroomId || !teacherId.trim()) {
-      setError("Vui lòng nhập mã giáo viên (userId).");
+      setError("Vui lòng chọn thành viên giáo viên từ danh sách.");
       return;
     }
     const body: AssignClassroomTeacherRequest = { classroomId: activeClassroomId, teacherId: teacherId.trim() };
@@ -888,16 +914,23 @@ function ClassroomSection({
             {canManage ? (
               <form className="org-studio__form" onSubmit={assignTeacher}>
                 <h3 className="org-studio__subtitle">Phân công giáo viên</h3>
-                <label htmlFor="org-teacher-input">
-                  <span>Mã giáo viên (userId)</span>
-                  <input
-                    id="org-teacher-input"
-                    className="input"
-                    data-testid="org-teacher-input"
+                <label htmlFor="org-teacher-select">
+                  <span>Thành viên trung tâm</span>
+                  <select
+                    id="org-teacher-select"
+                    className="select"
+                    data-testid="org-teacher-select"
                     value={teacherId}
                     onChange={(e) => setTeacherId(e.target.value)}
-                    autoComplete="off"
-                  />
+                    onFocus={loadOrgMembers}
+                  >
+                    <option value="">— Chọn giáo viên —</option>
+                    {orgMembers.map((m) => (
+                      <option key={m.userId} value={m.userId}>
+                        {`${m.userId} (${ROLE_LABELS[m.role]})`}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <button type="submit" className="btn" data-testid="org-teacher-assign-btn">
                   Phân công
@@ -996,11 +1029,20 @@ function ClassroomSection({
 function LessonStudioSection({
   organizationId,
   canManage,
+  myRole,
+  currentUserId,
 }: {
   organizationId: string;
   canManage: boolean;
+  myRole: OrganizationRoleContract;
+  currentUserId: string | null;
 }): React.JSX.Element {
   const [lessons, setLessons] = useState<OrgLessonRow[] | null>(null);
+  const [editingLesson, setEditingLesson] = useState<{
+    lessonId: string;
+    expectedVersion: number;
+    stepClientIds: string[];
+  } | null>(null);
   const [titleVi, setTitleVi] = useState("");
   const [objectiveVi, setObjectiveVi] = useState("");
   const [subjectId, setSubjectId] = useState<string>("math");
@@ -1029,6 +1071,66 @@ function LessonStudioSection({
   useEffect(() => {
     load();
   }, [load]);
+
+  const startEditOrgLesson = (lessonId: string) => {
+    setError(null);
+    setNotice(null);
+    setBusy(true);
+    void api
+      .get<LessonDetailResponse>(endpoints.lessonDetail(lessonId))
+      .then((res) => {
+        setBusy(false);
+        if (!res.ok) {
+          setError(failureMessage(res.failure));
+          return;
+        }
+        const detail = res.value;
+        setEditingLesson({
+          lessonId: detail.id,
+          expectedVersion: detail.version,
+          stepClientIds: detail.steps.map((s) => s.id),
+        });
+        setTitleVi(detail.titleVi);
+        setObjectiveVi(detail.objectiveVi);
+        setSubjectId(detail.subjectId);
+        setSteps(
+          detail.steps.map((s, idx) => {
+            if (s.content.type === "multiple_choice") {
+              const correctChoice =
+                s.content.choices.find((c) => c.correct) ?? s.content.choices[0];
+              return {
+                position: s.position,
+                kind: s.kind,
+                content: s.content,
+                answerKey: { correctChoiceId: correctChoice?.id ?? "a" },
+                explanationVi: s.explanationVi,
+              };
+            }
+            const fallback = blankChoiceStep(idx + 1);
+            return {
+              ...fallback,
+              position: s.position,
+              kind: s.kind,
+              content: {
+                ...fallback.content,
+                question_vi: s.content.question_vi,
+              },
+              explanationVi: s.explanationVi,
+            };
+          }),
+        );
+        setNotice(`Đang chỉnh sửa “${detail.titleVi}” (Phiên bản hiện tại: ${detail.version}).`);
+      });
+  };
+
+  const cancelEditOrgLesson = () => {
+    setEditingLesson(null);
+    setTitleVi("");
+    setObjectiveVi("");
+    setSteps(emptyDraftSteps());
+    setNotice(null);
+    setError(null);
+  };
 
   /** Fill the form with a valid 5-step skeleton the author can customize or save directly. */
   const prefill = () => {
@@ -1090,6 +1192,39 @@ function LessonStudioSection({
       )
     ) {
       setError("Mỗi bước cần đủ 3 gợi ý tăng dần để bé không bị bí khi làm bài.");
+      return;
+    }
+    if (editingLesson) {
+      const updateBody: UpdateContentRequest = {
+        lessonId: editingLesson.lessonId,
+        expectedVersion: editingLesson.expectedVersion,
+        titleVi: titleVi.trim(),
+        objectiveVi: objectiveVi.trim(),
+        steps: steps.map((s, idx) => ({
+          clientId: editingLesson.stepClientIds[idx] ?? `${editingLesson.lessonId}-s${s.position}`,
+          position: s.position,
+          kind: s.kind,
+          content: s.content,
+          answerKey: s.answerKey,
+          explanationVi: s.explanationVi.trim(),
+        })),
+      };
+      setBusy(true);
+      void api.post<UpdateContentResponse>(endpoints.updateContent, updateBody).then((res) => {
+        setBusy(false);
+        if (!res.ok) {
+          setError(failureMessage(res.failure));
+          return;
+        }
+        setNotice(
+          `Đã cập nhật bài học lên phiên bản ${res.value.version} (trạng thái trở về Bản nháp).`,
+        );
+        setEditingLesson(null);
+        setTitleVi("");
+        setObjectiveVi("");
+        setSteps(emptyDraftSteps());
+        load();
+      });
       return;
     }
     const gradeStart = Number.parseInt(gradeFrom, 10);
@@ -1192,71 +1327,103 @@ function LessonStudioSection({
             </tr>
           </thead>
           <tbody>
-            {lessons.map((l) => (
-              <tr key={l.lessonId}>
-                <td>
-                  <strong>{l.titleVi}</strong>
-                  <span className="org-studio__cellsub">{l.objectiveVi}</span>
-                </td>
-                <td>{SUBJECT_OPTIONS.find((s) => s.id === l.subjectId)?.labelVi ?? l.subjectId}</td>
-                <td>{l.stepCount}</td>
-                <td>
-                  <span className={`org-studio__pill org-studio__pill--${l.reviewStatus}`}>
-                    {REVIEW_STATUS_LABELS[l.reviewStatus]}
-                  </span>
-                </td>
-                <td className="org-studio__actions">
-                  {l.reviewStatus === "draft" || l.reviewStatus === "org_rejected" ? (
-                    <button
-                      type="button"
-                      className="btn btn--small"
-                      data-testid="org-lesson-submit-btn"
-                      onClick={() => submitForReview(l.lessonId)}
-                    >
-                      Gửi duyệt
-                    </button>
-                  ) : null}
-                  {canManage && l.reviewStatus === "submitted" ? (
-                    <>
-                      <button
-                        type="button"
-                        className="btn btn--small"
-                        data-testid="org-lesson-approve-btn"
-                        onClick={() => review(l.lessonId, "org_approved")}
-                      >
-                        Duyệt
-                      </button>
+            {lessons.map((l) => {
+              const canEdit =
+                canManage || (myRole === "teacher" && l.authorId === currentUserId);
+              return (
+                <tr key={l.lessonId}>
+                  <td>
+                    <strong>{l.titleVi}</strong>
+                    <span className="org-studio__cellsub">{l.objectiveVi}</span>
+                  </td>
+                  <td>{SUBJECT_OPTIONS.find((s) => s.id === l.subjectId)?.labelVi ?? l.subjectId}</td>
+                  <td>{l.stepCount}</td>
+                  <td>
+                    <span className={`org-studio__pill org-studio__pill--${l.reviewStatus}`}>
+                      {REVIEW_STATUS_LABELS[l.reviewStatus]}
+                    </span>
+                  </td>
+                  <td className="org-studio__actions">
+                    {canEdit ? (
                       <button
                         type="button"
                         className="btn btn--small btn--secondary"
-                        data-testid="org-lesson-reject-btn"
-                        onClick={() => review(l.lessonId, "org_rejected")}
+                        data-testid={`org-lesson-edit-btn-${l.lessonId}`}
+                        onClick={() => startEditOrgLesson(l.lessonId)}
+                        disabled={busy}
                       >
-                        Từ chối
+                        Chỉnh sửa
                       </button>
-                    </>
-                  ) : null}
-                  {l.reviewStatus === "org_approved" ? (
-                    <span className="org-studio__hint">Đã duyệt — sẵn sàng giao cho lớp</span>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
+                    ) : null}
+                    {canEdit &&
+                    (l.reviewStatus === "draft" || l.reviewStatus === "org_rejected") ? (
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        data-testid="org-lesson-submit-btn"
+                        onClick={() => submitForReview(l.lessonId)}
+                      >
+                        Gửi duyệt
+                      </button>
+                    ) : null}
+                    {canManage && l.reviewStatus === "submitted" ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn--small"
+                          data-testid="org-lesson-approve-btn"
+                          onClick={() => review(l.lessonId, "org_approved")}
+                        >
+                          Duyệt
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--small btn--secondary"
+                          data-testid="org-lesson-reject-btn"
+                          onClick={() => review(l.lessonId, "org_rejected")}
+                        >
+                          Từ chối
+                        </button>
+                      </>
+                    ) : null}
+                    {l.reviewStatus === "org_approved" ? (
+                      <span className="org-studio__hint">Đã duyệt — sẵn sàng giao cho lớp</span>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
 
       <form className="org-studio__form" onSubmit={submitDraft}>
         <div className="org-studio__formhead">
-          <h3 className="org-studio__subtitle">Soạn bài học mới</h3>
-          <button
-            type="button"
-            className="btn btn--small"
-            data-testid="org-lesson-prefill-btn"
-            onClick={prefill}
-          >
-            Điền sẵn khung 5 bước
-          </button>
+          <h3 className="org-studio__subtitle">
+            {editingLesson
+              ? `Chỉnh sửa bài học (Phiên bản hiện tại: ${editingLesson.expectedVersion})`
+              : "Soạn bài học mới"}
+          </h3>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            {editingLesson ? (
+              <button
+                type="button"
+                className="btn btn--small btn--ghost"
+                data-testid="org-lesson-cancel-edit-btn"
+                onClick={cancelEditOrgLesson}
+              >
+                Hủy chỉnh sửa
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn--small"
+              data-testid="org-lesson-prefill-btn"
+              onClick={prefill}
+            >
+              Điền sẵn khung 5 bước
+            </button>
+          </div>
         </div>
         <div className="org-studio__grid">
           <label htmlFor="org-lesson-title-input">
@@ -1406,7 +1573,11 @@ function LessonStudioSection({
         </div>
 
         <button type="submit" className="btn" data-testid="org-lesson-save-btn" disabled={busy}>
-          {busy ? "Đang lưu…" : "Lưu bản nháp"}
+          {busy
+            ? "Đang lưu…"
+            : editingLesson
+              ? `Lưu thành phiên bản ${editingLesson.expectedVersion + 1}`
+              : "Lưu bản nháp"}
         </button>
       </form>
     </section>
