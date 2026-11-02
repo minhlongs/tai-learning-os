@@ -44,7 +44,7 @@ npm install
 # Áp dụng migrations vào D1 cục bộ
 npm run db:migrate
 
-# Nạp danh mục 5 môn học và 21 bài học mẫu (Toán, Tiếng Anh, Tiếng Việt, Khoa học, Tư duy phản biện)
+# Nạp danh mục 5 môn học và 25 bài học mẫu (Toán, Tiếng Anh, Tiếng Việt, Khoa học, Tư duy phản biện — mỗi môn 5 bài)
 npm run seed:demo
 ```
 
@@ -71,20 +71,24 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (185 tests across 10 files)
+# Chạy toàn bộ Unit Tests (191 tests across 11 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với workerd D1 (134 tests across 13 files)
+# Chạy toàn bộ Integration Tests với workerd D1 (136 tests across 13 files)
 npm run test:integration
 
-# Chạy Playwright End-to-End Tests (45 tests, Desktop + Tablet + Mobile)
+# Chạy Playwright End-to-End Tests (48 tests, Desktop + Tablet + Mobile)
 npm run test:e2e
 
-# Xác thực toàn diện tất cả các cổng (typecheck, lint, test, build)
+# Xác thực toàn diện tất cả các cổng (typecheck, lint, test, validate:lessons, build)
 npm run verify
 
-# Xuất hồ sơ học tập ra tập tin JSON dự phòng
+# Diễn tập sao lưu & khôi phục mã hóa AES-256-GCM tự động trong môi trường cô lập
+npm run backup:drill
+
+# Xuất hồ sơ học tập ra tập tin JSON dự phòng (hoặc mã hóa AES-256-GCM với --passphrase)
 npm run export:learner -- ./backup-tai.json
+npm run export:learner -- ./backup-tai.enc.json --passphrase "mat-khau-sao-luu"
 
 # Mở khóa tạm thời tài khoản phụ huynh khi nhập sai mật khẩu quá 5 lần
 npm run unlock:parent
@@ -105,7 +109,7 @@ tai-learning-os/
 │   ├── PARENT_OPERATIONS.md   # Cẩm nang vận hành dành cho phụ huynh
 │   ├── ROADMAP_90_DAYS.md     # Kế hoạch phát triển và điều kiện triển khai
 │   └── audits/                # Báo cáo kiểm định chất lượng Cổng 01, 02 & 03 (Forensic Audit)
-├── migrations/                # D1 SQL Migrations (0001..0010)
+├── migrations/                # D1 SQL Migrations (0001..0011)
 ├── scripts/                   # Các script công cụ cục bộ (seed, reset, export, hash)
 ├── src/
 │   ├── client/                # React 19 SPA (Screens, Components, Styles)

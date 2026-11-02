@@ -15,6 +15,7 @@ import type {
   ClassroomLessonListResponse,
   CreateOrgLessonRequest,
   CreateOrgLessonResponse,
+  OrganizationLessonListResponse,
   ReviewOrgLessonRequest,
   ReviewOrgLessonResponse,
   SubmitOrgLessonReviewRequest,
@@ -25,6 +26,23 @@ import type { LessonRow } from "../db/schema";
 import * as repo from "../db/repositories";
 import { badRequest, forbidden, notFound, ok, readJsonBody } from "../http/response";
 import type { Handler } from "../http/middleware";
+
+/* ── GET /api/org/lessons ─────────────────────────────────────────────────── */
+
+export const listOrganizationLessonsRoute: Handler = async (context) => {
+  const orgId = context.url.searchParams.get("organizationId");
+  if (!orgId) {
+    return badRequest("Thiếu tham số organizationId.");
+  }
+
+  const role = await repo.findMemberRole(context.env.DB, orgId, context.parent.parentId);
+  if (!role) {
+    return forbidden("Bạn không phải thành viên của tổ chức này.");
+  }
+
+  const lessons = await repo.listOrganizationLessons(context.env.DB, orgId);
+  return ok<OrganizationLessonListResponse>({ lessons });
+};
 
 /* ── POST /api/org/lessons/draft ──────────────────────────────────────────── */
 
@@ -117,6 +135,10 @@ export const submitOrgLessonReviewRoute: Handler = async (context) => {
   const role = await repo.findMemberRole(context.env.DB, body.organizationId, context.parent.parentId);
   if (!role || (role === "teacher" && orgLesson.author_id !== context.parent.parentId)) {
     return forbidden("Bạn không có quyền gửi duyệt bài học này.");
+  }
+
+  if (orgLesson.review_status === "org_approved") {
+    return badRequest("Bài học đã được trung tâm phê duyệt (org_approved), không thể gửi duyệt lại khi chưa cập nhật nội dung mới.");
   }
 
   const now = Date.now();

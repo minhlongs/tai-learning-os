@@ -41,11 +41,13 @@ export type StepContext = {
 };
 
 export class GuardError extends Error {
-  constructor(
-    readonly messageVi: string,
-    readonly status: number = 403,
-  ) {
+  readonly messageVi: string;
+  readonly status: number;
+
+  constructor(messageVi: string, status: number = 403) {
     super(messageVi);
+    this.messageVi = messageVi;
+    this.status = status;
   }
 }
 

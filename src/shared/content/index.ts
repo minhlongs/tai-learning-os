@@ -36,10 +36,14 @@ import { baselineVietnameseGrade4 } from "./vietnamese/baseline-vietnamese-grade
 
 import { waterCycle } from "./science/water-cycle";
 import { plantNeeds } from "./science/plant-needs";
+import { statesOfMatter } from "./science/states-of-matter";
+import { lightAndShadow } from "./science/light-and-shadow";
 import { baselineScienceGrade4 } from "./science/baseline-science-grade4";
 
 import { claimAndReason } from "./debate/claim-and-reason";
 import { factVsOpinion } from "./debate/fact-vs-opinion";
+import { evidenceRelevance } from "./debate/evidence-relevance";
+import { counterargumentRespect } from "./debate/counterargument-respect";
 import { baselineDebateGrade4 } from "./debate/baseline-debate-grade4";
 
 export const LESSONS: readonly LessonDefinition[] = [
@@ -61,9 +65,13 @@ export const LESSONS: readonly LessonDefinition[] = [
   // Khoa học
   waterCycle,
   plantNeeds,
+  statesOfMatter,
+  lightAndShadow,
   // Tư duy phản biện
   claimAndReason,
   factVsOpinion,
+  evidenceRelevance,
+  counterargumentRespect,
   // Khảo sát năng lực đầu vào (Phụ huynh giám sát)
   baselineMathGrade4,
   baselineEnglishGrade4,

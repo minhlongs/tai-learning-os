@@ -701,4 +701,114 @@ test.describe("M4 Browser Verification Flows", () => {
       page.getByText("Nêu ý kiến và đưa ra lý lẽ hỗ trợ").first(),
     ).toBeVisible();
   });
+
+  test("10. M8: B2B2C Organization & Classroom Studio (/parent/organization), 25-lesson Science/Debate parity, and AES-256-GCM encrypted backup export/import", async ({ page }) => {
+    const csrf = await signInAsParent(page);
+    const withCsrf = { headers: { "x-tlo-csrf": csrf } };
+
+    const sessionRes = await page.request.get("/api/session");
+    const sessionInfo = (await sessionRes.json()) as {
+      learner: { id: string; nickname: string } | null;
+      learners?: { id: string; nickname: string }[];
+    };
+    let learner = sessionInfo.learner ?? sessionInfo.learners?.[0] ?? null;
+    if (!learner) {
+      const createRes = await page.request.post("/api/parent/learners", {
+        ...withCsrf,
+        data: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+      });
+      expect(createRes.ok()).toBe(true);
+      const created = (await createRes.json()) as { learner: { id: string; nickname: string } };
+      learner = created.learner;
+    }
+    const learnerId = learner.id;
+    expect(learnerId).toBeTruthy();
+
+    // 1. Approve the new Science (`sci-states-of-matter`, `sci-light-and-shadow`) and Debate (`deb-evidence-relevance`, `deb-counterargument-respect`) lessons
+    for (const lessonId of [
+      "sci-states-of-matter",
+      "sci-light-and-shadow",
+      "deb-evidence-relevance",
+      "deb-counterargument-respect",
+    ]) {
+      const appRes = await page.request.post("/api/parent/lessons/approval", {
+        ...withCsrf,
+        data: { learnerId, lessonId, status: "approved" },
+      });
+      const appBody = await appRes.text();
+      expect(appRes.ok(), `${lessonId}: ${appRes.status()} ${appBody}`).toBe(true);
+    }
+
+    // 2. Navigate to `/parent/organization` and create a B2B2C organization, grant consent, create a classroom, enroll learner, author + submit + approve + assign a 5-step lesson
+    await page.goto("/parent/organization");
+    await expect(page.getByRole("heading", { name: /Trung tâm & Lớp học/i })).toBeVisible();
+
+    const uniqueSlug = `sao-khue-${Date.now()}`;
+    await page.getByTestId("org-create-name-input").fill("Trung tâm Sao Khuê M8");
+    await page.getByTestId("org-create-slug-input").fill(uniqueSlug);
+    await page.getByTestId("org-create-submit-btn").click();
+
+    await expect(page.getByTestId("org-studio-role")).toContainText("Chủ sở hữu");
+
+    // Grant active consent for the current learner directly in the studio
+    await page.getByTestId("org-consent-grant-btn").click();
+    await expect(page.getByTestId("org-consented-learners-table")).toContainText(learner.nickname);
+
+    // Create a classroom
+    await page.getByTestId("org-classroom-name-input").fill("Lớp Khoa học 4A");
+    await page.getByTestId("org-classroom-create-btn").click();
+    await expect(page.getByTestId("org-classroom-select")).toContainText("Lớp Khoa học 4A");
+
+    // Enroll the consented learner into the classroom
+    await page.getByTestId("org-enroll-learner-select").selectOption(learnerId);
+    await page.getByTestId("org-enroll-submit").click();
+    await expect(page.getByTestId("org-classroom-learners")).toContainText(learner.nickname);
+
+    // Author a 5-step lesson using the 1-click template prefill, then submit -> approve -> assign to classroom
+    await page.getByTestId("org-lesson-prefill-btn").click();
+    await page.getByTestId("org-lesson-title-input").fill("Bài thực nghiệm Trung tâm Sao Khuê");
+    await page.getByTestId("org-lesson-save-btn").click();
+
+    await expect(page.getByTestId("org-lessons-table")).toContainText("Bài thực nghiệm Trung tâm Sao Khuê");
+    await page.getByTestId("org-lesson-submit-btn").first().click();
+    await expect(page.getByTestId("org-lessons-table")).toContainText("Chờ duyệt");
+
+    await page.getByTestId("org-lesson-approve-btn").first().click();
+    await expect(page.getByTestId("org-lessons-table")).toContainText("Trung tâm đã duyệt");
+
+    // Assign the org-approved lesson to the classroom
+    const assignSelect = page.getByTestId("org-assign-lesson-select");
+    await assignSelect.focus();
+    const firstApprovedValue = await assignSelect.locator("option").nth(1).getAttribute("value");
+    expect(firstApprovedValue).toBeTruthy();
+    await assignSelect.selectOption(firstApprovedValue!);
+    await page.getByTestId("org-assign-lesson-btn").click();
+    await expect(page.getByTestId("org-classroom-assigned")).toContainText(
+      "Bài thực nghiệm Trung tâm Sao Khuê",
+    );
+
+    // 3. Verify parent sees the classroom-assigned lesson on `/parent/lessons`
+    await page.goto("/parent/lessons");
+    await expect(page.getByText("Bài thực nghiệm Trung tâm Sao Khuê").first()).toBeVisible();
+
+    // 4. Verify AES-256-GCM encrypted backup UI on `/parent/data`
+    await page.goto("/parent/data");
+    const passInput = page.getByTestId("export-passphrase-input");
+    await expect(passInput).toBeVisible();
+    await passInput.fill("mat-khau-aes-gcm-2026");
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: /Tải tệp sao lưu mã hóa AES-256-GCM/i }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toContain("tai-learning-os-export-encrypted-");
+
+    // 5. Verify new Science & Debate lessons appear on Learner Subject screens
+    await page.goto("/subjects/science");
+    await expect(page.getByText("Ba thể của chất và sự chuyển thể").first()).toBeVisible();
+    await expect(page.getByText("Ánh sáng, bóng tối và bảo vệ thị giác").first()).toBeVisible();
+
+    await page.goto("/subjects/debate");
+    await expect(page.getByText("Chọn bằng chứng đúng trọng tâm và đáng tin cậy").first()).toBeVisible();
+    await expect(page.getByText("Lắng nghe và phản hồi lịch sự trước góc nhìn khác").first()).toBeVisible();
+  });
 });

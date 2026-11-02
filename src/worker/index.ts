@@ -64,12 +64,15 @@ import {
   enrollLearnerRoute,
   listClassroomLearnersRoute,
   listClassroomsRoute,
+  listConsentedLearnersForOrgRoute,
+  listMemberOrganizationsRoute,
   listOrganizationMembersRoute,
 } from "./routes/organization";
 import {
   assignClassroomLessonRoute,
   createOrgDraftLessonRoute,
   listClassroomAssignedLessonsRoute,
+  listOrganizationLessonsRoute,
   listParentClassroomLessonsRoute,
   reviewOrgLessonRoute,
   submitOrgLessonReviewRoute,
@@ -124,9 +127,11 @@ const ROUTES: readonly Route[] = [
   parentRoute("GET", /^\/api\/parent\/consents\/organizations$/, listConsentableOrganizations),
 
   // Organization & Classroom routes
+  parentRoute("GET", /^\/api\/org\/list$/, listMemberOrganizationsRoute),
   parentRoute("POST", /^\/api\/org\/create$/, createOrganizationRoute),
   parentRoute("GET", /^\/api\/org\/members$/, listOrganizationMembersRoute),
   parentRoute("POST", /^\/api\/org\/members$/, addOrganizationMemberRoute),
+  parentRoute("GET", /^\/api\/org\/consented-learners$/, listConsentedLearnersForOrgRoute),
   parentRoute("GET", /^\/api\/org\/classrooms$/, listClassroomsRoute),
   parentRoute("POST", /^\/api\/org\/classrooms$/, createClassroomRoute),
   parentRoute("POST", /^\/api\/org\/classrooms\/teachers$/, assignClassroomTeacherRoute),
@@ -134,6 +139,7 @@ const ROUTES: readonly Route[] = [
   parentRoute("GET", /^\/api\/org\/classrooms\/learners$/, listClassroomLearnersRoute),
 
   // Organization Lesson Authoring & Classroom Assignments
+  parentRoute("GET", /^\/api\/org\/lessons$/, listOrganizationLessonsRoute),
   parentRoute("POST", /^\/api\/org\/lessons\/draft$/, createOrgDraftLessonRoute),
   parentRoute("POST", /^\/api\/org\/lessons\/submit$/, submitOrgLessonReviewRoute),
   parentRoute("POST", /^\/api\/org\/lessons\/review$/, reviewOrgLessonRoute),
