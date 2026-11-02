@@ -21,7 +21,17 @@ export function CompletedList({
       {sessions.map((session) => (
         <li key={session.sessionId} className="row">
           <span className="row__main">
-            <span className="row__title">{session.lessonTitleVi}</span>
+            <span className="row__title">
+              {session.lessonTitleVi}{" "}
+              {session.purpose === "practice" ? (
+                <span
+                  className="pill pill--attention"
+                  data-testid={`completed-session-practice-badge-${session.sessionId}`}
+                >
+                  Luyện tập gia đình
+                </span>
+              ) : null}
+            </span>
             <br />
             <span className="row__meta">
               {subjectName(session.subjectId)} · {formatDate(session.completedAt)}

@@ -797,6 +797,22 @@ async function detectLessonImportCollision(
     }
   }
 
+  const importedLessonById = new Map(data.lessons.map((l) => [l.id, l]));
+  for (const item of data.learningPlanItems ?? []) {
+    if (!item.lessonId) continue;
+    const existing = existingLessonById.get(item.lessonId);
+    const imported = importedLessonById.get(item.lessonId);
+    const isPractice =
+      (existing && ((existing.ownership_type ?? "catalogue") === "family" || existing.purpose === "practice")) ||
+      (imported && ((imported.ownershipType ?? "catalogue") === "family" || imported.purpose === "practice"));
+    if (item.itemKind === "practice" && !isPractice) {
+      return `Xung đột mục kế hoạch (${item.id}): mục luyện tập (itemKind = 'practice') chỉ được phép trỏ tới bài luyện tập riêng của gia đình (${item.lessonId}).`;
+    }
+    if (item.itemKind !== "practice" && isPractice) {
+      return `Xung đột mục kế hoạch (${item.id}): bài luyện tập (${item.lessonId}) bắt buộc phải có itemKind = 'practice'.`;
+    }
+  }
+
   const existingVersionByKey = new Map(
     existingVersions.map((lv) => [`${lv.lesson_id}@${lv.version}`, lv]),
   );

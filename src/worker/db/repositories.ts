@@ -2256,7 +2256,7 @@ export async function deleteScheduledPlanItemsForLearner(
 ): Promise<void> {
   await db
     .prepare(
-      "DELETE FROM learning_plan_items WHERE learner_id = ?1 AND school_year_label = ?2 AND status = 'scheduled'",
+      "DELETE FROM learning_plan_items WHERE learner_id = ?1 AND school_year_label = ?2 AND status = 'scheduled' AND item_kind != 'practice'",
     )
     .bind(learnerId, schoolYearLabel)
     .run();
@@ -2354,6 +2354,27 @@ export async function updatePlanItem(
 
 export async function deletePlanItemsForLearner(db: Db, learnerId: string): Promise<void> {
   await db.prepare("DELETE FROM learning_plan_items WHERE learner_id = ?1").bind(learnerId).run();
+}
+
+export function completeNextScheduledPlanItemStatement(
+  db: Db,
+  input: { learnerId: string; lessonId: string; now: number },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE learning_plan_items
+       SET status = 'completed',
+           updated_at = ?3
+       WHERE id = (
+         SELECT id FROM learning_plan_items
+         WHERE learner_id = ?1
+           AND lesson_id = ?2
+           AND status IN ('scheduled', 'rescheduled')
+         ORDER BY week_index ASC, day_of_week ASC, created_at ASC
+         LIMIT 1
+       )`,
+    )
+    .bind(input.learnerId, input.lessonId, input.now);
 }
 
 /* ── Session reflections ────────────────────────────────────────────────── */
@@ -3235,20 +3256,27 @@ export async function assignLessonToClassroom(
     id: string;
     classroomId: string;
     lessonId: string;
+    assignedVersion?: number;
     assignedBy: string;
     dueAt: number | null;
     now: number;
   },
 ): Promise<void> {
+  const assignedVersion =
+    typeof input.assignedVersion === "number" && Number.isInteger(input.assignedVersion) && input.assignedVersion >= 1
+      ? input.assignedVersion
+      : 1;
   await db
     .prepare(
-      `INSERT INTO classroom_lesson_assignments (id, classroom_id, lesson_id, assigned_by, assigned_at, due_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+      `INSERT INTO classroom_lesson_assignments (id, classroom_id, lesson_id, assigned_version, assigned_by, assigned_at, due_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
        ON CONFLICT(classroom_id, lesson_id) DO UPDATE SET
+         assigned_version = excluded.assigned_version,
+         assigned_by = excluded.assigned_by,
          due_at = excluded.due_at,
          assigned_at = excluded.assigned_at`,
     )
-    .bind(input.id, input.classroomId, input.lessonId, input.assignedBy, input.now, input.dueAt)
+    .bind(input.id, input.classroomId, input.lessonId, assignedVersion, input.assignedBy, input.now, input.dueAt)
     .run();
 }
 
@@ -3260,6 +3288,7 @@ export async function listClassroomAssignedLessons(
     assignmentId: string;
     classroomId: string;
     lessonId: string;
+    assignedVersion: number;
     titleVi: string;
     subjectId: string;
     gradeFrom: number;
@@ -3272,12 +3301,15 @@ export async function listClassroomAssignedLessons(
   const result = await db
     .prepare(
       `SELECT cla.id AS assignmentId, cla.classroom_id AS classroomId, cla.lesson_id AS lessonId,
-              l.title_vi AS titleVi, l.subject_id AS subjectId, l.grade_from AS gradeFrom, l.grade_to AS gradeTo,
+              COALESCE(cla.assigned_version, l.version, 1) AS assignedVersion,
+              COALESCE(lv.title_vi, l.title_vi) AS titleVi,
+              l.subject_id AS subjectId, l.grade_from AS gradeFrom, l.grade_to AS gradeTo,
               cla.assigned_at AS assignedAt, cla.due_at AS dueAt,
               ol.review_status AS orgReviewStatus
        FROM classroom_lesson_assignments cla
        JOIN classrooms c ON c.id = cla.classroom_id
        JOIN lessons l ON l.id = cla.lesson_id
+       LEFT JOIN lesson_versions lv ON lv.lesson_id = cla.lesson_id AND lv.version = cla.assigned_version
        JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
        WHERE cla.classroom_id = ?1
        ORDER BY cla.assigned_at DESC`,
@@ -3287,6 +3319,7 @@ export async function listClassroomAssignedLessons(
       assignmentId: string;
       classroomId: string;
       lessonId: string;
+      assignedVersion: number;
       titleVi: string;
       subjectId: string;
       gradeFrom: number;
@@ -3296,6 +3329,158 @@ export async function listClassroomAssignedLessons(
       orgReviewStatus: string;
     }>();
   return result.results ?? [];
+}
+
+export async function getClassroomProgressMatrix(
+  db: Db,
+  classroomId: string,
+): Promise<{
+  learners: { id: string; nickname: string; grade: number | null; enrolledAt: number }[];
+  assignments: {
+    lessonId: string;
+    titleVi: string;
+    subjectId: string;
+    assignedVersion: number;
+    assignedAt: number;
+    dueAt: number | null;
+  }[];
+  progress: {
+    learnerId: string;
+    learnerNickname: string;
+    learnerGrade: number | null;
+    lessonId: string;
+    lessonTitleVi: string;
+    subjectId: string;
+    assignedVersion: number;
+    assignedAt: number;
+    dueAt: number | null;
+    parentApprovalStatus: "draft" | "approved" | "rejected";
+    isParentApproved: boolean;
+    completedSessionCount: number;
+    lastCompletedAt: number | null;
+  }[];
+}> {
+  const enrolledRows = await listEnrolledLearnersInClassroom(db, classroomId);
+  const learners = enrolledRows.map((l) => ({
+    id: l.id,
+    nickname: l.nickname,
+    grade: l.grade,
+    enrolledAt: l.enrolledAt,
+  }));
+
+  const assignedRows = await listClassroomAssignedLessons(db, classroomId);
+  const assignments = assignedRows
+    .filter((a) => a.orgReviewStatus === "org_approved")
+    .map((a) => ({
+      lessonId: a.lessonId,
+      titleVi: a.titleVi,
+      subjectId: a.subjectId,
+      assignedVersion: a.assignedVersion,
+      assignedAt: a.assignedAt,
+      dueAt: a.dueAt,
+    }));
+
+  if (learners.length === 0 || assignments.length === 0) {
+    return { learners, assignments, progress: [] };
+  }
+
+  const approvalRows = await db
+    .prepare(
+      `SELECT ra.learner_id, ra.lesson_id, ra.lesson_version, ra.status
+       FROM review_approvals ra
+       JOIN classroom_enrollments ce ON ce.learner_id = ra.learner_id AND ce.classroom_id = ?1 AND ce.status = 'enrolled'
+       JOIN classrooms c ON c.id = ce.classroom_id
+       JOIN learner_consents lc ON lc.learner_id = ce.learner_id AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN learners l ON l.id = ce.learner_id AND l.archived_at IS NULL AND ra.decided_by = l.parent_id`,
+    )
+    .bind(classroomId)
+    .all<{
+      learner_id: string;
+      lesson_id: string;
+      lesson_version: number;
+      status: "draft" | "approved" | "rejected";
+    }>();
+
+  const approvalMap = new Map<string, "draft" | "approved" | "rejected">();
+  for (const row of approvalRows.results ?? []) {
+    approvalMap.set(`${row.learner_id}:${row.lesson_id}:${row.lesson_version}`, row.status);
+  }
+
+  const sessionStatsRows = await db
+    .prepare(
+      `SELECT ls.learner_id, ls.lesson_id, ls.lesson_version,
+              COUNT(*) AS completedCount,
+              MAX(COALESCE(ls.ended_at, ls.started_at)) AS lastCompletedAt
+       FROM learning_sessions ls
+       JOIN classroom_enrollments ce ON ce.learner_id = ls.learner_id AND ce.classroom_id = ?1 AND ce.status = 'enrolled'
+       JOIN classrooms c ON c.id = ce.classroom_id
+       JOIN learner_consents lc ON lc.learner_id = ce.learner_id AND lc.organization_id = c.organization_id AND lc.status = 'active'
+       JOIN learners l ON l.id = ce.learner_id AND l.archived_at IS NULL
+       WHERE ls.status = 'completed' AND (ls.purpose IS NULL OR ls.purpose = 'official')
+       GROUP BY ls.learner_id, ls.lesson_id, ls.lesson_version`,
+    )
+    .bind(classroomId)
+    .all<{
+      learner_id: string;
+      lesson_id: string;
+      lesson_version: number;
+      completedCount: number;
+      lastCompletedAt: number | null;
+    }>();
+
+  const sessionStatsMap = new Map<string, { completedCount: number; lastCompletedAt: number | null }>();
+  for (const row of sessionStatsRows.results ?? []) {
+    sessionStatsMap.set(`${row.learner_id}:${row.lesson_id}:${row.lesson_version}`, {
+      completedCount: Number(row.completedCount ?? 0),
+      lastCompletedAt: row.lastCompletedAt ?? null,
+    });
+  }
+
+  const progress: {
+    learnerId: string;
+    learnerNickname: string;
+    learnerGrade: number | null;
+    lessonId: string;
+    lessonTitleVi: string;
+    subjectId: string;
+    assignedVersion: number;
+    assignedAt: number;
+    dueAt: number | null;
+    parentApprovalStatus: "draft" | "approved" | "rejected";
+    isParentApproved: boolean;
+    completedSessionCount: number;
+    lastCompletedAt: number | null;
+  }[] = [];
+
+  for (const learner of learners) {
+    for (const assignment of assignments) {
+      const approvalStatus =
+        approvalMap.get(`${learner.id}:${assignment.lessonId}:${assignment.assignedVersion}`) ?? "draft";
+      const stats = sessionStatsMap.get(
+        `${learner.id}:${assignment.lessonId}:${assignment.assignedVersion}`,
+      ) ?? {
+        completedCount: 0,
+        lastCompletedAt: null,
+      };
+      progress.push({
+        learnerId: learner.id,
+        learnerNickname: learner.nickname,
+        learnerGrade: learner.grade,
+        lessonId: assignment.lessonId,
+        lessonTitleVi: assignment.titleVi,
+        subjectId: assignment.subjectId,
+        assignedVersion: assignment.assignedVersion,
+        assignedAt: assignment.assignedAt,
+        dueAt: assignment.dueAt,
+        parentApprovalStatus: approvalStatus,
+        isParentApproved: approvalStatus === "approved",
+        completedSessionCount: stats.completedCount,
+        lastCompletedAt: stats.lastCompletedAt,
+      });
+    }
+  }
+
+  return { learners, assignments, progress };
 }
 
 export async function isLessonAssignedToLearner(

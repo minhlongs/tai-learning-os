@@ -609,5 +609,135 @@ describe("version-scoped lessonVersions, lineage, and practice purpose validatio
     });
     expect(practiceOfficialAttempt.ok).toBe(false);
   });
+
+  it("validates learningPlanItems with itemKind = 'practice' against family practice lessons", () => {
+    const envelope = validEnvelope();
+    const validPracticePlan = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [baseLessonExport()],
+        lessonSteps: [baseStepExport(1, "stp-v1")],
+        learningPlanItems: [
+          {
+            id: "lpi-prac-1",
+            learnerId: "lnr-0001",
+            schoolYearLabel: "2026-2027",
+            weekIndex: 2,
+            dayOfWeek: 4,
+            scheduledDate: "2026-10-15",
+            subjectId: "math",
+            skillId: "math-frac-equiv",
+            lessonId: "les-fam-1",
+            itemKind: "practice",
+            status: "scheduled",
+            durationMinutes: 15,
+            parentNote: "Ôn phân số buổi tối",
+            reasonVi: "Bài luyện tập gia đình do phụ huynh xếp lịch",
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_000_000,
+          },
+        ],
+      },
+    });
+    expect(validPracticePlan.ok).toBe(true);
+
+    // Practice plan item missing lessonId must be rejected
+    const missingLessonId = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [baseLessonExport()],
+        learningPlanItems: [
+          {
+            id: "lpi-prac-missing",
+            learnerId: "lnr-0001",
+            schoolYearLabel: "2026-2027",
+            weekIndex: 1,
+            dayOfWeek: 2,
+            scheduledDate: null,
+            subjectId: "math",
+            skillId: "math-frac-equiv",
+            lessonId: null,
+            itemKind: "practice",
+            status: "scheduled",
+            durationMinutes: 15,
+            parentNote: null,
+            reasonVi: "Thiếu lessonId",
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_000_000,
+          },
+        ],
+      },
+    });
+    expect(missingLessonId.ok).toBe(false);
+
+    // Practice plan item pointing to an official lesson must be rejected
+    const officialLessonInPracticeItem = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [
+          {
+            ...baseLessonExport(),
+            id: "les-cat-1",
+            ownershipType: "catalogue",
+            purpose: "official",
+          },
+        ],
+        learningPlanItems: [
+          {
+            id: "lpi-prac-bad",
+            learnerId: "lnr-0001",
+            schoolYearLabel: "2026-2027",
+            weekIndex: 1,
+            dayOfWeek: 2,
+            scheduledDate: null,
+            subjectId: "math",
+            skillId: "math-frac-equiv",
+            lessonId: "les-cat-1",
+            itemKind: "practice",
+            status: "scheduled",
+            durationMinutes: 15,
+            parentNote: null,
+            reasonVi: "Sai mục đích",
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_000_000,
+          },
+        ],
+      },
+    });
+    expect(officialLessonInPracticeItem.ok).toBe(false);
+
+    // Non-practice plan item pointing to a family practice lesson must be rejected
+    const familyPracticeInOfficialItem = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [baseLessonExport()],
+        learningPlanItems: [
+          {
+            id: "lpi-lesson-bad",
+            learnerId: "lnr-0001",
+            schoolYearLabel: "2026-2027",
+            weekIndex: 1,
+            dayOfWeek: 2,
+            scheduledDate: null,
+            subjectId: "math",
+            skillId: "math-frac-equiv",
+            lessonId: "les-fam-1",
+            itemKind: "lesson",
+            status: "scheduled",
+            durationMinutes: 15,
+            parentNote: null,
+            reasonVi: "Bài luyện tập không được gắn itemKind lesson",
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_000_000,
+          },
+        ],
+      },
+    });
+    expect(familyPracticeInOfficialItem.ok).toBe(false);
+  });
 });
 

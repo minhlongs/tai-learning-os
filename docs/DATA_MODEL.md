@@ -61,6 +61,13 @@ Grouped by role. All 15 tables in `0001_initial_schema.sql`, in declaration orde
 | `audit_events` | **Append-only** audit trail. Every privileged or correcting action lands here. | `actor` (`'parent:<id>'` \| `'system'` \| `'learner:<id>'`), `action` (e.g. `'lesson.approve'`), `subject` (record id acted upon), `detail` (JSON, **non-sensitive metadata only**); index `idx_audit_time` |
 | `content_origin` | Flags lesson content so fixture data can never be confused with, or merged into, the real learner's record. | `origin` CHECK in `('authored','demo','imported')`; PK = `lesson_id` |
 
+### Planner & B2B2C Center Governance (`0005` through `0013`)
+
+| Table | Purpose | Notable columns |
+|---|---|---|
+| `learning_plan_items` | 4-week learning schedule items per learner and school year (`0005_pilot_curriculum_and_planner.sql`, widened in `0013_practice_planner_and_classroom_progress.sql`). | `learner_id`, `school_year_label`, `week_index` (`1..4`), `day_of_week` (`1..7`), `subject_id`, `skill_id`, `lesson_id`, `item_kind` CHECK in `('lesson','review','baseline','practice')`, `status` CHECK in `('scheduled','completed','skipped','rescheduled')`, `duration_minutes`, `parent_note`, `reason_vi` |
+| `classroom_lesson_assignments` | Center-approved lessons assigned to a classroom (`0007_teacher_lesson_workflow.sql`, version-pinned in `0013_practice_planner_and_classroom_progress.sql`). | `classroom_id`, `lesson_id`, `assigned_version` INTEGER NOT NULL DEFAULT 1 (`>= 1`), `assigned_by`, `assigned_at`, `due_at`, UNIQUE `(classroom_id, lesson_id)` |
+
 ### Global schema rules (enforced by the file, stated in its header)
 
 1. Every record carries a **stable, opaque identifier** — never the learner's name.

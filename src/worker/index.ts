@@ -42,6 +42,7 @@ import {
   getLessonDetail,
   getParentDashboard,
   listLessons,
+  schedulePracticePlanItemRoute,
   setLessonApproval,
   transitionSchoolYear,
   updateLearnerProfile,
@@ -72,6 +73,7 @@ import {
 import {
   assignClassroomLessonRoute,
   createOrgDraftLessonRoute,
+  getClassroomProgressRoute,
   listClassroomAssignedLessonsRoute,
   listOrganizationLessonsRoute,
   listParentClassroomLessonsRoute,
@@ -109,6 +111,7 @@ const ROUTES: readonly Route[] = [
   parentRoute("POST", /^\/api\/parent\/baseline$/, evaluateBaselineAssessment),
   parentRoute("GET", /^\/api\/parent\/planner$/, getFourWeekPlan),
   parentRoute("POST", /^\/api\/parent\/planner\/generate$/, generateFourWeekPlanRoute),
+  parentRoute("POST", /^\/api\/parent\/planner\/schedule-practice$/, schedulePracticePlanItemRoute),
   parentRoute("PATCH", /^\/api\/parent\/planner\/item$/, updatePlanItemRoute),
   parentRoute("GET", /^\/api\/parent\/lessons$/, listLessons),
   parentRoute("GET", /^\/api\/parent\/lessons\/[^/]+$/, getLessonDetail),
@@ -147,6 +150,7 @@ const ROUTES: readonly Route[] = [
   parentRoute("POST", /^\/api\/org\/lessons\/review$/, reviewOrgLessonRoute),
   parentRoute("POST", /^\/api\/org\/classrooms\/assign-lesson$/, assignClassroomLessonRoute),
   parentRoute("GET", /^\/api\/org\/classrooms\/assigned-lessons$/, listClassroomAssignedLessonsRoute),
+  parentRoute("GET", /^\/api\/org\/classrooms\/progress$/, getClassroomProgressRoute),
   parentRoute("GET", /^\/api\/parent\/classroom-lessons$/, listParentClassroomLessonsRoute),
 
   parentRoute("POST", /^\/api\/data\/export$/, exportRecord),

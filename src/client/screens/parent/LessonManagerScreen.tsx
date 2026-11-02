@@ -592,7 +592,7 @@ export function LessonManagerScreen({
                     <strong className="row__title">{item.titleVi}</strong>
                     <br />
                     <span className="row__meta">
-                      Môn: {item.subjectId} · Lớp {item.gradeFrom}
+                      Môn: {item.subjectId} · Lớp {item.gradeFrom} · v{item.assignedVersion ?? 1}
                       {item.isParentApproved ? " · Phụ huynh đã duyệt" : " · Chờ phụ huynh duyệt"}
                     </span>
                   </span>

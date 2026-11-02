@@ -25,6 +25,7 @@ export const endpoints = {
   baselineAssessments: "/api/parent/baseline",
   planner: "/api/parent/planner",
   generatePlan: "/api/parent/planner/generate",
+  schedulePracticePlanItem: "/api/parent/planner/schedule-practice",
   updatePlanItem: "/api/parent/planner/item",
   lessons: "/api/parent/lessons",
   lessonDetail: (lessonId: string) => `/api/parent/lessons/${encodeURIComponent(lessonId)}`,
@@ -56,6 +57,7 @@ export const endpoints = {
   orgLessonReview: "/api/org/lessons/review",
   orgClassroomAssignLesson: "/api/org/classrooms/assign-lesson",
   orgClassroomAssignedLessons: "/api/org/classrooms/assigned-lessons",
+  orgClassroomProgress: "/api/org/classrooms/progress",
 
   exportData: "/api/data/export",
   importData: "/api/data/import",

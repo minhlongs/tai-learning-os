@@ -646,7 +646,8 @@ export type LearningPlanItemDto = {
   skillNameVi: string | null;
   lessonId: string | null;
   lessonTitleVi: string | null;
-  itemKind: "lesson" | "review" | "baseline";
+  itemKind: "lesson" | "review" | "baseline" | "practice";
+  purpose?: LessonPurposeContract;
   status: "scheduled" | "completed" | "skipped" | "rescheduled";
   durationMinutes: number;
   parentNote: string | null;
@@ -658,6 +659,14 @@ export type PlannerGetResponse = {
   learnerId: string | null;
   schoolYearLabel: string;
   items: LearningPlanItemDto[];
+  availablePracticeLessons?: {
+    id: string;
+    subjectId: string;
+    skillId: string | null;
+    titleVi: string;
+    version: number;
+    approvalStatus?: ApprovalStatus;
+  }[];
   summary: {
     todayCount: number;
     upcomingCount: number;
@@ -672,6 +681,17 @@ export type GeneratePlanRequest = {
   schoolYearLabel?: string;
   sessionsPerWeek?: number;
   sessionDurationMinutes?: number;
+};
+
+export type SchedulePracticePlanItemRequest = {
+  learnerId?: string;
+  schoolYearLabel?: string;
+  lessonId: string;
+  weekIndex: number;
+  dayOfWeek: number;
+  scheduledDate?: string | null;
+  durationMinutes?: number;
+  parentNote?: string | null;
 };
 
 export type UpdatePlanItemRequest = {
@@ -934,6 +954,7 @@ export type AssignClassroomLessonRequest = {
 export type AssignClassroomLessonResponse = {
   success: boolean;
   assignmentId: string;
+  assignedVersion?: number;
 };
 
 export type ClassroomLessonListResponse = {
@@ -944,10 +965,55 @@ export type ClassroomLessonListResponse = {
     subjectId: string;
     gradeFrom: number;
     gradeTo: number;
+    assignedVersion?: number;
     assignedAt: number;
     dueAt: number | null;
     isParentApproved: boolean;
   }[];
+};
+
+export type ClassroomLearnerProgressItem = {
+  learnerId: string;
+  learnerNickname: string;
+  learnerGrade: number | null;
+  lessonId: string;
+  lessonTitleVi: string;
+  subjectId: string;
+  assignedVersion: number;
+  assignedAt: number;
+  dueAt: number | null;
+  parentApprovalStatus: ApprovalStatus;
+  isParentApproved: boolean;
+  completedSessionCount: number;
+  lastCompletedAt: number | null;
+};
+
+export type ClassroomLearnerSummaryItem = {
+  id: string;
+  learnerId: string;
+  nickname: string;
+  grade: number | null;
+  enrolledAt: number;
+  assignedCount: number;
+  parentApprovedCount: number;
+  completedCount: number;
+};
+
+export type ClassroomProgressResponse = {
+  classroomId: string;
+  classroomName?: string;
+  organizationId: string;
+  assignedLessonCount: number;
+  learners: ClassroomLearnerSummaryItem[];
+  assignments: {
+    lessonId: string;
+    titleVi: string;
+    subjectId: string;
+    assignedVersion: number;
+    assignedAt: number;
+    dueAt: number | null;
+  }[];
+  progress: ClassroomLearnerProgressItem[];
 };
 
 // --- Errors ---------------------------------------------------------------

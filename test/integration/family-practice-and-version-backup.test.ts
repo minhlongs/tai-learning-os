@@ -718,4 +718,171 @@ describe("Family Practice Lessons, Mastery Isolation, and Version-Safe Backup", 
     ).bind(targetCat.id).first<{ review_recommendation_vi: string | null }>();
     expect(catMetaRow?.review_recommendation_vi).not.toBe("Tampered");
   });
+
+  it("schedules owned family practice lessons in the 4-week planner, preserves them across official plan regeneration, and round-trips via export/import", async () => {
+    const parentA = crypto.randomUUID();
+    const parentB = crypto.randomUUID();
+    const learnerA = crypto.randomUUID();
+    const now = Date.now();
+    const jarA = await createJar(parentA, "Phụ huynh Lịch học", "parent");
+
+    await env.DB.prepare(
+      "INSERT INTO parents (id, password_hash, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4), (?5, ?2, ?6, ?4, ?4)"
+    ).bind(parentA, "hash", "Phụ huynh A", now, parentB, "Phụ huynh B").run();
+
+    await repo.createLearner(env.DB, {
+      id: learnerA,
+      parentId: parentA,
+      nickname: "Bé Kiên",
+      birthYear: 2016,
+      grade: 4,
+      timezone: "Asia/Ho_Chi_Minh",
+      now,
+    });
+
+    const catLesson = await env.DB.prepare("SELECT id FROM lessons WHERE ownership_type = 'catalogue' LIMIT 1").first<{ id: string }>();
+    const catLessonId = catLesson!.id;
+
+    // Fork a family practice lesson for parentA
+    const forkRes = await callWithJar(jarA, "/api/parent/lessons/fork", {
+      method: "POST",
+      json: { sourceLessonId: catLessonId, titleVi: "Bài luyện tập phân số tối thứ Tư" },
+    });
+    expect(forkRes.status).toBe(200);
+    const { lessonId: practiceLessonId } = (await forkRes.json()) as { lessonId: string };
+
+    // Fork a family practice lesson for parentB (foreign family)
+    const jarB = await createJar(parentB, "Phụ huynh B", "parent");
+    const forkBRes = await callWithJar(jarB, "/api/parent/lessons/fork", {
+      method: "POST",
+      json: { sourceLessonId: catLessonId, titleVi: "Bài riêng gia đình B" },
+    });
+    expect(forkBRes.status).toBe(200);
+    const { lessonId: foreignPracticeId } = (await forkBRes.json()) as { lessonId: string };
+
+    // Refuses scheduling a catalogue lesson as practice (403)
+    const scheduleCatRes = await callWithJar(jarA, "/api/parent/planner/schedule-practice", {
+      method: "POST",
+      json: { learnerId: learnerA, lessonId: catLessonId, weekIndex: 1, dayOfWeek: 3 },
+    });
+    expect(scheduleCatRes.status).toBe(403);
+
+    // Refuses scheduling another family's practice lesson (403)
+    const scheduleForeignRes = await callWithJar(jarA, "/api/parent/planner/schedule-practice", {
+      method: "POST",
+      json: { learnerId: learnerA, lessonId: foreignPracticeId, weekIndex: 1, dayOfWeek: 3 },
+    });
+    expect(scheduleForeignRes.status).toBe(403);
+
+    // Schedules owned family practice lesson into Week 2, Day 4
+    const scheduleRes = await callWithJar(jarA, "/api/parent/planner/schedule-practice", {
+      method: "POST",
+      json: {
+        learnerId: learnerA,
+        lessonId: practiceLessonId,
+        weekIndex: 2,
+        dayOfWeek: 4,
+        durationMinutes: 20,
+        parentNote: "Làm cùng bố 20 phút",
+      },
+    });
+    expect(scheduleRes.status).toBe(200);
+    const scheduleBody = (await scheduleRes.json()) as {
+      items: { id: string; lessonId: string | null; itemKind: string; purpose?: string; lessonTitleVi: string | null }[];
+      availablePracticeLessons?: { id: string; titleVi: string }[];
+    };
+    const practiceItem = scheduleBody.items.find((i) => i.lessonId === practiceLessonId);
+    expect(practiceItem).toBeDefined();
+    expect(practiceItem?.itemKind).toBe("practice");
+    expect(practiceItem?.purpose).toBe("practice");
+    expect(practiceItem?.lessonTitleVi).toBe("Bài luyện tập phân số tối thứ Tư");
+    expect(scheduleBody.availablePracticeLessons?.some((l) => l.id === practiceLessonId)).toBe(true);
+    expect(scheduleBody.availablePracticeLessons?.some((l) => l.id === foreignPracticeId)).toBe(false);
+
+    // Regenerating the official 4-week plan preserves the scheduled practice item and never auto-schedules practice lessons as 'lesson'
+    const genRes = await callWithJar(jarA, "/api/parent/planner/generate", {
+      method: "POST",
+      json: { learnerId: learnerA, sessionsPerWeek: 4, sessionDurationMinutes: 15 },
+    });
+    expect(genRes.status).toBe(200);
+    const genBody = (await genRes.json()) as {
+      items: { id: string; lessonId: string | null; itemKind: string; purpose?: string }[];
+    };
+    expect(genBody.items.some((i) => i.id === practiceItem!.id && i.itemKind === "practice")).toBe(true);
+    expect(genBody.items.some((i) => i.lessonId === practiceLessonId && i.itemKind === "lesson")).toBe(false);
+
+    // Export -> Delete learner -> Import preserves the scheduled practice item
+    const expRes = await callWithJar(jarA, "/api/data/export", { method: "POST" });
+    expect(expRes.status).toBe(200);
+    const envelope = (await expRes.json()) as ExportEnvelope;
+    expect(
+      (envelope.data.learningPlanItems ?? []).some(
+        (i) => i.id === practiceItem!.id && i.itemKind === "practice" && i.lessonId === practiceLessonId,
+      ),
+    ).toBe(true);
+
+    // Attempting to import a tampered practice item pointing to a catalogue lesson is rejected
+    const tamperedPracticeItem: ExportEnvelope = JSON.parse(JSON.stringify(envelope));
+    tamperedPracticeItem.data.learningPlanItems = (tamperedPracticeItem.data.learningPlanItems ?? []).map((i) =>
+      i.id === practiceItem!.id ? { ...i, lessonId: catLessonId } : i,
+    );
+    await callWithJar(jarA, "/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId: learnerA, confirmation: "XOA Bé Kiên" },
+    });
+    const badImpRes = await callWithJar(jarA, "/api/data/import", {
+      method: "POST",
+      json: tamperedPracticeItem,
+    });
+    expect(badImpRes.status).toBe(400);
+
+    // Valid import succeeds and restores the scheduled practice item (under the newly assigned learnerId)
+    const goodImpRes = await callWithJar(jarA, "/api/data/import", {
+      method: "POST",
+      json: envelope,
+    });
+    expect(goodImpRes.status).toBe(200);
+
+    const afterPlanRes = await callWithJar(jarA, "/api/parent/planner");
+    expect(afterPlanRes.status).toBe(200);
+    const afterPlan = (await afterPlanRes.json()) as {
+      learnerId: string | null;
+      items: { id: string; itemKind: string; lessonId: string | null; purpose?: string; status: string }[];
+    };
+    expect(
+      afterPlan.items.some(
+        (i) => i.id === practiceItem!.id && i.itemKind === "practice" && i.lessonId === practiceLessonId && i.purpose === "practice" && i.status === "scheduled",
+      ),
+    ).toBe(true);
+
+    // Approve, start, and finalize a session on the scheduled practice lesson:
+    // completing the session automatically marks the scheduled practice plan item 'completed'.
+    const restoredLearnerId = afterPlan.learnerId!;
+    const approvePracRes = await callWithJar(jarA, "/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId: practiceLessonId, learnerId: restoredLearnerId, version: 1, status: "approved" },
+    });
+    expect(approvePracRes.status).toBe(200);
+
+    const learnerJar = await createJar(parentA, "Phụ huynh A", "learner");
+    const startPracRes = await callWithJar(learnerJar, "/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId: practiceLessonId, learnerId: restoredLearnerId },
+    });
+    expect(startPracRes.status).toBe(200);
+    const { sessionId: pracSessionId } = (await startPracRes.json()) as { sessionId: string };
+
+    const finPracRes = await callWithJar(learnerJar, "/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: pracSessionId, learnerId: restoredLearnerId },
+    });
+    expect(finPracRes.status).toBe(200);
+
+    const completedPlanRes = await callWithJar(jarA, "/api/parent/planner");
+    expect(completedPlanRes.status).toBe(200);
+    const completedPlan = (await completedPlanRes.json()) as {
+      items: { id: string; status: string }[];
+    };
+    expect(completedPlan.items.find((i) => i.id === practiceItem!.id)?.status).toBe("completed");
+  });
 });

@@ -15,10 +15,11 @@
  *   - Add parent notes to any scheduled item
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   PlannerGetResponse,
   LearningPlanItemDto,
+  SchedulePracticePlanItemRequest,
   UpdatePlanItemRequest,
 } from "../../../shared/api-contract";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
@@ -49,6 +50,7 @@ const KIND_LABELS: Record<string, string> = {
   lesson: "Bài học mới",
   review: "Ôn tập ngắt quãng",
   baseline: "Quan sát đầu vào",
+  practice: "Luyện tập gia đình",
 };
 
 export function FourWeekPlannerScreen({
@@ -61,6 +63,11 @@ export function FourWeekPlannerScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [schedulingPractice, setSchedulingPractice] = useState(false);
+  const [practiceLessonId, setPracticeLessonId] = useState("");
+  const [practiceWeekIndex, setPracticeWeekIndex] = useState<number>(1);
+  const [practiceDayOfWeek, setPracticeDayOfWeek] = useState<number>(1);
+  const [practiceNote, setPracticeNote] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -150,7 +157,44 @@ export function FourWeekPlannerScreen({
       });
   };
 
+  const handleSchedulePractice = (event: FormEvent) => {
+    event.preventDefault();
+    if (!practiceLessonId) {
+      setNote({ tone: "error", text: "Vui lòng chọn một bản luyện tập gia đình để xếp lịch." });
+      return;
+    }
+    const targetLearnerId = data?.learnerId ?? session.learner?.id ?? readActiveLearnerId();
+    setSchedulingPractice(true);
+    setNote(null);
+    const body: SchedulePracticePlanItemRequest = {
+      learnerId: targetLearnerId ?? undefined,
+      lessonId: practiceLessonId,
+      weekIndex: practiceWeekIndex,
+      dayOfWeek: practiceDayOfWeek,
+      parentNote: practiceNote.trim() || null,
+    };
+    void api
+      .post<PlannerGetResponse>(endpoints.schedulePracticePlanItem, body)
+      .then((result) => {
+        if (!mountedRef.current) return;
+        if (targetLearnerId && readActiveLearnerId() && readActiveLearnerId() !== targetLearnerId) return;
+        setSchedulingPractice(false);
+        if (!result.ok) {
+          setNote({ tone: "error", text: failureMessage(result.failure) });
+          return;
+        }
+        setPracticeNote("");
+        setSelectedWeek(practiceWeekIndex);
+        setData(result.value);
+        setNote({
+          tone: "ok",
+          text: `Đã xếp lịch luyện tập gia đình vào Tuần ${practiceWeekIndex} (${DAY_LABELS[practiceDayOfWeek] ?? `Thứ ${practiceDayOfWeek}`}).`,
+        });
+      });
+  };
+
   const items = data?.items ?? [];
+  const availablePracticeLessons = data?.availablePracticeLessons ?? [];
   const weekItems = items.filter((item) => item.weekIndex === selectedWeek);
 
   const todayStr = new Date().toISOString().split("T")[0];
@@ -190,6 +234,129 @@ export function FourWeekPlannerScreen({
             {generating ? "Đang phân tích & lập kế hoạch…" : "Tạo / Cập nhật lại kế hoạch 4 tuần"}
           </button>
         </div>
+
+        {data ? (
+          <section
+            className="card"
+            aria-labelledby="schedule-practice-title"
+            data-testid="schedule-practice-section"
+            style={{ marginBottom: "1rem" }}
+          >
+            <h2 className="card__title" id="schedule-practice-title">
+              Giao bài luyện tập gia đình vào kế hoạch 4 tuần
+            </h2>
+            <p className="card__note">
+              Bài luyện tập gia đình do phụ huynh tự tạo không tính vào bằng chứng tự làm độc lập (INDEPENDENT) và vẫn được giữ nguyên khi cập nhật lại kế hoạch 4 tuần tự động.
+            </p>
+            {availablePracticeLessons.length === 0 ? (
+              <p className="card__note" data-testid="no-practice-lessons-note">
+                Chưa có bản luyện tập gia đình nào. Hãy tạo bản luyện tập riêng trong phần{" "}
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => onNavigate("/parent/lessons")}
+                >
+                  Quản lý bài học
+                </button>
+                .
+              </p>
+            ) : (
+              <form
+                onSubmit={handleSchedulePractice}
+                data-testid="schedule-practice-form"
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.75rem",
+                  alignItems: "flex-end",
+                  marginTop: "0.5rem",
+                }}
+              >
+                <div>
+                  <label className="field__label" htmlFor="practice-lesson-select">
+                    Bài luyện tập gia đình
+                  </label>
+                  <select
+                    id="practice-lesson-select"
+                    data-testid="practice-lesson-select"
+                    className="select"
+                    value={practiceLessonId}
+                    onChange={(e) => setPracticeLessonId(e.target.value)}
+                    disabled={schedulingPractice}
+                  >
+                    <option value="">— Chọn bài luyện tập —</option>
+                    {availablePracticeLessons.map((lesson) => (
+                      <option key={lesson.id} value={lesson.id}>
+                        {lesson.titleVi} ({lesson.subjectId.toUpperCase()} · v{lesson.version})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="field__label" htmlFor="practice-week-select">
+                    Tuần
+                  </label>
+                  <select
+                    id="practice-week-select"
+                    data-testid="practice-week-select"
+                    className="select"
+                    value={practiceWeekIndex}
+                    onChange={(e) => setPracticeWeekIndex(Number(e.target.value))}
+                    disabled={schedulingPractice}
+                  >
+                    {[1, 2, 3, 4].map((wk) => (
+                      <option key={wk} value={wk}>
+                        Tuần {wk}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="field__label" htmlFor="practice-day-select">
+                    Thứ trong tuần
+                  </label>
+                  <select
+                    id="practice-day-select"
+                    data-testid="practice-day-select"
+                    className="select"
+                    value={practiceDayOfWeek}
+                    onChange={(e) => setPracticeDayOfWeek(Number(e.target.value))}
+                    disabled={schedulingPractice}
+                  >
+                    {Object.entries(DAY_LABELS).map(([day, label]) => (
+                      <option key={day} value={day}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="field__label" htmlFor="practice-note-input">
+                    Ghi chú (tùy chọn)
+                  </label>
+                  <input
+                    id="practice-note-input"
+                    data-testid="practice-note-input"
+                    className="input"
+                    type="text"
+                    value={practiceNote}
+                    onChange={(e) => setPracticeNote(e.target.value)}
+                    placeholder="VD: Ôn nhẹ cuối tuần"
+                    disabled={schedulingPractice}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn btn--secondary"
+                  data-testid="schedule-practice-submit"
+                  disabled={schedulingPractice}
+                >
+                  {schedulingPractice ? "Đang xếp lịch…" : "Xếp lịch luyện tập"}
+                </button>
+              </form>
+            )}
+          </section>
+        ) : null}
 
         {data && items.length === 0 ? (
           <EmptyPanel title="Chưa có kế hoạch nào được lập">
@@ -252,7 +419,20 @@ export function FourWeekPlannerScreen({
                             <span className="pill">{item.subjectId.toUpperCase()}</span>
                             <span className="pill">{item.durationMinutes} phút</span>
                             <span className="pill">{STATUS_LABELS[item.status]}</span>
+                            {item.itemKind === "practice" || item.purpose === "practice" ? (
+                              <span
+                                className="pill pill--attention"
+                                data-testid={`plan-item-practice-badge-${item.id}`}
+                              >
+                                Luyện tập gia đình · Không tính độc lập
+                              </span>
+                            ) : null}
                           </div>
+                          {item.lessonTitleVi ? (
+                            <p className="row__meta" style={{ marginTop: "0.25rem" }}>
+                              <strong>Bài học:</strong> {item.lessonTitleVi}
+                            </p>
+                          ) : null}
                           <p className="row__meta" style={{ marginTop: "0.25rem" }}>
                             <strong>Lý do xếp:</strong> {item.reasonVi}
                           </p>

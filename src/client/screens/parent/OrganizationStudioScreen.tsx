@@ -29,6 +29,7 @@ import type {
   ClassroomLearnersResponse,
   ClassroomLessonListResponse,
   ClassroomListResponse,
+  ClassroomProgressResponse,
   ConsentedOrgLearnersResponse,
   CreateClassroomRequest,
   CreateClassroomResponse,
@@ -66,6 +67,7 @@ type MemberRow = OrganizationMemberListResponse["members"][number];
 type OrgLessonRow = OrganizationLessonListResponse["lessons"][number];
 type ConsentedLearner = ConsentedOrgLearnersResponse["learners"][number];
 type AssignedLesson = ClassroomLessonListResponse["lessons"][number];
+type ClassroomProgressLearner = ClassroomProgressResponse["learners"][number];
 
 type PolymorphicDraftStep = {
   position: number;
@@ -646,6 +648,7 @@ function ClassroomSection({
   const [activeClassroomId, setActiveClassroomId] = useState<string | null>(null);
   const [classLearners, setClassLearners] = useState<{ id: string; nickname: string; grade: number | null }[]>([]);
   const [assigned, setAssigned] = useState<AssignedLesson[]>([]);
+  const [progressLearners, setProgressLearners] = useState<ClassroomProgressLearner[]>([]);
 
   const [classroomName, setClassroomName] = useState("");
   const [classroomGrade, setClassroomGrade] = useState("4");
@@ -713,6 +716,9 @@ function ClassroomSection({
     void api.get<ClassroomLessonListResponse>(`${endpoints.orgClassroomAssignedLessons}?${q}`).then((res) => {
       if (res.ok) setAssigned(res.value.lessons ?? []);
     });
+    void api.get<ClassroomProgressResponse>(`${endpoints.orgClassroomProgress}?${q}`).then((res) => {
+      if (res.ok) setProgressLearners(res.value.learners ?? []);
+    });
   }, [activeClassroomId]);
 
   /**
@@ -738,6 +744,9 @@ function ClassroomSection({
         });
         void api.get<ClassroomLessonListResponse>(`${endpoints.orgClassroomAssignedLessons}?${q}`).then((r) => {
           if (r.ok) setAssigned(r.value.lessons ?? []);
+        });
+        void api.get<ClassroomProgressResponse>(`${endpoints.orgClassroomProgress}?${q}`).then((r) => {
+          if (r.ok) setProgressLearners(r.value.learners ?? []);
         });
       }
     });
@@ -863,6 +872,7 @@ function ClassroomSection({
               <thead>
                 <tr>
                   <th scope="col">Bài học</th>
+                  <th scope="col">Phiên bản giao</th>
                   <th scope="col">Phụ huynh đã duyệt</th>
                 </tr>
               </thead>
@@ -870,7 +880,38 @@ function ClassroomSection({
                 {assigned.map((a) => (
                   <tr key={`${a.classroomId}:${a.lessonId}`}>
                     <td>{a.titleVi}</td>
+                    <td>{`v${a.assignedVersion ?? 1}`}</td>
                     <td>{a.isParentApproved ? "Đã duyệt" : "Chưa duyệt"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <h3 className="org-studio__subtitle">Tiến độ lớp học (chỉ hiện bé có chấp thuận hiệu lực)</h3>
+          {progressLearners.length === 0 ? (
+            <p className="org-studio__hint" data-testid="org-classroom-progress-empty">
+              Chưa có dữ liệu tiến độ cho lớp này.
+            </p>
+          ) : (
+            <table className="org-studio__table" data-testid="org-classroom-progress">
+              <thead>
+                <tr>
+                  <th scope="col">Bé</th>
+                  <th scope="col">Lớp</th>
+                  <th scope="col">Bài đã giao</th>
+                  <th scope="col">Phụ huynh đã duyệt</th>
+                  <th scope="col">Đã hoàn thành</th>
+                </tr>
+              </thead>
+              <tbody>
+                {progressLearners.map((p) => (
+                  <tr key={p.learnerId} data-testid={`org-progress-row-${p.learnerId}`}>
+                    <td>{p.nickname}</td>
+                    <td>{p.grade ? `Lớp ${p.grade}` : "—"}</td>
+                    <td>{p.assignedCount}</td>
+                    <td>{`${p.parentApprovedCount}/${p.assignedCount}`}</td>
+                    <td>{`${p.completedCount}/${p.assignedCount}`}</td>
                   </tr>
                 ))}
               </tbody>

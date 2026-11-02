@@ -686,6 +686,11 @@ export const finalizeSession: Handler = async (context) => {
           stepsSeen: stepsCompleted,
           endedAt: commitNow,
         }),
+        repo.completeNextScheduledPlanItemStatement(context.env.DB, {
+          learnerId: learner.id,
+          lessonId: session.lesson_id,
+          now: commitNow,
+        }),
         repo.finalizeSessionAuditInsertGuarded(context.env.DB, {
           id: crypto.randomUUID(),
           actor: `parent:${context.parent.parentId}`,
@@ -720,6 +725,7 @@ export const finalizeSession: Handler = async (context) => {
       assistedCount,
       maxHelpLevel,
       stepsCompleted,
+      purpose: sessionPurpose,
       skillsPracticed,
       nextReview,
     },

@@ -33,6 +33,7 @@ import type {
   ParentDashboardResponse,
   PlannerGetResponse,
   ProvenanceType,
+  SchedulePracticePlanItemRequest,
   SchoolYearTransitionRequest,
   SchoolYearTransitionResponse,
   SetApprovalRequest,
@@ -1709,14 +1710,25 @@ async function buildFourWeekPlanResponse(
     repo.listBaselineAssessmentsForLearner(context.env.DB, learner.id),
     repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
   ]);
-  const lessons = (
-    await filterVisibleLessonsForParent(
-      context.env.DB,
-      context.parent.parentId,
-      learner.id,
-      allLessons,
+  const visibleLessons = await filterVisibleLessonsForParent(
+    context.env.DB,
+    context.parent.parentId,
+    learner.id,
+    allLessons,
+  );
+  const availablePracticeLessons = visibleLessons
+    .filter(
+      (l) =>
+        (l.ownership_type === "family" || l.purpose === "practice") &&
+        l.owner_parent_id === context.parent.parentId,
     )
-  ).filter((l) => (l.purpose ?? "official") === "official");
+    .map((l) => ({
+      id: l.id,
+      subjectId: l.subject_id,
+      skillId: l.skill_id,
+      titleVi: l.title_vi,
+      version: l.version,
+    }));
 
   const resolvedSchoolYearLabel =
     preferredSchoolYearLabel ??
@@ -1726,30 +1738,40 @@ async function buildFourWeekPlanResponse(
   const yearItems = items.filter((i) => i.school_year_label === resolvedSchoolYearLabel);
 
   const skillById = new Map(skills.map((s) => [s.id, s]));
-  const lessonById = new Map(lessons.map((l) => [l.id, l]));
+  const lessonById = new Map(visibleLessons.map((l) => [l.id, l]));
   const now = Date.now();
   const reviewDueCount = reviewRows.filter((r) => r.due_at <= now).length;
   const needsParentReviewCount = baselines.filter((b) => b.parent_review_required === 1).length;
 
-  const dtos = yearItems.map((item) => ({
-    id: item.id,
-    learnerId: item.learner_id,
-    schoolYearLabel: item.school_year_label,
-    weekIndex: item.week_index,
-    dayOfWeek: item.day_of_week,
-    scheduledDate: item.scheduled_date,
-    subjectId: item.subject_id,
-    skillId: item.skill_id,
-    skillNameVi: item.skill_id ? (skillById.get(item.skill_id)?.name_vi ?? null) : null,
-    lessonId: item.lesson_id,
-    lessonTitleVi: item.lesson_id ? (lessonById.get(item.lesson_id)?.title_vi ?? null) : null,
-    itemKind: item.item_kind,
-    status: item.status,
-    durationMinutes: item.duration_minutes,
-    parentNote: item.parent_note,
-    reasonVi: item.reason_vi,
-    updatedAt: item.updated_at,
-  }));
+  const dtos = yearItems.map((item) => {
+    const matchedLesson = item.lesson_id ? lessonById.get(item.lesson_id) : undefined;
+    const itemPurpose: LessonPurpose =
+      item.item_kind === "practice" ||
+      matchedLesson?.ownership_type === "family" ||
+      matchedLesson?.purpose === "practice"
+        ? "practice"
+        : "official";
+    return {
+      id: item.id,
+      learnerId: item.learner_id,
+      schoolYearLabel: item.school_year_label,
+      weekIndex: item.week_index,
+      dayOfWeek: item.day_of_week,
+      scheduledDate: item.scheduled_date,
+      subjectId: item.subject_id,
+      skillId: item.skill_id,
+      skillNameVi: item.skill_id ? (skillById.get(item.skill_id)?.name_vi ?? null) : null,
+      lessonId: item.lesson_id,
+      lessonTitleVi: matchedLesson?.title_vi ?? null,
+      itemKind: item.item_kind,
+      purpose: itemPurpose,
+      status: item.status,
+      durationMinutes: item.duration_minutes,
+      parentNote: item.parent_note,
+      reasonVi: item.reason_vi,
+      updatedAt: item.updated_at,
+    };
+  });
 
   const scheduled = dtos.filter((d) => d.status === "scheduled" || d.status === "rescheduled");
   const todayCount = scheduled.filter((d) => d.weekIndex === 1).slice(0, 1).length;
@@ -1760,6 +1782,7 @@ async function buildFourWeekPlanResponse(
     learnerId: learner.id,
     schoolYearLabel: resolvedSchoolYearLabel,
     items: dtos,
+    availablePracticeLessons,
     summary: {
       todayCount,
       upcomingCount,
@@ -1982,6 +2005,114 @@ export const updatePlanItemRoute: Handler = async (context) => {
   });
 
   return buildFourWeekPlanResponse(context, learner, current.school_year_label);
+};
+
+/* ── POST /api/parent/planner/schedule-practice ───────────────────────────── */
+
+export const schedulePracticePlanItemRoute: Handler = async (context) => {
+  const parsed = await readJsonBody(context.request, 8_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<SchedulePracticePlanItemRequest> & { learnerId?: unknown };
+
+  const { learner, explicitlyRequested } = await resolveTargetLearner(context, body.learnerId);
+  if (!learner) {
+    if (explicitlyRequested) {
+      return notFound("Không tìm thấy hồ sơ người học.");
+    }
+    return badRequest("Vui lòng tạo hồ sơ người học trước khi xếp lịch bài luyện tập.");
+  }
+
+  if (typeof body.lessonId !== "string" || body.lessonId.trim().length === 0) {
+    return badRequest("Thiếu mã bài luyện tập cần xếp lịch.");
+  }
+  const weekIndex = optionalIntIn(body.weekIndex, 1, 4);
+  if (weekIndex === null) {
+    return badRequest("Tuần học phải nằm trong khoảng 1 đến 4.");
+  }
+  const dayOfWeek = optionalIntIn(body.dayOfWeek, 1, 7);
+  if (dayOfWeek === null) {
+    return badRequest("Ngày trong tuần phải nằm trong khoảng 1 đến 7.");
+  }
+
+  const lesson = await repo.findLesson(context.env.DB, body.lessonId.trim());
+  if (!lesson) {
+    return notFound("Không tìm thấy bài học.");
+  }
+  if (lesson.ownership_type === "family" && lesson.owner_parent_id !== context.parent.parentId) {
+    return forbidden("Bài luyện tập này không thuộc quyền sở hữu của gia đình bạn.");
+  }
+  if (
+    lesson.ownership_type !== "family" ||
+    lesson.owner_parent_id !== context.parent.parentId ||
+    (lesson.purpose ?? "practice") !== "practice"
+  ) {
+    return forbidden("Chỉ được xếp lịch bài luyện tập riêng của gia đình vào khung luyện tập.");
+  }
+
+  const [items, activeSchoolYear] = await Promise.all([
+    repo.listLearningPlanItemsForLearner(context.env.DB, learner.id),
+    repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
+  ]);
+  const requestedSchoolYear =
+    typeof body.schoolYearLabel === "string" && body.schoolYearLabel.trim().length > 0
+      ? body.schoolYearLabel.trim().slice(0, 32)
+      : null;
+  const schoolYearLabel =
+    requestedSchoolYear ??
+    (activeSchoolYear && items.some((i) => i.school_year_label === activeSchoolYear.label)
+      ? activeSchoolYear.label
+      : (items[0]?.school_year_label ?? activeSchoolYear?.label ?? "2026-2027"));
+  const scheduledDate =
+    typeof body.scheduledDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.scheduledDate.trim())
+      ? body.scheduledDate.trim()
+      : null;
+
+  const durationMinutes =
+    optionalIntIn(body.durationMinutes ?? 20, 10, 60) ?? DEFAULT_PLANNER_CONFIG.sessionDurationMinutes;
+  const parentNote =
+    typeof body.parentNote === "string" && body.parentNote.trim().length > 0
+      ? body.parentNote.trim().slice(0, 500)
+      : null;
+
+  const now = Date.now();
+  const itemId = crypto.randomUUID();
+  await repo.insertPlanItem(context.env.DB, {
+    item: {
+      id: itemId,
+      learner_id: learner.id,
+      school_year_label: schoolYearLabel,
+      week_index: weekIndex,
+      day_of_week: dayOfWeek,
+      scheduled_date: scheduledDate,
+      subject_id: lesson.subject_id,
+      skill_id: lesson.skill_id,
+      lesson_id: lesson.id,
+      item_kind: "practice",
+      status: "scheduled",
+      duration_minutes: durationMinutes,
+      parent_note: parentNote,
+      reason_vi: "Bài luyện tập riêng do phụ huynh xếp lịch (không tính điểm độc lập).",
+      created_at: now,
+      updated_at: now,
+    },
+  });
+
+  await repo.recordAudit(context.env.DB, {
+    id: crypto.randomUUID(),
+    actor: `parent:${context.parent.parentId}`,
+    action: "planner.practice_scheduled",
+    subject: itemId,
+    detail: JSON.stringify({
+      learnerId: learner.id,
+      lessonId: lesson.id,
+      weekIndex,
+      dayOfWeek,
+      schoolYearLabel,
+    }),
+    now,
+  });
+
+  return buildFourWeekPlanResponse(context, learner, schoolYearLabel);
 };
 
 /* ── POST /api/parent/school-years ────────────────────────────────────────── */

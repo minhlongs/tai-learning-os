@@ -13,6 +13,7 @@ import type {
   AssignClassroomLessonRequest,
   AssignClassroomLessonResponse,
   ClassroomLessonListResponse,
+  ClassroomProgressResponse,
   CreateOrgLessonRequest,
   CreateOrgLessonResponse,
   OrganizationLessonListResponse,
@@ -276,6 +277,12 @@ export const assignClassroomLessonRoute: Handler = async (context) => {
     return forbidden("Bài học chưa được trung tâm phê duyệt (org_approved) hoặc không thuộc tổ chức này.");
   }
 
+  const lessonRow = await repo.findLesson(context.env.DB, body.lessonId);
+  if (!lessonRow) {
+    return notFound("Không tìm thấy bài học.");
+  }
+  const assignedVersion = lessonRow.version;
+
   const assignmentId = crypto.randomUUID();
   const now = Date.now();
 
@@ -283,6 +290,7 @@ export const assignClassroomLessonRoute: Handler = async (context) => {
     id: assignmentId,
     classroomId: body.classroomId,
     lessonId: body.lessonId,
+    assignedVersion,
     assignedBy: context.parent.parentId,
     dueAt: body.dueAt ?? null,
     now,
@@ -291,6 +299,7 @@ export const assignClassroomLessonRoute: Handler = async (context) => {
   return ok<AssignClassroomLessonResponse>({
     success: true,
     assignmentId,
+    assignedVersion,
   });
 };
 
@@ -332,10 +341,73 @@ export const listClassroomAssignedLessonsRoute: Handler = async (context) => {
       subjectId: l.subjectId,
       gradeFrom: l.gradeFrom,
       gradeTo: l.gradeTo,
+      assignedVersion: l.assignedVersion,
       assignedAt: l.assignedAt,
       dueAt: l.dueAt,
       isParentApproved: false,
     })),
+  });
+};
+
+/* ── GET /api/org/classrooms/progress ─────────────────────────────────────── */
+
+export const getClassroomProgressRoute: Handler = async (context) => {
+  const classroomId = context.url.searchParams.get("classroomId")?.trim();
+  if (!classroomId) {
+    return badRequest("Thiếu tham số classroomId.");
+  }
+
+  const classroom = await context.env.DB
+    .prepare("SELECT organization_id, name FROM classrooms WHERE id = ?1")
+    .bind(classroomId)
+    .first<{ organization_id: string; name: string }>();
+
+  if (!classroom) {
+    return notFound("Không tìm thấy lớp học.");
+  }
+
+  const role = await repo.findMemberRole(context.env.DB, classroom.organization_id, context.parent.parentId);
+  if (!role) {
+    return forbidden("Bạn không phải thành viên của tổ chức quản lý lớp học này.");
+  }
+
+  if (role === "teacher") {
+    const isAssigned = await repo.isTeacherAssignedToClassroom(
+      context.env.DB,
+      classroomId,
+      context.parent.parentId,
+    );
+    if (!isAssigned) {
+      return forbidden("Giáo viên chỉ có quyền xem tiến độ của lớp học được phân công.");
+    }
+  }
+
+  const matrix = await repo.getClassroomProgressMatrix(context.env.DB, classroomId);
+  const assignedLessonCount = matrix.assignments.length;
+  const learners = matrix.learners.map((learner) => {
+    const learnerProgress = matrix.progress.filter((p) => p.learnerId === learner.id);
+    const parentApprovedCount = learnerProgress.filter((p) => p.isParentApproved).length;
+    const completedCount = learnerProgress.filter((p) => p.completedSessionCount > 0).length;
+    return {
+      id: learner.id,
+      learnerId: learner.id,
+      nickname: learner.nickname,
+      grade: learner.grade,
+      enrolledAt: learner.enrolledAt,
+      assignedCount: assignedLessonCount,
+      parentApprovedCount,
+      completedCount,
+    };
+  });
+
+  return ok<ClassroomProgressResponse>({
+    classroomId,
+    classroomName: classroom.name,
+    organizationId: classroom.organization_id,
+    assignedLessonCount,
+    learners,
+    assignments: matrix.assignments,
+    progress: matrix.progress,
   });
 };
 
@@ -377,10 +449,9 @@ export const listParentClassroomLessonsRoute: Handler = async (context) => {
     const assigned = await repo.listClassroomAssignedLessons(context.env.DB, cid);
     for (const a of assigned) {
       if (a.orgReviewStatus !== "org_approved") continue;
-      const lessonRow = await repo.findLesson(context.env.DB, a.lessonId);
       const approval = await repo.getApproval(context.env.DB, a.lessonId, {
         learnerId: learner.id,
-        version: lessonRow?.version,
+        version: a.assignedVersion,
       });
       lessons.push({
         lessonId: a.lessonId,
@@ -389,6 +460,7 @@ export const listParentClassroomLessonsRoute: Handler = async (context) => {
         subjectId: a.subjectId,
         gradeFrom: a.gradeFrom,
         gradeTo: a.gradeTo,
+        assignedVersion: a.assignedVersion,
         assignedAt: a.assignedAt,
         dueAt: a.dueAt,
         isParentApproved: approval?.status === "approved" && approval.decided_by === context.parent.parentId && approval.learner_id === learner.id,
