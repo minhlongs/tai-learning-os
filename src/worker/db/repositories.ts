@@ -2420,8 +2420,16 @@ export async function listConsentedLearnersForOrganization(
 
 export async function addOrganizationMember(
   db: Db,
-  input: { id: string; organizationId: string; userId: string; role: OrganizationRole; now: number },
+  input: {
+    id: string;
+    organizationId: string;
+    userId: string;
+    role: OrganizationRole;
+    now: number;
+    requesterRole?: OrganizationRole;
+  },
 ): Promise<boolean> {
+  const effectiveRequesterRole = input.requesterRole ?? "owner";
   const result = await db
     .prepare(
       `INSERT INTO organization_members (id, organization_id, user_id, role, created_at, updated_at)
@@ -2429,17 +2437,28 @@ export async function addOrganizationMember(
        ON CONFLICT(organization_id, user_id) DO UPDATE SET
          role = excluded.role,
          updated_at = excluded.updated_at
-       WHERE organization_members.role != 'owner'
-          OR excluded.role = 'owner'
-          OR (
-            SELECT COUNT(*)
-            FROM organization_members om2
-            WHERE om2.organization_id = excluded.organization_id
-              AND om2.role = 'owner'
-              AND om2.user_id != excluded.user_id
-          ) >= 1`,
+       WHERE (?6 = 'owner' OR organization_members.role != 'owner')
+         AND (?6 = 'owner' OR excluded.role != 'owner')
+         AND (
+           organization_members.role != 'owner'
+           OR excluded.role = 'owner'
+           OR (
+             SELECT COUNT(*)
+             FROM organization_members om2
+             WHERE om2.organization_id = excluded.organization_id
+               AND om2.role = 'owner'
+               AND om2.user_id != excluded.user_id
+           ) >= 1
+         )`,
     )
-    .bind(input.id, input.organizationId, input.userId, input.role, input.now)
+    .bind(
+      input.id,
+      input.organizationId,
+      input.userId,
+      input.role,
+      input.now,
+      effectiveRequesterRole,
+    )
     .run();
   return Number(result.meta?.changes ?? 0) > 0;
 }
@@ -2900,16 +2919,22 @@ export async function listOrganizationLessons(
 
 export async function submitOrganizationLessonForReview(
   db: Db,
-  input: { lessonId: string; organizationId: string; now: number },
-): Promise<void> {
-  await db
+  input: { lessonId: string; organizationId: string; expectedVersion: number; now: number },
+): Promise<boolean> {
+  const result = await db
     .prepare(
       `UPDATE organization_lessons
        SET review_status = 'submitted', updated_at = ?1
-       WHERE lesson_id = ?2 AND organization_id = ?3`,
+       WHERE lesson_id = ?2
+         AND organization_id = ?3
+         AND review_status != 'org_approved'
+         AND EXISTS (
+           SELECT 1 FROM lessons l WHERE l.id = ?2 AND l.version = ?4
+         )`,
     )
-    .bind(input.now, input.lessonId, input.organizationId)
+    .bind(input.now, input.lessonId, input.organizationId, input.expectedVersion)
     .run();
+  return Number(result.meta?.changes ?? 0) > 0;
 }
 
 export function resetOrganizationLessonToDraftStatement(
@@ -2928,11 +2953,24 @@ export function resetOrganizationLessonToDraftStatement(
     .bind(input.now, input.lessonId, input.organizationId);
 }
 
+export function deleteFutureApprovalsForLessonStatement(
+  db: Db,
+  input: { lessonId: string; minVersion: number },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `DELETE FROM review_approvals
+       WHERE lesson_id = ?1 AND lesson_version >= ?2`,
+    )
+    .bind(input.lessonId, input.minVersion);
+}
+
 export function reviewOrganizationLessonStatement(
   db: Db,
   input: {
     lessonId: string;
     organizationId: string;
+    expectedVersion: number;
     decision: "org_approved" | "org_rejected";
     reviewedBy: string;
     note: string | null;
@@ -2943,7 +2981,11 @@ export function reviewOrganizationLessonStatement(
     .prepare(
       `UPDATE organization_lessons
        SET review_status = ?1, reviewed_by = ?2, reviewed_at = ?3, review_note = ?4, updated_at = ?3
-       WHERE lesson_id = ?5 AND organization_id = ?6`,
+       WHERE lesson_id = ?5
+         AND organization_id = ?6
+         AND EXISTS (
+           SELECT 1 FROM lessons l WHERE l.id = ?5 AND l.version = ?7
+         )`,
     )
     .bind(
       input.decision,
@@ -2952,6 +2994,7 @@ export function reviewOrganizationLessonStatement(
       input.note,
       input.lessonId,
       input.organizationId,
+      input.expectedVersion,
     );
 }
 
@@ -2960,6 +3003,7 @@ export async function reviewOrganizationLesson(
   input: {
     lessonId: string;
     organizationId: string;
+    expectedVersion: number;
     decision: "org_approved" | "org_rejected";
     reviewedBy: string;
     note: string | null;

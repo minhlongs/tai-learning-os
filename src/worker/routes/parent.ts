@@ -554,6 +554,9 @@ export const setLessonApproval: Handler = async (context) => {
   // Enforce organization-lesson tenant visibility parity before recording parent approval
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
   if (orgLesson) {
+    if (body.status === "approved" && orgLesson.review_status !== "org_approved") {
+      return badRequest("Bài học của trung tâm chưa được trung tâm phê duyệt (org_approved), không thể phê duyệt cho học sinh.");
+    }
     const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
     if (!role) {
       const assigned = learnerId
@@ -568,6 +571,15 @@ export const setLessonApproval: Handler = async (context) => {
     }
   }
 
+  if (
+    body.version !== undefined &&
+    (typeof body.version !== "number" ||
+      !Number.isInteger(body.version) ||
+      body.version < 1 ||
+      body.version > lesson.version)
+  ) {
+    return badRequest("Phiên bản bài học cần phê duyệt không hợp lệ hoặc vượt quá phiên bản hiện tại.");
+  }
   const version = typeof body.version === "number" ? body.version : lesson.version;
   const now = Date.now();
   const note = typeof body.note === "string" ? body.note.slice(0, 500) : null;
@@ -777,7 +789,8 @@ export const updateLessonContent: Handler = async (context) => {
   );
 
   // If this lesson belongs to an organization, editing its content creates a new unreviewed version,
-  // so reset its center review_status back to 'draft' in the same atomic batch.
+  // so reset its center review_status back to 'draft' in the same atomic batch, and purge any
+  // pre-existing approvals for `lesson_version >= nextVersion`.
   if (orgLesson) {
     statements.push(
       repo.resetOrganizationLessonToDraftStatement(context.env.DB, {
@@ -787,6 +800,12 @@ export const updateLessonContent: Handler = async (context) => {
       }),
     );
   }
+  statements.push(
+    repo.deleteFutureApprovalsForLessonStatement(context.env.DB, {
+      lessonId: lesson.id,
+      minVersion: nextVersion,
+    }),
+  );
 
   statements.push(
     repo.auditInsert(context.env.DB, {
