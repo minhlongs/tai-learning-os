@@ -743,6 +743,29 @@ describe("export/import round trip restores the record from the file", () => {
       .bind(lessonId, initialVersion + 1)
       .first<{ title_vi: string }>();
     expect(restoredVersionRow?.title_vi).toContain("(Bản cập nhật M9)");
+
+    // Rejects tampered lessonVersions with out-of-bounds version (> lesson.version) or unreferenced lessonId
+    const tamperedUnknownLesson = structuredClone(exported);
+    tamperedUnknownLesson.data.lessonVersions!.push({
+      lessonId: "non-existent-lesson",
+      version: 1,
+      titleVi: "Giả mạo",
+      objectiveVi: "Giả mạo",
+      stepsJson: [],
+    });
+    const badRes1 = await call("/api/data/import", {
+      method: "POST",
+      json: tamperedUnknownLesson,
+    });
+    expect(badRes1.status).toBe(400);
+
+    const tamperedFutureVersion = structuredClone(exported);
+    tamperedFutureVersion.data.lessonVersions![0]!.version = initialVersion + 99;
+    const badRes2 = await call("/api/data/import", {
+      method: "POST",
+      json: tamperedFutureVersion,
+    });
+    expect(badRes2.status).toBe(400);
   });
 });
 
