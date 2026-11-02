@@ -30,12 +30,14 @@ import type {
   CreateGoalRequest,
   CreateGoalResponse,
   GoalStatus,
+  LearnerProfile,
   ParentDashboardResponse,
   SchoolYearTransitionResponse,
   SetApprovalRequest,
   SetApprovalResponse,
   UpdateGoalStatusRequest,
   UpdateGoalStatusResponse,
+  UpdateLearnerProfileRequest,
 } from "../../../shared/api-contract";
 import { COMPETENCY_STATES, type CompetencyState } from "../../../shared/schemas/attempt";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
@@ -88,7 +90,7 @@ export function DashboardScreen({
 }: {
   onNavigate: (to: string) => void;
 }): React.JSX.Element {
-  const { session } = useSessionContext();
+  const { session, updateSession } = useSessionContext();
   const [data, setData] = useState<ParentDashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -185,6 +187,26 @@ export function DashboardScreen({
 
         {!loading && !error && data?.learner ? (
           <>
+            <LearnerProfileSection
+              key={data.learner.id}
+              learner={data.learner}
+              onSaved={(updated) => {
+                load();
+                updateSession({
+                  ...session,
+                  learner:
+                    session.learner?.id === updated.id
+                      ? { id: updated.id, nickname: updated.nickname }
+                      : session.learner,
+                  learners: (session.learners ?? []).map((l) =>
+                    l.id === updated.id
+                      ? { ...l, nickname: updated.nickname, grade: updated.grade }
+                      : l,
+                  ),
+                });
+              }}
+            />
+
             <PrerequisiteRecommendations
               recommendations={data.recommendedNextLessons}
               learnerId={data.learner.id}
@@ -267,6 +289,127 @@ export function DashboardScreen({
 }
 
 /* ── sections ──────────────────────────────────────────────────────────────── */
+
+function LearnerProfileSection({
+  learner,
+  onSaved,
+}: {
+  learner: NonNullable<ParentDashboardResponse["learner"]>;
+  onSaved: (updated: LearnerProfile) => void;
+}): React.JSX.Element {
+  const [nickname, setNickname] = useState(learner.nickname);
+  const [grade, setGrade] = useState<number>(learner.grade ?? 4);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const trimmed = nickname.trim();
+    if (trimmed.length === 0 || trimmed.length > 40) {
+      setNotice({ tone: "error", text: "Biệt danh cần từ 1 đến 40 ký tự." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    const body: UpdateLearnerProfileRequest = {
+      learnerId: learner.id,
+      nickname: trimmed,
+      grade,
+    };
+    void api.patch<LearnerProfile>(endpoints.updateLearner, body).then((res) => {
+      if (readActiveLearnerId() && readActiveLearnerId() !== learner.id) return;
+      setBusy(false);
+      if (!res.ok) {
+        setNotice({ tone: "error", text: failureMessage(res.failure) });
+        return;
+      }
+      setNickname(res.value.nickname);
+      setGrade(res.value.grade ?? grade);
+      setNotice({
+        tone: "ok",
+        text: `Đã cập nhật hồ sơ của “${res.value.nickname}” (Lớp ${res.value.grade ?? grade}).`,
+      });
+      onSaved(res.value);
+    });
+  };
+
+  return (
+    <section
+      className="card"
+      aria-labelledby="learner-profile-title"
+      data-testid="learner-profile-section"
+    >
+      <h2 className="card__title" id="learner-profile-title">
+        Hồ sơ người học đang chọn
+      </h2>
+      <p className="dashboard-note">
+        Cập nhật biệt danh hoặc khối lớp hiện tại của bé. Việc đổi khối lớp không làm thay đổi lịch sử các phiên học hay bằng chứng năng lực đã lưu.
+      </p>
+      <form
+        onSubmit={handleSubmit}
+        data-testid="learner-profile-form"
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "0.75rem",
+          alignItems: "flex-end",
+        }}
+      >
+        <div>
+          <label className="field__label" htmlFor="learner-profile-nickname-input">
+            Biệt danh của bé
+          </label>
+          <input
+            id="learner-profile-nickname-input"
+            data-testid="learner-profile-nickname-input"
+            className="input"
+            type="text"
+            maxLength={40}
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <div>
+          <label className="field__label" htmlFor="learner-profile-grade-select">
+            Khối lớp
+          </label>
+          <select
+            id="learner-profile-grade-select"
+            data-testid="learner-profile-grade-select"
+            className="select"
+            value={grade}
+            onChange={(e) => setGrade(Number(e.target.value))}
+            disabled={busy}
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((g) => (
+              <option key={g} value={g}>
+                Lớp {g}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          className="btn btn--secondary"
+          data-testid="learner-profile-save-btn"
+          disabled={busy}
+        >
+          {busy ? "Đang lưu…" : "Lưu hồ sơ"}
+        </button>
+      </form>
+      {notice ? (
+        <p
+          className={`data-control__notice data-control__notice--${notice.tone}`}
+          data-testid="learner-profile-notice"
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          {notice.text}
+        </p>
+      ) : null}
+    </section>
+  );
+}
 
 const GOAL_LABELS: Record<ParentDashboardResponse["goals"][number]["status"], string> = {
   active: "Đang thực hiện",

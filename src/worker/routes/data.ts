@@ -149,7 +149,10 @@ export const exportRecord: Handler = async (context) => {
   const lessonMetadata = rawLessonMetadata.filter((m) => referencedLessonIds.has(m.lesson_id));
 
   const lessonIds = lessons.map((l) => l.id);
-  const stepRows = await repo.findStepsForLessons(db, lessonIds);
+  const [stepRows, lessonVersionRows] = await Promise.all([
+    repo.findStepsForLessons(db, lessonIds),
+    repo.findLessonVersionsForLessons(db, lessonIds),
+  ]);
 
   const lessonSteps: ExportBody["lessonSteps"] = [];
   for (const step of stepRows) {
@@ -223,6 +226,15 @@ export const exportRecord: Handler = async (context) => {
       version: l.version,
       createdAt: l.created_at,
       updatedAt: l.updated_at,
+    })),
+    lessonVersions: lessonVersionRows.map((lv) => ({
+      lessonId: lv.lesson_id,
+      version: lv.version,
+      titleVi: lv.title_vi,
+      titleEn: lv.title_en,
+      objectiveVi: lv.objective_vi,
+      objectiveEn: lv.objective_en,
+      createdAt: lv.created_at,
     })),
     lessonSteps,
     reviewApprovals: (approvals.results ?? []).map((row) => ({

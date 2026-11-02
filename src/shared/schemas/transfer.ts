@@ -321,6 +321,7 @@ export const EXPORT_COLLECTIONS = [
   "curriculumObjectives",
   "curriculumIntakes",
   "lessons",
+  "lessonVersions",
   "lessonSteps",
   "lessonMetadata",
   "reviewApprovals",
@@ -398,6 +399,7 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
   const OPTIONAL_NEW_COLLECTIONS = new Set<string>([
     "curriculumObjectives",
     "curriculumIntakes",
+    "lessonVersions",
     "lessonMetadata",
     "baselineAssessments",
     "learningPlanItems",
@@ -421,10 +423,10 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       // A row's identity is whatever its table's primary key is. Most tables
       // have a single `id` column; `skill_prerequisites` does not, and its row
       // is identified by the pair of skills it joins — so it is checked on that
-      // pair rather than on an `id` it never had. `lessonMetadata` is keyed by `lessonId`.
+      // pair rather than on an `id` it never had. `lessonMetadata` and `lessonVersions` are keyed by `lessonId`.
       const identity = key === "skillPrerequisites"
         ? (["skillId", "prerequisiteId"] as const).map((field) => (row as Record<string, unknown>)[field])
-        : key === "lessonMetadata"
+        : key === "lessonMetadata" || key === "lessonVersions"
           ? [(row as { lessonId?: unknown }).lessonId]
           : [(row as { id?: unknown }).id];
       if (identity.some((value) => typeof value !== "string" || value.length === 0)) {
@@ -434,6 +436,25 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
   }
   if (!Array.isArray(data.schemaVersions)) {
     errors.push("Danh sách phiên bản lược đồ không hợp lệ.");
+  }
+  if (data.lessonVersions !== undefined) {
+    if (!Array.isArray(data.lessonVersions)) {
+      errors.push("Danh sách lessonVersions không hợp lệ.");
+    } else {
+      for (const lv of data.lessonVersions) {
+        if (typeof lv !== "object" || lv === null || Array.isArray(lv)) {
+          errors.push("Một dòng trong lessonVersions không hợp lệ.");
+          continue;
+        }
+        const rec = lv as { lessonId?: unknown; version?: unknown };
+        if (typeof rec.lessonId !== "string" || rec.lessonId.length === 0) {
+          errors.push("Một dòng trong lessonVersions thiếu mã bài học (lessonId).");
+        }
+        if (typeof rec.version !== "number" || !Number.isInteger(rec.version) || rec.version < 1) {
+          errors.push("Một dòng trong lessonVersions có số phiên bản (version) không hợp lệ.");
+        }
+      }
+    }
   }
   if (errors.length > 0) return { ok: false, errors };
 

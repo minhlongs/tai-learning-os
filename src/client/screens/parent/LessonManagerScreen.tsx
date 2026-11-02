@@ -19,7 +19,7 @@
  * decision that removes a lesson from the learner's day.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   ClassroomLessonListResponse,
   GrantLearnerConsentRequest,
@@ -31,8 +31,11 @@ import type {
   RevokeLearnerConsentResponse,
   SetApprovalRequest,
   SetApprovalResponse,
+  UpdateContentRequest,
+  UpdateContentResponse,
 } from "../../../shared/api-contract";
 import type { ApprovalStatus } from "../../../shared/schemas/attempt";
+import type { ExerciseSpec } from "../../../shared/schemas/exercise";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { useSessionContext } from "../../lib/SessionProvider";
@@ -534,6 +537,7 @@ export function LessonManagerScreen({
 
         {openLessonId ? (
           <DetailPanel
+            key={detail ? `${detail.id}:v${detail.version}` : openLessonId}
             panelId="lesson-detail-panel"
             detail={detail}
             loading={detailLoading}
@@ -541,6 +545,14 @@ export function LessonManagerScreen({
             onClose={closeDetail}
             panelRef={detailRef}
             onRetry={() => openDetail(openLessonId)}
+            onContentUpdated={(updatedLessonId, nextVersion) => {
+              setActionNote({
+                tone: "ok",
+                text: `Đã lưu nội dung mới (Phiên bản ${nextVersion}).`,
+              });
+              openDetail(updatedLessonId);
+              loadLessons();
+            }}
           />
         ) : null}
 
@@ -674,13 +686,20 @@ type DetailProps = {
   panelRef: React.RefObject<HTMLDivElement | null>;
   onClose: () => void;
   onRetry: () => void;
+  onContentUpdated: (lessonId: string, nextVersion: number) => void;
+};
+
+type EditableStepDraft = {
+  clientId: string;
+  position: number;
+  kind: LessonDetailResponse["steps"][number]["kind"];
+  content: ExerciseSpec;
+  explanationVi: string;
+  answerKey: unknown;
 };
 
 /**
- * The full lesson, including the answer key.
- *
- * Content editing is deliberately not offered here: this screen manages
- * approval, and a partial editor is worse than none.
+ * The full lesson, including the answer key and version-pinned content editor.
  */
 function DetailPanel({
   panelId,
@@ -690,7 +709,116 @@ function DetailPanel({
   panelRef,
   onClose,
   onRetry,
+  onContentUpdated,
 }: DetailProps): React.JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [titleVi, setTitleVi] = useState("");
+  const [objectiveVi, setObjectiveVi] = useState("");
+  const [stepDrafts, setStepDrafts] = useState<EditableStepDraft[]>([]);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    if (!detail) return;
+    setTitleVi(detail.titleVi);
+    setObjectiveVi(detail.objectiveVi);
+    setStepDrafts(
+      detail.steps.map((s) => ({
+        clientId: s.id,
+        position: s.position,
+        kind: s.kind,
+        content: s.content,
+        explanationVi: s.explanationVi,
+        answerKey: s.answerKey,
+      })),
+    );
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const updateStepQuestion = (index: number, nextQuestionVi: string) => {
+    setStepDrafts((current) =>
+      current.map((step, i) =>
+        i === index
+          ? {
+              ...step,
+              content: { ...step.content, question_vi: nextQuestionVi },
+            }
+          : step,
+      ),
+    );
+  };
+
+  const updateStepHint = (
+    index: number,
+    hintKey: "hint1_vi" | "hint2_vi" | "hint3_vi",
+    value: string,
+  ) => {
+    setStepDrafts((current) =>
+      current.map((step, i) => {
+        if (i !== index || step.content.type !== "multiple_choice") return step;
+        return {
+          ...step,
+          content: { ...step.content, [hintKey]: value },
+        };
+      }),
+    );
+  };
+
+  const updateStepExplanation = (index: number, nextExplanationVi: string) => {
+    setStepDrafts((current) =>
+      current.map((step, i) =>
+        i === index ? { ...step, explanationVi: nextExplanationVi } : step,
+      ),
+    );
+  };
+
+  const handleSaveContent = (event: FormEvent) => {
+    event.preventDefault();
+    if (!detail) return;
+    const trimmedTitle = titleVi.trim();
+    const trimmedObjective = objectiveVi.trim();
+    if (!trimmedTitle || !trimmedObjective) {
+      setSaveError("Vui lòng nhập đầy đủ tiêu đề và mục tiêu bài học.");
+      return;
+    }
+    if (
+      stepDrafts.some(
+        (s) =>
+          s.content.question_vi.trim().length === 0 ||
+          s.explanationVi.trim().length === 0,
+      )
+    ) {
+      setSaveError("Mỗi bước học cần có đầy đủ câu hỏi và lời giải thích tiếng Việt.");
+      return;
+    }
+    setSaveBusy(true);
+    setSaveError(null);
+    const body: UpdateContentRequest = {
+      lessonId: detail.id,
+      expectedVersion: detail.version,
+      titleVi: trimmedTitle,
+      objectiveVi: trimmedObjective,
+      steps: stepDrafts.map((s) => ({
+        clientId: s.clientId,
+        position: s.position,
+        kind: s.kind,
+        content: s.content,
+        answerKey: s.answerKey,
+        explanationVi: s.explanationVi.trim(),
+      })),
+    };
+    void api.post<UpdateContentResponse>(endpoints.updateContent, body).then((res) => {
+      setSaveBusy(false);
+      if (!res.ok) {
+        setSaveError(failureMessage(res.failure));
+        return;
+      }
+      setEditing(false);
+      onContentUpdated(detail.id, res.value.version);
+    });
+  };
+
   return (
     <section className="detail" id={panelId} aria-labelledby={`${panelId}-title`} ref={panelRef}>
       <div className="detail__head">
@@ -704,7 +832,17 @@ function DetailPanel({
                 {STATUS_LABELS[detail.approvalStatus]}
               </span>
               <span className="row__meta">{STATUS_EFFECT[detail.approvalStatus]}</span>
-              <span className="row__meta">{`Phiên bản ${detail.version}`}</span>
+              <span className="row__meta" data-testid="lesson-detail-version">{`Phiên bản ${detail.version}`}</span>
+              {!editing ? (
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  data-testid="lesson-detail-edit-btn"
+                  onClick={startEdit}
+                >
+                  Chỉnh sửa nội dung
+                </button>
+              ) : null}
             </div>
             <p className="detail__objective">{detail.objectiveVi}</p>
           </>
@@ -714,7 +852,138 @@ function DetailPanel({
       {loading ? <LoadingPanel what="nội dung bài học" /> : null}
       {error ? <ErrorPanel message={error} onRetry={onRetry} /> : null}
 
-      {detail ? (
+      {detail && editing ? (
+        <form
+          onSubmit={handleSaveContent}
+          data-testid="lesson-edit-form"
+          style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}
+        >
+          {saveError ? (
+            <p className="lesson-manager__status lesson-manager__status--error" role="alert">
+              {saveError}
+            </p>
+          ) : null}
+          <div>
+            <label className="confirm__label" htmlFor="lesson-edit-title-input">
+              Tiêu đề bài học (Tiếng Việt)
+            </label>
+            <input
+              id="lesson-edit-title-input"
+              data-testid="lesson-edit-title-input"
+              className="input"
+              type="text"
+              value={titleVi}
+              onChange={(e) => setTitleVi(e.target.value)}
+              disabled={saveBusy}
+            />
+          </div>
+          <div>
+            <label className="confirm__label" htmlFor="lesson-edit-objective-input">
+              Mục tiêu bài học (Tiếng Việt)
+            </label>
+            <input
+              id="lesson-edit-objective-input"
+              data-testid="lesson-edit-objective-input"
+              className="input"
+              type="text"
+              value={objectiveVi}
+              onChange={(e) => setObjectiveVi(e.target.value)}
+              disabled={saveBusy}
+            />
+          </div>
+          <ol className="detail__steps">
+            {stepDrafts.map((step, index) => (
+              <li className="detail__step" key={step.clientId}>
+                <div className="detail__step-head">
+                  <h3 className="detail__step-title">{`Bước ${step.position}`}</h3>
+                  <span className="pill">{STEP_KIND_LABELS[step.kind] ?? step.kind}</span>
+                </div>
+                <div className="detail__block">
+                  <label
+                    className="detail__block-label"
+                    htmlFor={`lesson-edit-step-question-${step.position}`}
+                  >
+                    Câu hỏi (Tiếng Việt)
+                  </label>
+                  <input
+                    id={`lesson-edit-step-question-${step.position}`}
+                    data-testid={`lesson-edit-step-question-${step.position}`}
+                    className="input"
+                    type="text"
+                    value={step.content.question_vi}
+                    onChange={(e) => updateStepQuestion(index, e.target.value)}
+                    disabled={saveBusy}
+                  />
+                </div>
+                {step.content.type === "multiple_choice" ? (
+                  <div className="detail__block" style={{ display: "grid", gap: "0.5rem" }}>
+                    {(() => {
+                      const mcContent = step.content;
+                      return (["hint1_vi", "hint2_vi", "hint3_vi"] as const).map((hKey, hIdx) => (
+                        <div key={hKey}>
+                          <label
+                            className="detail__block-label"
+                            htmlFor={`lesson-edit-step-${hKey}-${step.position}`}
+                          >
+                            {`Gợi ý ${hIdx + 1}`}
+                          </label>
+                          <input
+                            id={`lesson-edit-step-${hKey}-${step.position}`}
+                            data-testid={`lesson-edit-step-${hKey}-${step.position}`}
+                            className="input"
+                            type="text"
+                            value={mcContent[hKey]}
+                            onChange={(e) => updateStepHint(index, hKey, e.target.value)}
+                            disabled={saveBusy}
+                          />
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                ) : null}
+                <div className="detail__block">
+                  <label
+                    className="detail__block-label"
+                    htmlFor={`lesson-edit-step-explanation-${step.position}`}
+                  >
+                    Giải thích (Tiếng Việt)
+                  </label>
+                  <input
+                    id={`lesson-edit-step-explanation-${step.position}`}
+                    data-testid={`lesson-edit-step-explanation-${step.position}`}
+                    className="input"
+                    type="text"
+                    value={step.explanationVi}
+                    onChange={(e) => updateStepExplanation(index, e.target.value)}
+                    disabled={saveBusy}
+                  />
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              type="submit"
+              className="btn btn--primary"
+              data-testid="lesson-edit-save-btn"
+              disabled={saveBusy}
+            >
+              {saveBusy ? "Đang lưu…" : `Lưu thành phiên bản ${detail.version + 1}`}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              data-testid="lesson-edit-cancel-btn"
+              disabled={saveBusy}
+              onClick={() => setEditing(false)}
+            >
+              Hủy chỉnh sửa
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {detail && !editing ? (
         <>
           {/* Renders with the key every time, without exception. */}
           <div className="detail__warning">

@@ -45,23 +45,59 @@ import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { endpoints } from "../../lib/endpoints";
 import "../../styles/data-control.css";
 
-/** Collections an export carries, in the order the server writes them. */
-const COLLECTION_LABELS: readonly { key: keyof ExportBody; labelVi: string }[] = [
-  { key: "learners", labelVi: "Hồ sơ người học" },
-  { key: "schoolYears", labelVi: "Năm học" },
-  { key: "subjects", labelVi: "Môn học" },
-  { key: "skills", labelVi: "Kỹ năng" },
-  { key: "skillPrerequisites", labelVi: "Điều kiện tiên quyết" },
-  { key: "lessons", labelVi: "Bài học" },
-  { key: "lessonSteps", labelVi: "Bước trong bài học" },
-  { key: "reviewApprovals", labelVi: "Lần phụ huynh duyệt bài" },
-  { key: "learningSessions", labelVi: "Phiên học của bé" },
-  { key: "learningAttempts", labelVi: "Lần bé trả lời" },
-  { key: "skillEvidence", labelVi: "Bằng chứng năng lực" },
-  { key: "reviewSchedule", labelVi: "Lịch ôn tập" },
-  { key: "learningGoals", labelVi: "Mục tiêu học tập" },
-  { key: "auditEvents", labelVi: "Nhật ký thay đổi" },
+/** Collections an export carries, with a compile-time exhaustiveness check against ExportBody. */
+type ExportCollectionKey = Exclude<keyof ExportBody, "schemaVersions">;
+
+const COLLECTION_LABEL_MAP: Record<ExportCollectionKey, string> = {
+  learners: "Hồ sơ người học",
+  schoolYears: "Năm học",
+  subjects: "Môn học",
+  skills: "Kỹ năng",
+  skillPrerequisites: "Điều kiện tiên quyết",
+  curriculumObjectives: "Mục tiêu chương trình (GDPT 2018)",
+  curriculumIntakes: "Thông tin tiếp nhận chương trình",
+  lessons: "Bài học",
+  lessonVersions: "Lịch sử phiên bản bài học",
+  lessonSteps: "Bước trong bài học",
+  lessonMetadata: "Siêu dữ liệu bài học",
+  reviewApprovals: "Lần phụ huynh duyệt bài",
+  learningSessions: "Phiên học của bé",
+  learningAttempts: "Lần bé trả lời",
+  skillEvidence: "Bằng chứng năng lực",
+  reviewSchedule: "Lịch ôn tập",
+  baselineAssessments: "Đánh giá đầu vào",
+  learningPlanItems: "Mục kế hoạch 4 tuần",
+  sessionReflections: "Cảm nhận sau buổi học",
+  learningGoals: "Mục tiêu học tập",
+  auditEvents: "Nhật ký thay đổi",
+};
+
+const COLLECTION_ORDER: readonly ExportCollectionKey[] = [
+  "learners",
+  "schoolYears",
+  "subjects",
+  "skills",
+  "skillPrerequisites",
+  "curriculumObjectives",
+  "curriculumIntakes",
+  "lessons",
+  "lessonVersions",
+  "lessonSteps",
+  "lessonMetadata",
+  "reviewApprovals",
+  "learningSessions",
+  "learningAttempts",
+  "skillEvidence",
+  "reviewSchedule",
+  "baselineAssessments",
+  "learningPlanItems",
+  "sessionReflections",
+  "learningGoals",
+  "auditEvents",
 ];
+
+const COLLECTION_LABELS: readonly { key: ExportCollectionKey; labelVi: string }[] =
+  COLLECTION_ORDER.map((key) => ({ key, labelVi: COLLECTION_LABEL_MAP[key] }));
 
 /** One removable data family in the cascade. Mirrors the server's DELETE set. */
 const DELETE_ITEMS: readonly string[] = [

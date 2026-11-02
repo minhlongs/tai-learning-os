@@ -650,6 +650,100 @@ describe("export/import round trip restores the record from the file", () => {
     });
     expect(res3.status).toBe(400);
   });
+
+  it("exports and round-trips lessonVersions after a version-pinned content update", async () => {
+    const lessonsRes = await call("/api/parent/lessons");
+    const lessonsBody = (await lessonsRes.json()) as {
+      lessons: { id: string; version: number }[];
+    };
+    const lessonId = lessonsBody.lessons[0]!.id;
+    const initialVersion = lessonsBody.lessons[0]!.version;
+
+    const detailRes = await call(`/api/parent/lessons/${encodeURIComponent(lessonId)}`);
+    expect(detailRes.status).toBe(200);
+    const detail = (await detailRes.json()) as {
+      id: string;
+      version: number;
+      titleVi: string;
+      objectiveVi: string;
+      steps: {
+        id: string;
+        position: number;
+        kind: string;
+        content: unknown;
+        explanationVi: string;
+        answerKey: unknown;
+      }[];
+    };
+
+    const updateRes = await call("/api/parent/lessons/content", {
+      method: "POST",
+      json: {
+        lessonId,
+        expectedVersion: initialVersion,
+        titleVi: `${detail.titleVi} (Bản cập nhật M9)`,
+        objectiveVi: `${detail.objectiveVi} — đã bổ sung ví dụ thực tế.`,
+        steps: detail.steps.map((s) => ({
+          clientId: s.id,
+          position: s.position,
+          kind: s.kind,
+          content: s.content,
+          answerKey: s.answerKey,
+          explanationVi: s.explanationVi,
+        })),
+      },
+    });
+    expect(updateRes.status).toBe(200);
+    const updated = (await updateRes.json()) as { version: number };
+    expect(updated.version).toBe(initialVersion + 1);
+
+    const exportRes = await call("/api/data/export", { method: "POST" });
+    expect(exportRes.status).toBe(200);
+    const exported = (await exportRes.json()) as {
+      data: {
+        lessonVersions?: {
+          lessonId: string;
+          version: number;
+          titleVi: string;
+          objectiveVi: string;
+          stepsJson: unknown[];
+        }[];
+      };
+    };
+
+    expect(Array.isArray(exported.data.lessonVersions)).toBe(true);
+    const versionsForLesson = exported.data.lessonVersions!.filter((v) => v.lessonId === lessonId);
+    expect(versionsForLesson.length).toBeGreaterThanOrEqual(1);
+    expect(versionsForLesson.some((v) => v.version === initialVersion + 1)).toBe(true);
+
+    // Delete learner and lesson_versions row, then import and verify lessonVersions is restored
+    await call("/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: `XOA ${LEARNER_NICKNAME}` },
+    });
+    await env.DB.prepare("DELETE FROM lesson_versions WHERE lesson_id = ?1 AND version = ?2")
+      .bind(lessonId, initialVersion + 1)
+      .run();
+
+    const importRes = await call("/api/data/import", {
+      method: "POST",
+      json: exported,
+    });
+    expect(importRes.status).toBe(200);
+    const importBody = (await importRes.json()) as {
+      ok: boolean;
+      counts: Record<string, number>;
+    };
+    expect(importBody.ok).toBe(true);
+    expect(importBody.counts.lessonVersions).toBeGreaterThanOrEqual(1);
+
+    const restoredVersionRow = await env.DB.prepare(
+      "SELECT title_vi FROM lesson_versions WHERE lesson_id = ?1 AND version = ?2",
+    )
+      .bind(lessonId, initialVersion + 1)
+      .first<{ title_vi: string }>();
+    expect(restoredVersionRow?.title_vi).toContain("(Bản cập nhật M9)");
+  });
 });
 
 /* ── fixtures ─────────────────────────────────────────────────────────────── */
