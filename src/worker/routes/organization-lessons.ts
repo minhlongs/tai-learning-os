@@ -87,6 +87,11 @@ export const createOrgDraftLessonRoute: Handler = async (context) => {
     grade_from: body.gradeFrom ?? 4,
     grade_to: body.gradeTo ?? 4,
     version: 1,
+    ownership_type: "organization",
+    owner_parent_id: null,
+    purpose: "official",
+    source_lesson_id: null,
+    source_version: null,
     created_at: now,
     updated_at: now,
   };

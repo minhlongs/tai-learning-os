@@ -39,3 +39,4 @@ Hệ thống triển khai 4 bảng chuyên biệt quản lý chương trình:
    - `TRANSFERRED`: Vận dụng giải quyết thành công bài tập biến thể độc lập.
    - `RETAINED`: Vượt qua bài kiểm tra ôn tập cách quãng sau khoảng thời gian tiêu chuẩn `[1, 3, 7, 14]` ngày.
    - **Quy tắc bảo vệ:** Nếu học sinh thất bại trong một lần ôn tập định kỳ sau đó, hệ thống tự động giáng cấp về `INDEPENDENT` để đưa vào hàng đợi ôn tập lại.
+   - **Tách biệt bài luyện tập gia đình (`purpose = 'practice'`):** Khi phụ huynh nhân bản bài học thư viện chuẩn TAI (`POST /api/parent/lessons/fork`), bản sao mang `ownership_type = 'family'` và `purpose = 'practice'` kèm liên kết phả hệ (`source_lesson_id`, `source_version`, `source_step_id`). Các phiên và lượt làm bài trên bài luyện tập gia đình luôn được server gán `purpose = 'practice'`, `evidence_kind = 'assisted'` và không bao giờ ghi đè `skill_evidence`, `review_schedule`, chẩn đoán đầu vào hay kế hoạch 4 tuần chính thức.

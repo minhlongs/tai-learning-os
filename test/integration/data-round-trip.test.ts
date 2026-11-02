@@ -656,8 +656,14 @@ describe("export/import round trip restores the record from the file", () => {
     const lessonsBody = (await lessonsRes.json()) as {
       lessons: { id: string; version: number }[];
     };
-    const lessonId = lessonsBody.lessons[0]!.id;
-    const initialVersion = lessonsBody.lessons[0]!.version;
+    const forkRes = await call("/api/parent/lessons/fork", {
+      method: "POST",
+      json: { sourceLessonId: lessonsBody.lessons[0]!.id },
+    });
+    expect(forkRes.status).toBe(200);
+    const forked = (await forkRes.json()) as { lessonId: string; version: number };
+    const lessonId = forked.lessonId;
+    const initialVersion = forked.version;
 
     const detailRes = await call(`/api/parent/lessons/${encodeURIComponent(lessonId)}`);
     expect(detailRes.status).toBe(200);

@@ -14,6 +14,8 @@ type LessonRow = {
   objectiveVi: string;
   gradeFrom: number;
   gradeTo: number;
+  ownershipType?: "catalogue" | "organization" | "family";
+  purpose?: "official" | "practice";
 };
 
 export function LessonList({
@@ -38,6 +40,7 @@ export function LessonList({
             <p className="lesson-tile__meta">
               Lớp {lesson.gradeFrom}
               {lesson.gradeTo > lesson.gradeFrom ? `–${lesson.gradeTo}` : ""}
+              {lesson.purpose === "practice" ? " · Luyện tập gia đình" : ""}
             </p>
           </button>
         </li>

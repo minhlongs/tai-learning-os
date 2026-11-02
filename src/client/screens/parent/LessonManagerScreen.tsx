@@ -22,6 +22,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   ClassroomLessonListResponse,
+  ForkLessonRequest,
+  ForkLessonResponse,
   GrantLearnerConsentRequest,
   GrantLearnerConsentResponse,
   LearnerConsentListResponse,
@@ -443,6 +445,16 @@ export function LessonManagerScreen({
                           <td className="lesson-cell-title">
                             <span className="lesson-cell-title__vi">{lesson.titleVi}</span>
                             <span className="lesson-cell-title__en">{lesson.titleEn}</span>
+                            <span
+                              className="row__meta"
+                              data-testid={`lesson-ownership-badge-${lesson.id}`}
+                            >
+                              {lesson.ownershipType === "family"
+                                ? `Bản luyện tập gia đình (Luyện tập riêng${lesson.sourceLessonId ? ` · Gốc: ${lesson.sourceLessonId} v${lesson.sourceVersion ?? 1}` : ""})`
+                                : lesson.ownershipType === "organization"
+                                  ? "Bài học trung tâm"
+                                  : "Thư viện TAI"}
+                            </span>
                             {lesson.provenance ? (
                               <span className="row__meta">
                                 Nguồn: {lesson.provenance}
@@ -552,6 +564,14 @@ export function LessonManagerScreen({
               });
               openDetail(updatedLessonId);
               loadLessons();
+            }}
+            onLessonForked={(forkedLessonId, forkedTitleVi) => {
+              setActionNote({
+                tone: "ok",
+                text: `Đã tạo bản luyện tập riêng “${forkedTitleVi}”. Hãy chỉnh sửa và duyệt trước khi cho Tài học.`,
+              });
+              loadLessons();
+              openDetail(forkedLessonId);
             }}
           />
         ) : null}
@@ -687,6 +707,7 @@ type DetailProps = {
   onClose: () => void;
   onRetry: () => void;
   onContentUpdated: (lessonId: string, nextVersion: number) => void;
+  onLessonForked: (forkedLessonId: string, forkedTitleVi: string) => void;
 };
 
 type EditableStepDraft = {
@@ -710,6 +731,7 @@ function DetailPanel({
   onClose,
   onRetry,
   onContentUpdated,
+  onLessonForked,
 }: DetailProps): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [titleVi, setTitleVi] = useState("");
@@ -717,6 +739,26 @@ function DetailPanel({
   const [stepDrafts, setStepDrafts] = useState<EditableStepDraft[]>([]);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [forkBusy, setForkBusy] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
+
+  const handleForkLesson = () => {
+    if (!detail || detail.ownershipType !== "catalogue") return;
+    setForkBusy(true);
+    setForkError(null);
+    const body: ForkLessonRequest = {
+      sourceLessonId: detail.id,
+      sourceVersion: detail.version,
+    };
+    void api.post<ForkLessonResponse>(endpoints.forkLesson, body).then((res) => {
+      setForkBusy(false);
+      if (!res.ok) {
+        setForkError(failureMessage(res.failure));
+        return;
+      }
+      onLessonForked(res.value.lessonId, res.value.titleVi);
+    });
+  };
 
   const startEdit = () => {
     if (!detail) return;
@@ -833,7 +875,25 @@ function DetailPanel({
               </span>
               <span className="row__meta">{STATUS_EFFECT[detail.approvalStatus]}</span>
               <span className="row__meta" data-testid="lesson-detail-version">{`Phiên bản ${detail.version}`}</span>
-              {!editing ? (
+              <span className="row__meta" data-testid="lesson-detail-ownership">
+                {detail.ownershipType === "family"
+                  ? `Bản luyện tập gia đình (Luyện tập riêng${detail.sourceLessonId ? ` · Gốc: ${detail.sourceLessonId} v${detail.sourceVersion ?? 1}` : ""})`
+                  : detail.ownershipType === "organization"
+                    ? "Bài học trung tâm"
+                    : "Thư viện TAI"}
+              </span>
+              {detail.ownershipType === "catalogue" ? (
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  data-testid="lesson-detail-fork-btn"
+                  disabled={forkBusy}
+                  onClick={handleForkLesson}
+                >
+                  {forkBusy ? "Đang tạo bản riêng…" : "Tạo bản luyện tập riêng"}
+                </button>
+              ) : null}
+              {!editing && detail.ownershipType === "family" ? (
                 <button
                   type="button"
                   className="btn btn--secondary"
@@ -844,6 +904,11 @@ function DetailPanel({
                 </button>
               ) : null}
             </div>
+            {forkError ? (
+              <p className="lesson-manager__status lesson-manager__status--error" role="alert">
+                {forkError}
+              </p>
+            ) : null}
             <p className="detail__objective">{detail.objectiveVi}</p>
           </>
         ) : null}

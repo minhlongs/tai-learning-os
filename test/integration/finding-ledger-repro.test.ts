@@ -213,8 +213,13 @@ describe("Finding Ledger Verification (F-A through F-F)", () => {
       now: now + 10,
     });
 
-    const lesson = await env.DB.prepare("SELECT id FROM lessons LIMIT 1").first<{ id: string }>();
-    const lessonId = lesson!.id;
+    const catalogueLesson = await env.DB.prepare("SELECT id FROM lessons LIMIT 1").first<{ id: string }>();
+    const forkRes = await callWithJar(parentJar, "/api/parent/lessons/fork", {
+      method: "POST",
+      json: { sourceLessonId: catalogueLesson!.id },
+    });
+    expect(forkRes.status).toBe(200);
+    const { lessonId } = (await forkRes.json()) as { lessonId: string };
 
     // Approve v1 for sibling1 ONLY
     await callWithJar(parentJar, "/api/parent/lessons/approval", {

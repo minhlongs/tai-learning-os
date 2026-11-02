@@ -510,8 +510,20 @@ describe("restart recovery — data survives the process that wrote it", () => {
 
 describe("lesson version bump, session reflections, and transparent password rehash", () => {
   it("bumps lesson version on content update, marks pendingReapproval, and preserves historical attempts", async () => {
-    const lessonIds = await approveEveryLesson();
-    const lessonId = lessonIds[0]!;
+    const catalogueLessonIds = await approveEveryLesson();
+    const forkRes = await call("/api/parent/lessons/fork", {
+      method: "POST",
+      json: { sourceLessonId: catalogueLessonIds[0]! },
+    });
+    expect(forkRes.status).toBe(200);
+    const forked = (await forkRes.json()) as { lessonId: string; version: number };
+    const lessonId = forked.lessonId;
+
+    const approveForkRes = await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, status: "approved" },
+    });
+    expect(approveForkRes.status).toBe(200);
 
     const sessionRes = await call("/api/learner/sessions", {
       method: "POST",

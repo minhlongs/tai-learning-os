@@ -243,6 +243,11 @@ export function LessonScreen({
             ← Thoát bài học
           </button>
           <h1 className="lesson-header__title">{start ? start.lessonTitleVi : "Bài học"}</h1>
+          {start?.purpose === "practice" ? (
+            <span className="pill" data-testid="lesson-practice-badge">
+              Luyện tập gia đình
+            </span>
+          ) : null}
         </header>
 
         {!start ? <LoadingPanel what="bài học" /> : null}

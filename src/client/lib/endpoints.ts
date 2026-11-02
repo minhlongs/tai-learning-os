@@ -28,6 +28,7 @@ export const endpoints = {
   updatePlanItem: "/api/parent/planner/item",
   lessons: "/api/parent/lessons",
   lessonDetail: (lessonId: string) => `/api/parent/lessons/${encodeURIComponent(lessonId)}`,
+  forkLesson: "/api/parent/lessons/fork",
   setApproval: "/api/parent/lessons/approval",
   updateContent: "/api/parent/lessons/content",
   correctSkill: "/api/parent/skills/correct",

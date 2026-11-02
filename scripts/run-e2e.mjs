@@ -41,6 +41,7 @@ const MIGRATION_FILES = [
   "0009_version_snapshots_and_legacy_approval_hardening.sql",
   "0010_phase3_science_debate_and_school_years.sql",
   "0011_science_and_debate_parity.sql",
+  "0012_family_practice_and_version_lineage.sql",
 ];
 
 const TEST_PARENT_NAME = process.env.TLO_PARENT_NAME ?? "Phụ huynh";

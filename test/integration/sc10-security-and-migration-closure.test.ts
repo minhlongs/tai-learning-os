@@ -636,12 +636,20 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const parentJar = await createAuthenticatedJar("parent-v", "Mẹ Tài", "parent");
       const learnerJar = await createAuthenticatedJar("parent-v", "Mẹ Tài", "learner");
 
+      // Fork catalogue lesson into a family practice lesson so parent can edit versions
+      const forkRes = await callWithJar(parentJar, "/api/parent/lessons/fork", {
+        method: "POST",
+        json: { sourceLessonId: "math-fractions-equivalent" },
+      });
+      expect(forkRes.status).toBe(200);
+      const { lessonId } = (await forkRes.json()) as { lessonId: string };
+
       // Approve v1 and start a learner session on v1
       await callWithJar(parentJar, "/api/parent/lessons/approval", {
         method: "POST",
-        json: { lessonId: "math-fractions-equivalent", status: "approved" },
+        json: { lessonId, status: "approved" },
       });
-      const detailRes = await callWithJar(parentJar, "/api/parent/lessons/math-fractions-equivalent?version=1");
+      const detailRes = await callWithJar(parentJar, `/api/parent/lessons/${lessonId}?version=1`);
       expect(detailRes.status).toBe(200);
       const v1Detail = (await detailRes.json()) as LessonDetailResponse;
       const v1Title = v1Detail.titleVi;
@@ -649,7 +657,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
 
       const startRes = await callWithJar(learnerJar, "/api/learner/sessions", {
         method: "POST",
-        json: { lessonId: "math-fractions-equivalent" },
+        json: { lessonId },
       });
       expect(startRes.status).toBe(200);
 
@@ -657,7 +665,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const invalidRes = await callWithJar(parentJar, "/api/parent/lessons/content", {
         method: "POST",
         json: {
-          lessonId: "math-fractions-equivalent",
+          lessonId,
           expectedVersion: 1,
           titleVi: "Tiêu đề lỗi",
           objectiveVi: "Mục tiêu lỗi",
@@ -678,7 +686,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const editorARes = await callWithJar(parentJar, "/api/parent/lessons/content", {
         method: "POST",
         json: {
-          lessonId: "math-fractions-equivalent",
+          lessonId,
           expectedVersion: 1,
           titleVi: "Hai phân số bằng nhau (Phiên bản 2 - Editor A)",
           objectiveVi: "Mục tiêu phiên bản 2 của Editor A",
@@ -701,7 +709,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const editorBRes = await callWithJar(parentJar, "/api/parent/lessons/content", {
         method: "POST",
         json: {
-          lessonId: "math-fractions-equivalent",
+          lessonId,
           expectedVersion: 1,
           titleVi: "Tiêu đề xung đột của Editor B",
           objectiveVi: "Mục tiêu xung đột của Editor B",
@@ -712,7 +720,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
 
       // Verify v2 steps and metadata belong strictly to Editor A (never overwritten by Editor B)
       const v2Detail = (await (
-        await callWithJar(parentJar, "/api/parent/lessons/math-fractions-equivalent?version=2")
+        await callWithJar(parentJar, `/api/parent/lessons/${lessonId}?version=2`)
       ).json()) as LessonDetailResponse;
       expect(v2Detail.titleVi).toBe("Hai phân số bằng nhau (Phiên bản 2 - Editor A)");
       expect(v2Detail.objectiveVi).toBe("Mục tiêu phiên bản 2 của Editor A");
@@ -720,7 +728,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
 
       // Verify v1 snapshot metadata and steps are completely untouched and still served to the active v1 session
       const v1DetailAfter = (await (
-        await callWithJar(parentJar, "/api/parent/lessons/math-fractions-equivalent?version=1")
+        await callWithJar(parentJar, `/api/parent/lessons/${lessonId}?version=1`)
       ).json()) as LessonDetailResponse;
       expect(v1DetailAfter.titleVi).toBe(v1Title);
       expect(v1DetailAfter.objectiveVi).toBe(v1Objective);
@@ -730,7 +738,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const v3TitleOnlyRes = await callWithJar(parentJar, "/api/parent/lessons/content", {
         method: "POST",
         json: {
-          lessonId: "math-fractions-equivalent",
+          lessonId,
           expectedVersion: 2,
           titleVi: "Hai phân số bằng nhau (Phiên bản 3 - Chỉ đổi tiêu đề)",
           objectiveVi: "Mục tiêu phiên bản 3 chỉ đổi metadata",
@@ -739,7 +747,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       });
       expect(v3TitleOnlyRes.status).toBe(200);
       const v2DetailAfterV3 = (await (
-        await callWithJar(parentJar, "/api/parent/lessons/math-fractions-equivalent?version=2")
+        await callWithJar(parentJar, `/api/parent/lessons/${lessonId}?version=2`)
       ).json()) as LessonDetailResponse;
       expect(v2DetailAfterV3.titleVi).toBe("Hai phân số bằng nhau (Phiên bản 2 - Editor A)");
       expect(v2DetailAfterV3.objectiveVi).toBe("Mục tiêu phiên bản 2 của Editor A");
@@ -751,7 +759,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const resumedBody = (await (
         await callWithJar(learnerJar, "/api/learner/sessions", {
           method: "POST",
-          json: { lessonId: "math-fractions-equivalent" },
+          json: { lessonId },
         })
       ).json()) as StartSessionResponse;
       expect(resumedBody.lessonTitleVi).toBe(v1Title);

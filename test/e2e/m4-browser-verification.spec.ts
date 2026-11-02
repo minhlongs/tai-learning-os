@@ -847,18 +847,23 @@ test.describe("M4 Browser Verification Flows", () => {
     await page.getByTestId("learner-profile-save-btn").click();
     await expect(page.getByTestId("learner-profile-notice")).toContainText("Tài");
 
-    // 2. Version-pinned lesson content editing on `/parent/lessons`
+    // 2. Version-pinned lesson content editing on `/parent/lessons` (via family practice copy fork)
     await page.goto("/parent/lessons");
-    await page.getByRole("button", { name: "Xem bài" }).first().click();
+    const m9CatRow = page.locator("tr", {
+      has: page.getByTestId("lesson-ownership-badge-math-fractions-equivalent"),
+    });
+    await m9CatRow.getByRole("button", { name: "Xem bài" }).click();
     await expect(page.getByTestId("lesson-detail-version")).toBeVisible();
+
+    await page.getByTestId("lesson-detail-fork-btn").click();
+    await expect(page.getByTestId("lesson-detail-ownership")).toContainText("Bản luyện tập gia đình");
 
     await page.getByTestId("lesson-detail-edit-btn").click();
     const titleInput = page.getByTestId("lesson-edit-title-input");
-    const currentTitle = await titleInput.inputValue();
-    await titleInput.fill(`${currentTitle} · Bản cập nhật`);
+    await titleInput.fill("Bài tự luyện gia đình M9 · Bản cập nhật");
     await page.getByTestId("lesson-edit-save-btn").click();
 
-    await expect(page.getByTestId("lesson-detail-version")).toContainText("Phiên bản");
+    await expect(page.getByTestId("lesson-detail-version")).toContainText("Phiên bản 2");
     await expect(page.locator("#lesson-detail-panel-title")).toContainText("Bản cập nhật");
 
     // 3. Organization Studio: Teacher dropdown (`org-teacher-select`) & lesson editing (`org-lesson-edit-btn-*`)
@@ -902,5 +907,228 @@ test.describe("M4 Browser Verification Flows", () => {
     await page.getByTestId("org-lesson-save-btn").dispatchEvent("click");
     await expect(page.getByTestId("org-lessons-table")).toContainText("Bài học Trung tâm M9 (Phiên bản 2)");
     await expect(page.getByTestId("org-lessons-table")).toContainText("Bản nháp");
+  });
+
+  test("12. M10: Family practice lesson fork & learner practice badge (/parent/lessons -> /lessons/:id) and polymorphic Org Studio editor (/parent/organization)", async ({ page }) => {
+    const csrf = await signInAsParent(page);
+    const withCsrf = { headers: { "x-tlo-csrf": csrf } };
+
+    const sessionRes = await page.request.get("/api/session");
+    const sessionInfo = (await sessionRes.json()) as {
+      learner: { id: string; nickname: string } | null;
+      learners?: { id: string; nickname: string }[];
+    };
+    let learner = sessionInfo.learner ?? sessionInfo.learners?.[0] ?? null;
+    if (!learner) {
+      const createRes = await page.request.post("/api/parent/learners", {
+        ...withCsrf,
+        data: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+      });
+      expect(createRes.ok()).toBe(true);
+      const created = (await createRes.json()) as { learner: { id: string; nickname: string } };
+      learner = created.learner;
+    }
+    const learnerId = learner.id;
+
+    // 1. Verify catalogue ownership badge & fork to family practice lesson on `/parent/lessons`
+    await page.goto("/parent/lessons");
+    await expect(page.getByTestId("lesson-ownership-badge-math-fractions-equivalent")).toContainText(
+      "Thư viện TAI",
+    );
+
+    const catRow = page.locator("tr", {
+      has: page.getByTestId("lesson-ownership-badge-math-fractions-equivalent"),
+    });
+    await catRow.getByRole("button", { name: "Xem bài" }).click();
+
+    await expect(page.getByTestId("lesson-detail-ownership")).toContainText("Thư viện TAI");
+    await expect(page.getByTestId("lesson-detail-fork-btn")).toBeVisible();
+    await expect(page.getByTestId("lesson-detail-edit-btn")).toHaveCount(0);
+
+    const forkResPromise = page.waitForResponse(
+      (res) => res.url().includes("/api/parent/lessons/fork") && res.request().method() === "POST",
+    );
+    await page.getByTestId("lesson-detail-fork-btn").click();
+    const forkRes = await forkResPromise;
+    expect(forkRes.ok()).toBe(true);
+    const forkedPayload = (await forkRes.json()) as { lessonId: string; version: number };
+    expect(forkedPayload.lessonId).toBeTruthy();
+
+    await expect(page.getByTestId("lesson-detail-ownership")).toContainText(
+      "Bản luyện tập gia đình (Luyện tập riêng · Gốc: math-fractions-equivalent v1)",
+    );
+    await expect(page.getByTestId("lesson-detail-edit-btn")).toBeVisible();
+
+    await page.getByTestId("lesson-detail-edit-btn").click();
+    await page.getByTestId("lesson-edit-title-input").fill("Bài tự luyện gia đình M10 · Bản riêng");
+    await page.getByTestId("lesson-edit-save-btn").click();
+    await expect(page.getByTestId("lesson-detail-version")).toContainText("Phiên bản 2");
+
+    // Approve v2 of the forked family practice lesson for the active learner and verify learner practice badge
+    const approveRes = await page.request.post("/api/parent/lessons/approval", {
+      ...withCsrf,
+      data: {
+        learnerId,
+        lessonId: forkedPayload.lessonId,
+        version: 2,
+        status: "approved",
+      },
+    });
+    expect(approveRes.ok()).toBe(true);
+
+    await page.goto(`/lessons/${forkedPayload.lessonId}`);
+    await expect(page.getByTestId("lesson-practice-badge")).toContainText("Luyện tập gia đình");
+
+    // Revert approval to draft so subsequent viewport runs see a clean approved list
+    await page.request.post("/api/parent/lessons/approval", {
+      ...withCsrf,
+      data: {
+        learnerId,
+        lessonId: forkedPayload.lessonId,
+        version: 2,
+        status: "draft",
+      },
+    });
+
+    // 2. Polymorphic Org Studio Editor: verify fraction_visual, vocab_match, and reading_comprehension steps survive editing
+    const uniqueSlug = `m10-poly-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const orgCreateRes = await page.request.post("/api/org/create", {
+      ...withCsrf,
+      data: { slug: uniqueSlug, name: `Trung tâm Đa hình M10 ${uniqueSlug}` },
+    });
+    expect(orgCreateRes.ok()).toBe(true);
+    const { organization } = (await orgCreateRes.json()) as { organization: { id: string } };
+
+    const polyDraftRes = await page.request.post("/api/org/lessons/draft", {
+      ...withCsrf,
+      data: {
+        organizationId: organization.id,
+        subjectId: "math",
+        titleVi: "Bài học Đa hình M10",
+        titleEn: "Polymorphic Lesson M10",
+        objectiveVi: "Bảo toàn cấu trúc bài tập đa hình",
+        objectiveEn: "Preserve polymorphic exercise specs",
+        gradeFrom: 4,
+        gradeTo: 4,
+        steps: [
+          {
+            position: 1,
+            kind: "concept",
+            content: {
+              type: "fraction_visual",
+              question_vi: "Quan sát thanh phân số 2/4:",
+              question_en: "Observe the 2/4 fraction bar:",
+              allowedDenominators: [2, 4],
+              maxParts: 8,
+              bar: { parts: 4, highlighted: 2 },
+              correctNumerator: 2,
+              correctDenominator: 4,
+            },
+            answerKey: { correctNumerator: 2, correctDenominator: 4 },
+            explanationVi: "Thanh chia 4 phần, tô 2 phần là 2/4.",
+          },
+          {
+            position: 2,
+            kind: "visual",
+            content: {
+              type: "vocab_match",
+              question_vi: "Chọn nghĩa đúng cho từ apple:",
+              word: "apple",
+              image: "apple",
+              choices: [
+                { id: "m1", label_en: "apple", label_vi: "Quả táo", correct: true },
+                { id: "m2", label_en: "book", label_vi: "Quyển sách", correct: false },
+              ],
+              sentencePrompt_vi: "Viết một câu tiếng Anh có từ apple:",
+              sentenceAcceptedWords: ["apple"],
+            },
+            answerKey: { correctChoiceId: "m1", acceptedWords: ["apple"] },
+            explanationVi: "Apple nghĩa là quả táo.",
+          },
+          {
+            position: 3,
+            kind: "guided",
+            content: {
+              type: "reading_comprehension",
+              question_vi: "Đọc đoạn văn và chọn ý chính:",
+              passageTitle_vi: "Chia bánh công bằng",
+              passage_vi:
+                "Hai anh em chia chiếc bánh thành 4 phần bằng nhau. Mỗi người nhận 2 phần, tức là một nửa chiếc bánh.",
+              evidenceSentence_vi: "Mỗi người nhận 2 phần, tức là một nửa chiếc bánh.",
+              choices: [
+                { id: "rc1", label_vi: "2/4 bằng 1/2 chiếc bánh", correct: true },
+                { id: "rc2", label_vi: "Chiếc bánh chia làm 3 phần", correct: false },
+              ],
+            },
+            answerKey: { correctChoiceId: "rc1" },
+            explanationVi: "2 phần trong 4 phần bằng một nửa (1/2).",
+          },
+          {
+            position: 4,
+            kind: "independent",
+            content: {
+              type: "multiple_choice",
+              question_vi: "Phân số nào bằng 1/2?",
+              choices: [
+                { id: "A", label_vi: "2/4", correct: true },
+                { id: "B", label_vi: "1/4", correct: false },
+              ],
+              hint1_vi: "Nhân cả tử và mẫu với 2",
+              hint2_vi: "1x2 / 2x2",
+              hint3_vi: "2/4",
+            },
+            answerKey: { correctChoiceId: "A" },
+            explanationVi: "1/2 = 2/4.",
+          },
+          {
+            position: 5,
+            kind: "transfer",
+            content: {
+              type: "multiple_choice",
+              question_vi: "3/6 rút gọn bằng bao nhiêu?",
+              choices: [
+                { id: "A", label_vi: "1/2", correct: true },
+                { id: "B", label_vi: "1/3", correct: false },
+              ],
+              hint1_vi: "Chia tử và mẫu cho 3",
+              hint2_vi: "3:3 / 6:3",
+              hint3_vi: "1/2",
+            },
+            answerKey: { correctChoiceId: "A" },
+            explanationVi: "3/6 = 1/2.",
+          },
+        ],
+      },
+    });
+    expect(polyDraftRes.ok()).toBe(true);
+    const { lessonId: polyLessonId } = (await polyDraftRes.json()) as { lessonId: string };
+
+    await page.goto("/parent/organization");
+    await page.getByTestId("org-studio-select").selectOption(organization.id);
+    await expect(page.getByTestId(`org-lesson-edit-btn-${polyLessonId}`)).toBeVisible();
+    await page.getByTestId(`org-lesson-edit-btn-${polyLessonId}`).click();
+
+    await expect(page.getByTestId("org-step-fraction-summary-1")).toContainText("Dạng hình phân số");
+    await expect(page.getByTestId("org-step-vocab-summary-2")).toContainText("Dạng từ vựng");
+    await expect(page.getByTestId("org-step-reading-summary-3")).toContainText("Dạng đọc hiểu");
+
+    await page.getByTestId("org-lesson-title-input").fill("Bài học Đa hình M10 (Phiên bản 2)");
+    await page.getByTestId("org-lesson-save-btn").dispatchEvent("click");
+    await expect(page.getByTestId("org-lessons-table")).toContainText("Bài học Đa hình M10 (Phiên bản 2)");
+
+    const detailAfterEditRes = await page.request.get(`/api/parent/lessons/${polyLessonId}`);
+    expect(detailAfterEditRes.ok()).toBe(true);
+    const detailAfterEdit = (await detailAfterEditRes.json()) as {
+      version: number;
+      steps: { position: number; content: { type: string } }[];
+    };
+    expect(detailAfterEdit.version).toBe(2);
+    expect(detailAfterEdit.steps.map((s) => s.content.type)).toEqual([
+      "fraction_visual",
+      "vocab_match",
+      "reading_comprehension",
+      "multiple_choice",
+      "multiple_choice",
+    ]);
   });
 });

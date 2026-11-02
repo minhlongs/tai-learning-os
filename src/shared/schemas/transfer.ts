@@ -100,6 +100,11 @@ export type LessonExport = WithId & {
   gradeFrom: number;
   gradeTo: number;
   version: number;
+  ownershipType?: "catalogue" | "organization" | "family";
+  ownerParentId?: string | null;
+  purpose?: "official" | "practice";
+  sourceLessonId?: string | null;
+  sourceVersion?: number | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -122,6 +127,7 @@ export type LessonStepExport = WithId & {
   answerKey: unknown;
   explanationVi: string;
   contentVersion: number;
+  sourceStepId?: string | null;
 };
 
 export type ReviewApprovalExport = WithId & {
@@ -144,6 +150,7 @@ export type LearningSessionExport = WithId & {
   status: SessionStatus;
   stepsSeen: number;
   continuationDeadline?: number | null;
+  purpose?: "official" | "practice";
 };
 
 export type LearningAttemptExport = WithId & {
@@ -158,6 +165,7 @@ export type LearningAttemptExport = WithId & {
   helpLevel: number;
   evidenceKind: "observed" | "assisted" | "parent_correction";
   attemptNo: number;
+  purpose?: "official" | "practice";
   createdAt: number;
 };
 
@@ -437,18 +445,45 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
   if (!Array.isArray(data.schemaVersions)) {
     errors.push("Danh sách phiên bản lược đồ không hợp lệ.");
   }
+  const exportedLessonsById = new Map<string, number>();
+  if (Array.isArray(data.lessons)) {
+    const seenLessonIds = new Set<string>();
+    for (const l of data.lessons) {
+      if (typeof l === "object" && l !== null && typeof l.id === "string" && typeof l.version === "number") {
+        if (seenLessonIds.has(l.id)) {
+          errors.push(`Trùng mã bài học (${l.id}) trong danh sách lessons.`);
+        }
+        seenLessonIds.add(l.id);
+        exportedLessonsById.set(l.id, l.version);
+      }
+      if (typeof l === "object" && l !== null) {
+        const recL = l as Partial<LessonExport>;
+        if (
+          recL.ownershipType !== undefined &&
+          recL.ownershipType !== "catalogue" &&
+          recL.ownershipType !== "organization" &&
+          recL.ownershipType !== "family"
+        ) {
+          errors.push(`Loại quyền sở hữu bài học (${String(recL.ownershipType)}) không hợp lệ.`);
+        }
+        if (
+          recL.purpose !== undefined &&
+          recL.purpose !== "official" &&
+          recL.purpose !== "practice"
+        ) {
+          errors.push(`Mục đích bài học (${String(recL.purpose)}) không hợp lệ.`);
+        }
+      }
+    }
+  }
+
+  const declaredLessonVersions = new Set<string>();
+  const hasExplicitLessonVersions =
+    Array.isArray(data.lessonVersions) && data.lessonVersions.length > 0;
   if (data.lessonVersions !== undefined) {
     if (!Array.isArray(data.lessonVersions)) {
       errors.push("Danh sách lessonVersions không hợp lệ.");
     } else {
-      const exportedLessonsById = new Map<string, number>();
-      if (Array.isArray(data.lessons)) {
-        for (const l of data.lessons) {
-          if (typeof l === "object" && l !== null && typeof l.id === "string" && typeof l.version === "number") {
-            exportedLessonsById.set(l.id, l.version);
-          }
-        }
-      }
       for (const lv of data.lessonVersions) {
         if (typeof lv !== "object" || lv === null || Array.isArray(lv)) {
           errors.push("Một dòng trong lessonVersions không hợp lệ.");
@@ -500,6 +535,11 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
           Number.isInteger(rec.version) &&
           rec.version >= 1
         ) {
+          const lvKey = `${rec.lessonId}@${rec.version}`;
+          if (declaredLessonVersions.has(lvKey)) {
+            errors.push(`Trùng phiên bản bài học (${rec.lessonId} v${rec.version}) trong lessonVersions.`);
+          }
+          declaredLessonVersions.add(lvKey);
           const maxLessonVersion = exportedLessonsById.get(rec.lessonId);
           if (maxLessonVersion === undefined) {
             errors.push(`Dòng lessonVersions tham chiếu đến bài học không có trong tệp (${rec.lessonId}).`);
@@ -529,7 +569,42 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
 
   // Every step's content must validate: import is the untrusted input boundary,
   // so content cannot be persisted without passing the exercise schema.
+  const exportedStepById = new Map<string, LessonStepExport>();
+  const seenStepVersionPos = new Set<string>();
+  const stepVersionsPresent = new Set<string>();
   for (const step of data.lessonSteps) {
+    if (exportedStepById.has(step.id)) {
+      errors.push(`Trùng mã bước học (${step.id}) trong lessonSteps.`);
+    }
+    exportedStepById.set(step.id, step);
+    const maxVer = exportedLessonsById.get(step.lessonId);
+    if (maxVer === undefined) {
+      errors.push(`Bước học ${step.id} tham chiếu đến bài học không tồn tại trong tệp (${step.lessonId}).`);
+    } else if (
+      typeof step.contentVersion !== "number" ||
+      !Number.isInteger(step.contentVersion) ||
+      step.contentVersion < 1 ||
+      step.contentVersion > maxVer
+    ) {
+      errors.push(
+        `Bước học ${step.id} của bài ${step.lessonId} có contentVersion (${String(step.contentVersion)}) không hợp lệ.`,
+      );
+    } else {
+      const lvKey = `${step.lessonId}@${step.contentVersion}`;
+      stepVersionsPresent.add(lvKey);
+      if (hasExplicitLessonVersions && !declaredLessonVersions.has(lvKey)) {
+        errors.push(
+          `Bước học ${step.id} của bài ${step.lessonId} (v${step.contentVersion}) không có bản ghi tương ứng trong lessonVersions.`,
+        );
+      }
+      const posKey = `${step.lessonId}@${step.contentVersion}#${step.position}`;
+      if (seenStepVersionPos.has(posKey)) {
+        errors.push(
+          `Trùng vị trí bước học (position=${step.position}) trên bài ${step.lessonId} phiên bản ${step.contentVersion}.`,
+        );
+      }
+      seenStepVersionPos.add(posKey);
+    }
     if (!LESSON_STEP_KINDS.includes(step.kind)) {
       errors.push(`Loại bước học không hợp lệ: ${String(step.kind)}`);
     }
@@ -542,9 +617,40 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     }
   }
 
+  const hasDeclaredLessons = data.lessons.length > 0 || hasExplicitLessonVersions;
+
   for (const session of data.learningSessions) {
     if (!SESSION_STATUSES.includes(session.status)) {
       errors.push(`Trạng thái phiên học không hợp lệ: ${String(session.status)}`);
+    }
+    if (
+      session.purpose !== undefined &&
+      session.purpose !== "official" &&
+      session.purpose !== "practice"
+    ) {
+      errors.push(`Mục đích phiên học (${String(session.purpose)}) không hợp lệ.`);
+    }
+    if (hasDeclaredLessons) {
+      const maxVer = exportedLessonsById.get(session.lessonId);
+      if (maxVer === undefined) {
+        errors.push(`Phiên học ${session.id} tham chiếu đến bài học không tồn tại trong tệp (${session.lessonId}).`);
+      } else if (
+        typeof session.lessonVersion !== "number" ||
+        !Number.isInteger(session.lessonVersion) ||
+        session.lessonVersion < 1 ||
+        session.lessonVersion > maxVer
+      ) {
+        errors.push(
+          `Phiên học ${session.id} có lessonVersion (${String(session.lessonVersion)}) không hợp lệ đối với bài ${session.lessonId}.`,
+        );
+      } else if (
+        hasExplicitLessonVersions &&
+        !declaredLessonVersions.has(`${session.lessonId}@${session.lessonVersion}`)
+      ) {
+        errors.push(
+          `Phiên học ${session.id} tham chiếu đến phiên bản ${session.lessonId}@v${session.lessonVersion} không có trong lessonVersions.`,
+        );
+      }
     }
     if (typeof session.startedAt !== "number" || !Number.isFinite(session.startedAt)) {
       errors.push("Phiên học thiếu thời điểm bắt đầu hợp lệ.");
@@ -564,12 +670,47 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       }
     }
   }
+  const exportedSessionsById = new Map(data.learningSessions.map((s) => [s.id, s]));
   for (const attempt of data.learningAttempts) {
     if (!EVIDENCE_KINDS.includes(attempt.evidenceKind)) {
       errors.push(`Loại bằng chứng không hợp lệ: ${String(attempt.evidenceKind)}`);
     }
     if (!Number.isInteger(attempt.helpLevel) || attempt.helpLevel < 0 || attempt.helpLevel > 4) {
       errors.push("Mức gợi ý phải nằm trong khoảng 0..4.");
+    }
+    if (
+      attempt.purpose !== undefined &&
+      attempt.purpose !== "official" &&
+      attempt.purpose !== "practice"
+    ) {
+      errors.push(`Mục đích lượt làm bài (${String(attempt.purpose)}) không hợp lệ.`);
+    }
+    if (hasDeclaredLessons || data.lessonSteps.length > 0) {
+      const referencedStep = exportedStepById.get(attempt.stepId);
+      if (!referencedStep) {
+        errors.push(`Lượt làm bài ${attempt.id} tham chiếu đến bước học không có trong tệp (${attempt.stepId}).`);
+      } else {
+        if (referencedStep.lessonId !== attempt.lessonId) {
+          errors.push(
+            `Lượt làm bài ${attempt.id} có lessonId (${attempt.lessonId}) không khớp với bài học của bước ${attempt.stepId} (${referencedStep.lessonId}).`,
+          );
+        }
+        if (referencedStep.contentVersion !== attempt.stepVersion) {
+          errors.push(
+            `Lượt làm bài ${attempt.id} có stepVersion (${attempt.stepVersion}) không khớp với contentVersion của bước ${attempt.stepId} (${referencedStep.contentVersion}).`,
+          );
+        }
+      }
+    }
+    if (data.learningSessions.length > 0) {
+      const referencedSession = exportedSessionsById.get(attempt.sessionId);
+      if (!referencedSession) {
+        errors.push(`Lượt làm bài ${attempt.id} tham chiếu đến phiên học không có trong tệp (${attempt.sessionId}).`);
+      } else if (referencedSession.lessonId !== attempt.lessonId) {
+        errors.push(
+          `Lượt làm bài ${attempt.id} có lessonId (${attempt.lessonId}) không khớp với phiên học ${attempt.sessionId} (${referencedSession.lessonId}).`,
+        );
+      }
     }
   }
   for (const row of data.skillEvidence) {
@@ -580,6 +721,24 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
   for (const approval of data.reviewApprovals) {
     if (!APPROVAL_STATUSES.includes(approval.status)) {
       errors.push(`Trạng thái phê duyệt không hợp lệ: ${String(approval.status)}`);
+    }
+    if (hasDeclaredLessons) {
+      const maxVer = exportedLessonsById.get(approval.lessonId);
+      const appVer = approval.lessonVersion ?? 1;
+      if (maxVer === undefined) {
+        errors.push(`Bản ghi phê duyệt ${approval.id} tham chiếu đến bài học không có trong tệp (${approval.lessonId}).`);
+      } else if (!Number.isInteger(appVer) || appVer < 1 || appVer > maxVer) {
+        errors.push(
+          `Bản ghi phê duyệt ${approval.id} có lessonVersion (${String(approval.lessonVersion)}) không hợp lệ đối với bài ${approval.lessonId}.`,
+        );
+      } else if (
+        hasExplicitLessonVersions &&
+        !declaredLessonVersions.has(`${approval.lessonId}@${appVer}`)
+      ) {
+        errors.push(
+          `Bản ghi phê duyệt ${approval.id} tham chiếu đến phiên bản ${approval.lessonId}@v${appVer} không có trong lessonVersions.`,
+        );
+      }
     }
   }
 
@@ -675,13 +834,23 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       errors.push("Số thứ tự lượt làm bài (attemptNo) phải là số nguyên dương.");
     }
     if (attempt.evidenceKind === "observed") {
+      if ((attempt.purpose ?? "official") === "practice") {
+        errors.push(
+          `Lượt làm bài luyện tập (${attempt.id}) không được phép ghi nhận là bằng chứng độc lập (observed).`,
+        );
+      }
       if (attemptNo > 1 || attempt.helpLevel > 0 || floor > 0) {
         errors.push(
           `Lượt làm bài ${attempt.id} không thể được ghi nhận là độc lập (observed) khi đã dùng gợi ý hoặc làm lại.`,
         );
       }
     }
-    if (attempt.outcome === "correct" && attempt.evidenceKind === "observed" && attempt.skillId) {
+    if (
+      attempt.outcome === "correct" &&
+      attempt.evidenceKind === "observed" &&
+      (attempt.purpose ?? "official") === "official" &&
+      attempt.skillId
+    ) {
       const skillKey = `${attempt.learnerId}::${attempt.skillId}`;
       observedCorrectByLearnerSkill.set(
         skillKey,
@@ -716,7 +885,10 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
         );
       }
       const skillAttempts = data.learningAttempts.filter(
-        (a) => a.learnerId === row.learnerId && a.skillId === row.skillId,
+        (a) =>
+          a.learnerId === row.learnerId &&
+          a.skillId === row.skillId &&
+          (a.purpose ?? "official") === "official",
       );
       const anyObservedCorrect = maxObserved >= 1;
       const anyObservedTransfer = skillAttempts.some(

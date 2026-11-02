@@ -21,11 +21,15 @@ import type {
   CurriculumGetResponse,
   EvaluateBaselineRequest,
   EvaluateBaselineResponse,
+  ForkLessonRequest,
+  ForkLessonResponse,
   GeneratePlanRequest,
   GoalStatus,
   LearnerProfile,
   LessonDetailResponse,
   LessonListResponse,
+  LessonOwnershipType,
+  LessonPurpose,
   ParentDashboardResponse,
   PlannerGetResponse,
   ProvenanceType,
@@ -85,9 +89,11 @@ async function resolveTargetLearner(
   };
 }
 
-export async function filterVisibleLessonsForParent<T extends { id: string }>(
+export async function filterVisibleLessonsForParent<
+  T extends { id: string; ownership_type?: string; owner_parent_id?: string | null },
+>(
   db: D1Database,
-  _parentId: string,
+  parentId: string,
   learnerId: string | null,
   lessons: readonly T[],
 ): Promise<T[]> {
@@ -98,8 +104,13 @@ export async function filterVisibleLessonsForParent<T extends { id: string }>(
       : Promise.resolve(new Set<string>()),
   ]);
   return lessons.filter((l) => {
-    if (!allOrgLessonIds.has(l.id)) return true;
-    return assignedOrgLessonIds.has(l.id);
+    if (l.ownership_type === "family") {
+      return l.owner_parent_id === parentId;
+    }
+    if (l.ownership_type === "organization" || allOrgLessonIds.has(l.id)) {
+      return assignedOrgLessonIds.has(l.id);
+    }
+    return true;
   });
 }
 
@@ -120,6 +131,8 @@ export const getParentDashboard: Handler = async (context) => {
         sessionCount: 0,
         independentAttempts: 0,
         assistedAttempts: 0,
+        practiceSessionCount: 0,
+        practiceAttemptCount: 0,
         skillsObserved: 0,
         skillsIndependent: 0,
         lastSessionAt: null,
@@ -190,10 +203,13 @@ export const getParentDashboard: Handler = async (context) => {
     });
   }
 
-  const independentAttempts = attempts.filter(
+  const officialAttempts = attempts.filter((a) => (a.purpose ?? "official") === "official");
+  const practiceAttempts = attempts.filter((a) => a.purpose === "practice");
+  const practiceSessions = sessions.filter((s) => s.purpose === "practice");
+  const independentAttempts = officialAttempts.filter(
     (a) => a.outcome === "correct" && a.help_level <= 2,
   ).length;
-  const assistedAttempts = attempts.filter((a) => a.help_level >= 3).length;
+  const assistedAttempts = officialAttempts.filter((a) => a.help_level >= 3).length;
   const completedSessions = sessions.filter((s) => s.status === "completed");
   const lastSessionAt = sessions.length > 0 ? sessions[0]!.started_at : null;
 
@@ -216,23 +232,26 @@ export const getParentDashboard: Handler = async (context) => {
   const recentSessions: ParentDashboardResponse["recentSessions"] = sessions.slice(0, 10).map((session) => {
     const lesson = lessonById.get(session.lesson_id);
     const sessionAttempts = attempts.filter((a) => a.session_id === session.id);
+    const sessionPurpose = (session.purpose ?? lesson?.purpose ?? "official") as LessonPurpose;
     return {
       sessionId: session.id,
       lessonTitleVi: lesson?.title_vi ?? session.lesson_id,
       subjectId: lesson?.subject_id ?? "",
       startedAt: session.started_at,
       status: session.status,
+      purpose: sessionPurpose,
       correctCount: sessionAttempts.filter((a) => a.outcome === "correct").length,
       attemptedCount: sessionAttempts.length,
-      independentCount: sessionAttempts.filter(
-        (a) => a.outcome === "correct" && a.help_level <= 2,
-      ).length,
+      independentCount:
+        sessionPurpose === "official"
+          ? sessionAttempts.filter((a) => a.outcome === "correct" && a.help_level <= 2).length
+          : 0,
     };
   });
 
   const needsAttention: ParentDashboardResponse["needsAttention"] = [];
   for (const skill of skills) {
-    const skillAttempts = attempts.filter((a) => a.skill_id === skill.id);
+    const skillAttempts = officialAttempts.filter((a) => a.skill_id === skill.id);
     if (skillAttempts.length === 0) continue;
     if (needsParentAttention(toEngineEvidence(skillAttempts, skill.id))) {
       needsAttention.push({
@@ -243,7 +262,8 @@ export const getParentDashboard: Handler = async (context) => {
     }
   }
 
-  // Prerequisite-graph guided recommendations
+  // Prerequisite-graph guided recommendations (official lessons only)
+  const officialVisibleLessons = visibleLessons.filter((l) => (l.purpose ?? "official") === "official");
   const prereqCandidates: PrerequisiteRecommendationCandidate[] = skills.map((skill) => {
     const ev = evidenceBySkill.get(skill.id);
     const skillPrereqIds = prerequisites
@@ -251,8 +271,8 @@ export const getParentDashboard: Handler = async (context) => {
       .map((p) => p.prerequisite_id);
     const skillPrereqNames = skillPrereqIds.map((pid) => skillById.get(pid)?.name_vi ?? pid);
     const matchingLesson =
-      visibleLessons.find((l) => l.skill_id === skill.id && !l.id.includes("baseline")) ??
-      visibleLessons.find((l) => l.skill_id === skill.id) ??
+      officialVisibleLessons.find((l) => l.skill_id === skill.id && !l.id.includes("baseline")) ??
+      officialVisibleLessons.find((l) => l.skill_id === skill.id) ??
       null;
     const approvalStatus: ApprovalStatus = matchingLesson
       ? (approvals[matchingLesson.id] ?? "draft")
@@ -288,7 +308,7 @@ export const getParentDashboard: Handler = async (context) => {
       completedSessionCount: yearSessions.filter((s) => s.status === "completed").length,
       attemptCount: yearAttempts.length,
       independentAttemptCount: yearAttempts.filter(
-        (a) => a.outcome === "correct" && a.help_level <= 2,
+        (a) => (a.purpose ?? "official") === "official" && a.outcome === "correct" && a.help_level <= 2,
       ).length,
     };
   });
@@ -305,6 +325,8 @@ export const getParentDashboard: Handler = async (context) => {
       sessionCount: sessions.length,
       independentAttempts,
       assistedAttempts,
+      practiceSessionCount: practiceSessions.length,
+      practiceAttemptCount: practiceAttempts.length,
       skillsObserved: evidenceRows.length,
       skillsIndependent: evidenceRows.filter((e) =>
         e.state === "INDEPENDENT" || e.state === "RETAINED" || e.state === "TRANSFERRED",
@@ -375,8 +397,13 @@ export const listLessons: Handler = async (context) => {
   const orgLessonMap = new Map((orgLessonsResult.results ?? []).map((ol) => [ol.lesson_id, ol]));
 
   const visibleLessons = lessons.filter((lesson) => {
+    if (lesson.ownership_type === "family") {
+      return lesson.owner_parent_id === context.parent.parentId;
+    }
     const orgLesson = orgLessonMap.get(lesson.id);
-    if (!orgLesson) return true; // Platform lesson
+    if (!orgLesson) {
+      return lesson.ownership_type !== "organization";
+    }
     if (memberOrgIds.has(orgLesson.organization_id)) return true; // Parent is member/staff of this center
     if (assignedOrgLessonsForTarget.has(lesson.id)) return true; // Assigned to the target learner
     return false; // Other center's or unassigned sibling's lesson
@@ -411,6 +438,14 @@ export const listLessons: Handler = async (context) => {
         (status === "approved" && approval !== undefined && lesson.updated_at > approval.decidedAt) ||
         (status === "draft" && staleApprovedLessons.has(lesson.id));
       const meta = metadataByLesson.get(lesson.id);
+      const ownershipType: LessonOwnershipType =
+        orgLessonMap.has(lesson.id) || lesson.ownership_type === "organization"
+          ? "organization"
+          : lesson.ownership_type === "family"
+            ? "family"
+            : "catalogue";
+      const purpose: LessonPurpose =
+        lesson.purpose ?? (ownershipType === "family" ? "practice" : "official");
       return {
         id: lesson.id,
         subjectId: lesson.subject_id,
@@ -431,6 +466,11 @@ export const listLessons: Handler = async (context) => {
         expectedDurationMinutes: meta?.expected_duration_minutes ?? 20,
         reviewRecommendationVi: meta?.review_recommendation_vi ?? null,
         isBaseline: meta ? meta.is_baseline === 1 : false,
+        ownershipType,
+        ownerParentId: lesson.owner_parent_id ?? null,
+        purpose,
+        sourceLessonId: lesson.source_lesson_id ?? null,
+        sourceVersion: lesson.source_version ?? null,
       };
     }),
   });
@@ -452,9 +492,17 @@ export const getLessonDetail: Handler = async (context) => {
     return notFound("Không tìm thấy hồ sơ người học.");
   }
 
+  // Family-private isolation: a family lesson is visible ONLY to its owning parent
+  if (lesson.ownership_type === "family" && lesson.owner_parent_id !== context.parent.parentId) {
+    return forbidden("Bạn không có quyền truy cập bài luyện tập riêng của gia đình khác.");
+  }
+
   // Tenant / visibility check parity: if org lesson, caller must be org member or parent of the assigned target learner
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
-  if (orgLesson) {
+  if (lesson.ownership_type === "organization" || orgLesson) {
+    if (!orgLesson) {
+      return forbidden("Bạn không có quyền truy cập bài học của trung tâm này.");
+    }
     const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
     if (!role) {
       const assigned = targetLearner
@@ -500,8 +548,18 @@ export const getLessonDetail: Handler = async (context) => {
       content: exercise.value,
       explanationVi: step.explanation_vi,
       answerKey: parseJson(step.answer_key),
+      sourceStepId: step.source_step_id ?? null,
     });
   }
+
+  const ownershipType: LessonOwnershipType =
+    orgLesson || lesson.ownership_type === "organization"
+      ? "organization"
+      : lesson.ownership_type === "family"
+        ? "family"
+        : "catalogue";
+  const purpose: LessonPurpose =
+    lesson.purpose ?? (ownershipType === "family" ? "practice" : "official");
 
   return ok<LessonDetailResponse>({
     id: lesson.id,
@@ -510,6 +568,11 @@ export const getLessonDetail: Handler = async (context) => {
     objectiveVi: versionSnapshot?.objective_vi ?? lesson.objective_vi,
     approvalStatus: approval?.status ?? "draft",
     version: targetVersion,
+    ownershipType,
+    ownerParentId: lesson.owner_parent_id ?? null,
+    purpose,
+    sourceLessonId: lesson.source_lesson_id ?? null,
+    sourceVersion: lesson.source_version ?? null,
     steps: payload,
   });
 };
@@ -551,9 +614,17 @@ export const setLessonApproval: Handler = async (context) => {
     learnerId = firstLearner?.id ?? null;
   }
 
+  // Family-private isolation: only the owning parent may approve or reject a family lesson
+  if (lesson.ownership_type === "family" && lesson.owner_parent_id !== context.parent.parentId) {
+    return forbidden("Bạn không có quyền phê duyệt bài luyện tập riêng của gia đình khác.");
+  }
+
   // Enforce organization-lesson tenant visibility parity before recording parent approval
   const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
-  if (orgLesson) {
+  if (lesson.ownership_type === "organization" || orgLesson) {
+    if (!orgLesson) {
+      return forbidden("Bạn không có quyền phê duyệt bài học của trung tâm này.");
+    }
     if (body.status === "approved" && orgLesson.review_status !== "org_approved") {
       return badRequest("Bài học của trung tâm chưa được trung tâm phê duyệt (org_approved), không thể phê duyệt cho học sinh.");
     }
@@ -633,6 +704,169 @@ export const setLessonApproval: Handler = async (context) => {
   });
 };
 
+/* ── POST /api/parent/lessons/fork ────────────────────────────────────────── */
+
+/**
+ * Forks a curated TAI catalogue lesson into a family-owned practice lesson.
+ *
+ * Only `catalogue` lessons may be forked in this milestone; organization and
+ * existing family lessons are rejected with 403 Forbidden. The forked lesson
+ * starts at `version = 1`, `purpose = 'practice'`, `ownership_type = 'family'`,
+ * `owner_parent_id = context.parent.parentId`, and pins `source_lesson_id` +
+ * `source_version` as well as `source_step_id` on every copied step. Approvals,
+ * attempts, mastery, and organization roles are never copied.
+ */
+export const forkLesson: Handler = async (context) => {
+  const parsed = await readJsonBody(context.request, 8_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<ForkLessonRequest>;
+
+  if (typeof body.sourceLessonId !== "string" || body.sourceLessonId.trim().length === 0) {
+    return badRequest("Thiếu mã bài học gốc.");
+  }
+
+  const sourceLesson = await repo.findLesson(context.env.DB, body.sourceLessonId.trim());
+  if (!sourceLesson) {
+    return notFound("Không tìm thấy bài học gốc.");
+  }
+
+  const orgLesson = await repo.findOrganizationLesson(context.env.DB, sourceLesson.id);
+  const sourceOwnership: LessonOwnershipType =
+    orgLesson || sourceLesson.ownership_type === "organization"
+      ? "organization"
+      : sourceLesson.ownership_type === "family"
+        ? "family"
+        : "catalogue";
+
+  if (sourceOwnership !== "catalogue") {
+    return forbidden(
+      "Chỉ được phép tạo bản luyện tập riêng từ bài học trong Thư viện chuẩn TAI.",
+    );
+  }
+
+  const requestedVersion =
+    body.sourceVersion !== undefined ? body.sourceVersion : sourceLesson.version;
+  if (
+    typeof requestedVersion !== "number" ||
+    !Number.isInteger(requestedVersion) ||
+    requestedVersion < 1 ||
+    requestedVersion > sourceLesson.version
+  ) {
+    return badRequest("Phiên bản bài học gốc không hợp lệ.");
+  }
+
+  const [sourceSteps, sourceSnapshot, metadataRows] = await Promise.all([
+    repo.listStepsForLesson(context.env.DB, sourceLesson.id, requestedVersion),
+    repo.findLessonVersion(context.env.DB, sourceLesson.id, requestedVersion),
+    repo.listLessonMetadata(context.env.DB),
+  ]);
+
+  if (sourceSteps.length === 0) {
+    return notFound("Không tìm thấy nội dung phiên bản bài học gốc để sao chép.");
+  }
+
+  for (const step of sourceSteps) {
+    const validated = validateExercise(parseJson(step.content));
+    if (!validated.ok) {
+      return serverError();
+    }
+  }
+
+  const sourceTitleVi = sourceSnapshot?.title_vi ?? sourceLesson.title_vi;
+  const sourceTitleEn = sourceSnapshot?.title_en ?? sourceLesson.title_en;
+  const sourceObjectiveVi = sourceSnapshot?.objective_vi ?? sourceLesson.objective_vi;
+  const sourceObjectiveEn = sourceSnapshot?.objective_en ?? sourceLesson.objective_en;
+
+  const customTitleVi =
+    typeof body.titleVi === "string" && body.titleVi.trim().length > 0
+      ? body.titleVi.trim().slice(0, 200)
+      : `${sourceTitleVi} (Bản luyện tập gia đình)`.slice(0, 200);
+  const customObjectiveVi =
+    typeof body.objectiveVi === "string" && body.objectiveVi.trim().length > 0
+      ? body.objectiveVi.trim().slice(0, 600)
+      : sourceObjectiveVi;
+
+  const newLessonId = `family-lesson-${crypto.randomUUID()}`;
+  const now = Date.now();
+  const sourceMeta = metadataRows.find((m) => m.lesson_id === sourceLesson.id) ?? null;
+
+  const forkedSteps = sourceSteps.map((s) => ({
+    id: crypto.randomUUID(),
+    position: s.position,
+    kind: s.kind,
+    content: s.content,
+    answerKey: s.answer_key,
+    explanationVi: s.explanation_vi,
+    sourceStepId: s.id,
+  }));
+
+  await repo.createFamilyForkedLesson(context.env.DB, {
+    lesson: {
+      id: newLessonId,
+      subjectId: sourceLesson.subject_id,
+      skillId: sourceLesson.skill_id,
+      titleVi: customTitleVi,
+      titleEn: sourceTitleEn,
+      objectiveVi: customObjectiveVi,
+      objectiveEn: sourceObjectiveEn,
+      gradeFrom: sourceLesson.grade_from,
+      gradeTo: sourceLesson.grade_to,
+      ownerParentId: context.parent.parentId,
+      sourceLessonId: sourceLesson.id,
+      sourceVersion: requestedVersion,
+    },
+    steps: forkedSteps,
+    metadata: sourceMeta
+      ? {
+          objectiveId: sourceMeta.objective_id,
+          provenance: "original_supplemental",
+          sourceRef: `fork:${sourceLesson.id}@v${requestedVersion}`,
+          expectedDurationMinutes: sourceMeta.expected_duration_minutes,
+          reviewRecommendationVi: sourceMeta.review_recommendation_vi,
+        }
+      : null,
+    auditId: crypto.randomUUID(),
+    now,
+  });
+
+  const responseSteps: LessonDetailResponse["steps"] = forkedSteps.map((s) => {
+    const validated = validateExercise(parseJson(s.content));
+    return {
+      id: s.id,
+      position: s.position,
+      kind: s.kind as LessonStepKind,
+      content: validated.ok ? validated.value : (parseJson(s.content) as LessonDetailResponse["steps"][number]["content"]),
+      explanationVi: s.explanationVi,
+      answerKey: parseJson(s.answerKey),
+      sourceStepId: s.sourceStepId,
+    };
+  });
+
+  return ok<ForkLessonResponse>({
+    lessonId: newLessonId,
+    version: 1,
+    ownershipType: "family",
+    purpose: "practice",
+    sourceLessonId: sourceLesson.id,
+    sourceVersion: requestedVersion,
+    titleVi: customTitleVi,
+    lesson: {
+      id: newLessonId,
+      subjectId: sourceLesson.subject_id,
+      titleVi: customTitleVi,
+      objectiveVi: customObjectiveVi,
+      approvalStatus: "draft",
+      version: 1,
+      ownershipType: "family",
+      ownerParentId: context.parent.parentId,
+      purpose: "practice",
+      sourceLessonId: sourceLesson.id,
+      sourceVersion: requestedVersion,
+      steps: responseSteps,
+    },
+  });
+};
+
 /* ── POST /api/parent/lessons/content ─────────────────────────────────────── */
 
 /**
@@ -641,6 +875,11 @@ export const setLessonApproval: Handler = async (context) => {
  * Steps are re-validated against the exercise schema before anything is
  * written, and the lesson version is bumped. Bumping the version is what marks
  * an existing approval as out of date: the parent must re-review what changed.
+ *
+ * Server-authoritative ownership enforcement:
+ *   - `catalogue`: strictly rejected with 403 Forbidden (parents must fork first).
+ *   - `family`: allowed only when `lesson.owner_parent_id === context.parent.parentId`.
+ *   - `organization`: allowed only for owner/admin or authoring teacher of that org.
  */
 export const updateLessonContent: Handler = async (context) => {
   const parsed = await readJsonBody(context.request, 64_000);
@@ -651,21 +890,40 @@ export const updateLessonContent: Handler = async (context) => {
   const lesson = await repo.findLesson(context.env.DB, body.lessonId);
   if (!lesson) return notFound("Không tìm thấy bài học.");
 
+  const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
+  const ownershipType: LessonOwnershipType =
+    orgLesson || lesson.ownership_type === "organization"
+      ? "organization"
+      : lesson.ownership_type === "family"
+        ? "family"
+        : "catalogue";
+
+  if (ownershipType === "catalogue") {
+    return forbidden(
+      "Bài học thuộc Thư viện chuẩn TAI không được chỉnh sửa trực tiếp. Vui lòng tạo bản luyện tập riêng cho gia đình trước.",
+    );
+  }
+
+  if (ownershipType === "family") {
+    if (lesson.owner_parent_id !== context.parent.parentId) {
+      return forbidden("Bạn không có quyền chỉnh sửa bài luyện tập riêng của gia đình khác.");
+    }
+  } else if (ownershipType === "organization") {
+    if (!orgLesson) {
+      return forbidden("Bạn không có quyền chỉnh sửa nội dung bài học của tổ chức này.");
+    }
+    const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
+    if (!role || (role === "teacher" && orgLesson.author_id !== context.parent.parentId)) {
+      return forbidden("Bạn không có quyền chỉnh sửa nội dung bài học của tổ chức này.");
+    }
+  }
+
   if (
     typeof body.expectedVersion === "number" &&
     Number.isInteger(body.expectedVersion) &&
     lesson.version !== body.expectedVersion
   ) {
     return conflict("Phiên bản bài học đã được cập nhật bởi thao tác khác. Vui lòng tải lại trước khi lưu.");
-  }
-
-  // If the lesson belongs to an organization, only an authorized member (owner/admin or authoring teacher) may edit it.
-  const orgLesson = await repo.findOrganizationLesson(context.env.DB, lesson.id);
-  if (orgLesson) {
-    const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
-    if (!role || (role === "teacher" && orgLesson.author_id !== context.parent.parentId)) {
-      return forbidden("Bạn không có quyền chỉnh sửa nội dung bài học của tổ chức này.");
-    }
   }
 
   if (body.titleVi !== undefined) {
@@ -694,14 +952,13 @@ export const updateLessonContent: Handler = async (context) => {
   const nextObjectiveVi = typeof body.objectiveVi === "string" ? body.objectiveVi.trim() : lesson.objective_vi;
   const nextObjectiveEn = lesson.objective_en;
 
-  // Read and validate existing steps before building the atomic batch when this is a metadata-only edit
-  const existingSteps =
-    body.steps === undefined
-      ? await repo.listStepsForLesson(context.env.DB, lesson.id, expectedVersion)
-      : [];
+  // Read current steps for `expectedVersion` so we can preserve `source_step_id` lineage across edits
+  // and copy full steps on metadata-only edits.
+  const existingSteps = await repo.listStepsForLesson(context.env.DB, lesson.id, expectedVersion);
   if (body.steps === undefined && existingSteps.length === 0) {
     return badRequest("Không tìm thấy các bước của phiên bản hiện tại để tạo bản chụp mới.");
   }
+  const existingStepByPosition = new Map(existingSteps.map((s) => [s.position, s]));
 
   const now = Date.now();
   const statements: D1PreparedStatement[] = [
@@ -721,15 +978,20 @@ export const updateLessonContent: Handler = async (context) => {
     }),
   ];
 
-  // 2. Insert immutable step snapshots for `nextVersion` (never ON CONFLICT DO UPDATE).
+  // 2. Insert immutable step snapshots for `nextVersion` (never ON CONFLICT DO UPDATE), preserving source_step_id.
   if (body.steps !== undefined) {
     for (const step of body.steps) {
+      const priorStep = existingStepByPosition.get(step.position);
+      const preservedSourceStepId =
+        typeof step.sourceStepId === "string" && step.sourceStepId.length > 0
+          ? step.sourceStepId
+          : (priorStep?.source_step_id ?? null);
       statements.push(
         context.env.DB
           .prepare(
             `INSERT INTO lesson_steps
-               (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+               (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
           )
           .bind(
             crypto.randomUUID(),
@@ -740,6 +1002,7 @@ export const updateLessonContent: Handler = async (context) => {
             JSON.stringify(step.answerKey),
             step.explanationVi,
             nextVersion,
+            preservedSourceStepId,
           ),
       );
     }
@@ -749,8 +1012,8 @@ export const updateLessonContent: Handler = async (context) => {
         context.env.DB
           .prepare(
             `INSERT INTO lesson_steps
-               (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+               (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
           )
           .bind(
             crypto.randomUUID(),
@@ -761,6 +1024,7 @@ export const updateLessonContent: Handler = async (context) => {
             step.answer_key,
             step.explanation_vi,
             nextVersion,
+            step.source_step_id ?? null,
           ),
       );
     }
@@ -1265,7 +1529,7 @@ export const getBaselineAssessments: Handler = async (context) => {
   );
 
   const baselineLessons = lessons
-    .filter((l) => baselineMeta.has(l.id))
+    .filter((l) => baselineMeta.has(l.id) && (l.purpose ?? "official") === "official")
     .map((l) => ({
       lessonId: l.id,
       subjectId: l.subject_id,
@@ -1328,16 +1592,18 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
     repo.listLessonsBySubject(context.env.DB, subjectId),
     repo.listAttemptsForLearner(context.env.DB, learner.id),
   ]);
-  const lessons = await filterVisibleLessonsForParent(
-    context.env.DB,
-    context.parent.parentId,
-    learner.id,
-    subjectLessons,
-  );
+  const lessons = (
+    await filterVisibleLessonsForParent(
+      context.env.DB,
+      context.parent.parentId,
+      learner.id,
+      subjectLessons,
+    )
+  ).filter((l) => (l.purpose ?? "official") === "official");
 
   const subjectLessonIds = new Set(lessons.map((l) => l.id));
   const relevantAttempts = attempts
-    .filter((a) => subjectLessonIds.has(a.lesson_id))
+    .filter((a) => subjectLessonIds.has(a.lesson_id) && (a.purpose ?? "official") === "official")
     .map((a) => ({
       stepId: a.step_id,
       stepPosition: 1,
@@ -1443,12 +1709,14 @@ async function buildFourWeekPlanResponse(
     repo.listBaselineAssessmentsForLearner(context.env.DB, learner.id),
     repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
   ]);
-  const lessons = await filterVisibleLessonsForParent(
-    context.env.DB,
-    context.parent.parentId,
-    learner.id,
-    allLessons,
-  );
+  const lessons = (
+    await filterVisibleLessonsForParent(
+      context.env.DB,
+      context.parent.parentId,
+      learner.id,
+      allLessons,
+    )
+  ).filter((l) => (l.purpose ?? "official") === "official");
 
   const resolvedSchoolYearLabel =
     preferredSchoolYearLabel ??
@@ -1553,12 +1821,14 @@ export const generateFourWeekPlanRoute: Handler = async (context) => {
       repo.listCurriculumIntakesForLearner(context.env.DB, learner.id),
       repo.findActiveSchoolYear(context.env.DB, learner.id, new Date().toISOString().slice(0, 10)),
     ]);
-  const lessons = await filterVisibleLessonsForParent(
-    context.env.DB,
-    context.parent.parentId,
-    learner.id,
-    allLessons,
-  );
+  const lessons = (
+    await filterVisibleLessonsForParent(
+      context.env.DB,
+      context.parent.parentId,
+      learner.id,
+      allLessons,
+    )
+  ).filter((l) => (l.purpose ?? "official") === "official");
 
   const schoolYearLabel =
     typeof body.schoolYearLabel === "string" && body.schoolYearLabel.trim().length > 0
@@ -1824,7 +2094,7 @@ export const transitionSchoolYear: Handler = async (context) => {
       completedSessionCount: yearSessions.filter((s) => s.status === "completed").length,
       attemptCount: yearAttempts.length,
       independentAttemptCount: yearAttempts.filter(
-        (a) => a.outcome === "correct" && a.help_level <= 2,
+        (a) => (a.purpose ?? "official") === "official" && a.outcome === "correct" && a.help_level <= 2,
       ).length,
     },
   });

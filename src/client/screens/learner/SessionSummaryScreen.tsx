@@ -177,6 +177,9 @@ export function SessionSummaryScreen({
           {state.phase === "ready" ? (
             <p className="summary-header__status">
               Trạng thái phiên học: {statusLabel(state.status)}
+              {state.summary.purpose === "practice"
+                ? " · Chế độ: Luyện tập gia đình (không tính vào bằng chứng tự làm độc lập)"
+                : ""}
             </p>
           ) : null}
         </header>

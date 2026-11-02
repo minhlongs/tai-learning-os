@@ -299,3 +299,265 @@ describe("transfer version constant", () => {
     expect(TRANSFER_FORMAT_VERSION).toBeGreaterThan(0);
   });
 });
+
+describe("version-scoped lessonVersions, lineage, and practice purpose validation", () => {
+  function baseLessonExport() {
+    return {
+      id: "les-fam-1",
+      subjectId: "math",
+      skillId: "math-frac-equiv",
+      titleVi: "Bài luyện tập phân số",
+      titleEn: null,
+      objectiveVi: "Mục tiêu luyện tập",
+      objectiveEn: null,
+      gradeFrom: 4,
+      gradeTo: 4,
+      version: 2,
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_100_000,
+      ownershipType: "family" as const,
+      ownerParentId: "parent-1",
+      purpose: "practice" as const,
+      sourceLessonId: "math-fractions-equivalent",
+      sourceVersion: 1,
+    };
+  }
+
+  function baseStepExport(version: number, id = `stp-v${version}`) {
+    return {
+      id,
+      lessonId: "les-fam-1",
+      position: 1,
+      kind: "transfer" as const,
+      content: {
+        type: "multiple_choice",
+        question_vi: "1/2 bằng phân số nào?",
+        choices: [
+          { id: "c1", label_vi: "2/4", correct: true },
+          { id: "c2", label_vi: "1/3", correct: false },
+        ],
+        hint1_vi: "Nhân tử và mẫu với 2",
+        hint2_vi: "1x2 / 2x2",
+        hint3_vi: "Đáp án là 2/4",
+      },
+      answerKey: { correctChoiceId: "c1" },
+      explanationVi: "Giải thích",
+      contentVersion: version,
+      sourceStepId: "cat-step-1",
+    };
+  }
+
+  it("accepts a multi-version family practice lesson export with matching lessonVersions, steps, sessions, and attempts", () => {
+    const envelope = validEnvelope();
+    const populated: ExportEnvelope = {
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [baseLessonExport()],
+        lessonSteps: [baseStepExport(1, "stp-v1"), baseStepExport(2, "stp-v2")],
+        lessonVersions: [
+          {
+            lessonId: "les-fam-1",
+            version: 1,
+            titleVi: "Bản v1",
+            titleEn: "",
+            objectiveVi: "Mục tiêu v1",
+            objectiveEn: "",
+            createdAt: 1_700_000_000_000,
+          },
+          {
+            lessonId: "les-fam-1",
+            version: 2,
+            titleVi: "Bản v2",
+            titleEn: "",
+            objectiveVi: "Mục tiêu v2",
+            objectiveEn: "",
+            createdAt: 1_700_000_100_000,
+          },
+        ],
+        reviewApprovals: [
+          {
+            id: "app-1",
+            lessonId: "les-fam-1",
+            learnerId: "lnr-0001",
+            lessonVersion: 1,
+            status: "approved",
+            reviewerNote: null,
+            reviewedAt: 1_700_000_000_000,
+          },
+        ],
+        learningSessions: [
+          {
+            id: "ses-prac-1",
+            learnerId: "lnr-0001",
+            lessonId: "les-fam-1",
+            lessonVersion: 1,
+            schoolYearId: null,
+            startedAt: 1_700_000_010_000,
+            endedAt: 1_700_000_050_000,
+            status: "completed",
+            stepsSeen: 1,
+            purpose: "practice",
+          },
+        ],
+        learningAttempts: [
+          {
+            id: "att-prac-1",
+            sessionId: "ses-prac-1",
+            learnerId: "lnr-0001",
+            lessonId: "les-fam-1",
+            stepId: "stp-v1",
+            stepVersion: 1,
+            skillId: "math-frac-equiv",
+            submitted: { kind: "choice", choiceId: "c1" },
+            outcome: "correct",
+            helpLevel: 0,
+            evidenceKind: "assisted",
+            isTransfer: true,
+            isReview: false,
+            createdAt: 1_700_000_020_000,
+            purpose: "practice",
+          },
+        ],
+      },
+    };
+    expect(validateExportEnvelope(populated).ok).toBe(true);
+  });
+
+  it("rejects duplicate (lessonId, version) entries in lessonVersions", () => {
+    const envelope = validEnvelope();
+    const res = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [baseLessonExport()],
+        lessonSteps: [baseStepExport(1, "stp-v1")],
+        lessonVersions: [
+          {
+            lessonId: "les-fam-1",
+            version: 1,
+            titleVi: "Bản v1",
+            titleEn: "",
+            objectiveVi: "Mục tiêu v1",
+            objectiveEn: "",
+            createdAt: 1_700_000_000_000,
+          },
+          {
+            lessonId: "les-fam-1",
+            version: 1,
+            titleVi: "Bản v1 trùng",
+            titleEn: "",
+            objectiveVi: "Mục tiêu v1",
+            objectiveEn: "",
+            createdAt: 1_700_000_000_000,
+          },
+        ],
+      },
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.errors.join(" ")).toContain("Trùng phiên bản bài học");
+    }
+  });
+
+  it("rejects lessonVersions referencing a lessonId missing from data.lessons", () => {
+    const envelope = validEnvelope();
+    const res = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [baseLessonExport()],
+        lessonVersions: [
+          {
+            lessonId: "ghost-lesson",
+            version: 1,
+            titleVi: "Ghost",
+            titleEn: "",
+            objectiveVi: "Ghost",
+            objectiveEn: "",
+            createdAt: 1_700_000_000_000,
+          },
+        ],
+      },
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.errors.join(" ")).toContain("ghost-lesson");
+    }
+  });
+
+  it("rejects learningSessions referencing an undeclared lessonVersion when lessonVersions are present", () => {
+    const envelope = validEnvelope();
+    const res = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [baseLessonExport()],
+        lessonSteps: [baseStepExport(1, "stp-v1")],
+        lessonVersions: [
+          {
+            lessonId: "les-fam-1",
+            version: 1,
+            titleVi: "Bản v1",
+            titleEn: "",
+            objectiveVi: "Mục tiêu v1",
+            objectiveEn: "",
+            createdAt: 1_700_000_000_000,
+          },
+        ],
+        learningSessions: [
+          {
+            id: "ses-bad-ver",
+            learnerId: "lnr-0001",
+            lessonId: "les-fam-1",
+            lessonVersion: 99,
+            schoolYearId: null,
+            startedAt: 1_700_000_010_000,
+            endedAt: null,
+            status: "in_progress",
+            stepsSeen: 0,
+          },
+        ],
+      },
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.errors.join(" ")).toContain("ses-bad-ver");
+    }
+  });
+
+  it("rejects invalid ownershipType or purpose on lesson/session/attempt rows", () => {
+    const envelope = validEnvelope();
+    const badOwnership = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        lessons: [{ ...baseLessonExport(), ownershipType: "pirated" as unknown as "family" }],
+      },
+    });
+    expect(badOwnership.ok).toBe(false);
+
+    const badSessionPurpose = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        learningSessions: [
+          {
+            id: "ses-bad-purpose",
+            learnerId: "lnr-0001",
+            lessonId: "les-1",
+            lessonVersion: 1,
+            schoolYearId: null,
+            startedAt: 1_700_000_010_000,
+            endedAt: null,
+            status: "in_progress",
+            stepsSeen: 0,
+            purpose: "ranked" as unknown as "practice",
+          },
+        ],
+      },
+    });
+    expect(badSessionPurpose.ok).toBe(false);
+  });
+});
+
