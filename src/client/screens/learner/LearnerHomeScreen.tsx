@@ -81,7 +81,17 @@ export function LearnerHomeScreen({
                 <h2 className="card__title" id="continue-title">
                   Bài đang học dở
                 </h2>
-                <p className="row__title">{data.continueLesson.titleVi}</p>
+                <p className="row__title">
+                  {data.continueLesson.titleVi}{" "}
+                  {data.continueLesson.purpose === "practice" ? (
+                    <span
+                      className="pill pill--attention"
+                      data-testid="continue-lesson-practice-badge"
+                    >
+                      Luyện tập gia đình
+                    </span>
+                  ) : null}
+                </p>
                 <p className="row__meta">
                   Bước {data.continueLesson.stepPosition} ·{" "}
                   {subjectName(data.subjects, data.continueLesson.subjectId)}

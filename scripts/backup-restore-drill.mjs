@@ -46,6 +46,7 @@ const MIGRATION_FILES = [
   "0010_phase3_science_debate_and_school_years.sql",
   "0011_science_and_debate_parity.sql",
   "0012_family_practice_and_version_lineage.sql",
+  "0013_practice_planner_and_classroom_progress.sql",
 ];
 
 function stripLeadingComments(statement) {

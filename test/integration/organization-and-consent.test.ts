@@ -545,4 +545,205 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
     });
     expect(unapprovedOrgLessonParentApproveRes.status).toBe(400);
   });
+
+  it("pins assigned_version on classroom assignment and enforces teacher scoping + instant consent revocation on GET /api/org/classrooms/progress", async () => {
+    const ownerId = crypto.randomUUID();
+    const assignedTeacherId = crypto.randomUUID();
+    const unassignedTeacherId = crypto.randomUUID();
+    const parentId = crypto.randomUUID();
+    const learnerId = crypto.randomUUID();
+    const now = Date.now();
+
+    await env.DB.prepare(
+      `INSERT INTO parents (id, password_hash, display_name, created_at, updated_at)
+       VALUES (?1, 'h', 'Chủ trung tâm', ?5, ?5),
+              (?2, 'h', 'Giáo viên phụ trách', ?5, ?5),
+              (?3, 'h', 'Giáo viên lớp khác', ?5, ?5),
+              (?4, 'h', 'Phụ huynh Bé Minh', ?5, ?5)`,
+    ).bind(ownerId, assignedTeacherId, unassignedTeacherId, parentId, now).run();
+
+    await env.DB.prepare(
+      `INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at)
+       VALUES (?1, ?2, 'Bé Minh', 2016, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)`,
+    ).bind(learnerId, parentId, now).run();
+
+    const ownerJar = await createAuthenticatedJar(ownerId, "Chủ trung tâm");
+    const assignedTeacherJar = await createAuthenticatedJar(assignedTeacherId, "Giáo viên phụ trách");
+    const unassignedTeacherJar = await createAuthenticatedJar(unassignedTeacherId, "Giáo viên lớp khác");
+    const parentJar = await createAuthenticatedJar(parentId, "Phụ huynh Bé Minh");
+
+    // 1. Create organization, add both teachers, create classroom, assign only assignedTeacherId
+    const orgRes = await callWithJar(ownerJar, "/api/org/create", {
+      method: "POST",
+      json: { name: "Trung tâm Trí Tuệ Việt", slug: `tri-tue-viet-${now}` },
+    });
+    expect(orgRes.status).toBe(200);
+    const { organization } = (await orgRes.json()) as { organization: { id: string } };
+    const orgId = organization.id;
+
+    await callWithJar(ownerJar, "/api/org/members", {
+      method: "POST",
+      json: { organizationId: orgId, userId: assignedTeacherId, role: "teacher" },
+    });
+    await callWithJar(ownerJar, "/api/org/members", {
+      method: "POST",
+      json: { organizationId: orgId, userId: unassignedTeacherId, role: "teacher" },
+    });
+
+    const classRes = await callWithJar(ownerJar, "/api/org/classrooms", {
+      method: "POST",
+      json: { organizationId: orgId, name: "Lớp Toán 4B", grade: 4, subjectId: "math" },
+    });
+    expect(classRes.status).toBe(200);
+    const { classroom } = (await classRes.json()) as { classroom: { id: string } };
+    const classroomId = classroom.id;
+
+    await callWithJar(ownerJar, "/api/org/classrooms/teachers", {
+      method: "POST",
+      json: { classroomId, teacherId: assignedTeacherId },
+    });
+
+    // 2. Parent grants consent and owner enrolls learner
+    await callWithJar(parentJar, "/api/parent/consents/grant", {
+      method: "POST",
+      json: { organizationId: orgId, learnerId },
+    });
+    await callWithJar(ownerJar, "/api/org/classrooms/enroll", {
+      method: "POST",
+      json: { classroomId, learnerId },
+    });
+
+    // 3. Author, submit, org-approve v1, and assign v1 to classroom
+    const draftRes = await callWithJar(assignedTeacherJar, "/api/org/lessons/draft", {
+      method: "POST",
+      json: {
+        organizationId: orgId,
+        subjectId: "math",
+        titleVi: "Bài toán trung tâm v1",
+        objectiveVi: "Giải bài toán v1",
+        gradeFrom: 4,
+        gradeTo: 4,
+        steps: [
+          {
+            position: 1,
+            kind: "concept",
+            content: {
+              type: "multiple_choice",
+              question_vi: "2 + 3 = ?",
+              choices: [
+                { id: "a", label_vi: "5", correct: true },
+                { id: "b", label_vi: "6", correct: false },
+              ],
+              hint1_vi: "Đếm thêm 3 từ 2.",
+              hint2_vi: "2 + 2 = 4, thêm 1 nữa.",
+              hint3_vi: "Kết quả là 5.",
+            },
+            answerKey: { correctChoiceId: "a" },
+            explanationVi: "2 + 3 = 5",
+          },
+        ],
+      },
+    });
+    expect(draftRes.status).toBe(200);
+    const { lessonId } = (await draftRes.json()) as { lessonId: string };
+
+    await callWithJar(assignedTeacherJar, "/api/org/lessons/submit", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId },
+    });
+    await callWithJar(ownerJar, "/api/org/lessons/review", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId, decision: "org_approved" },
+    });
+
+    const assignRes = await callWithJar(assignedTeacherJar, "/api/org/classrooms/assign-lesson", {
+      method: "POST",
+      json: { classroomId, lessonId },
+    });
+    expect(assignRes.status).toBe(200);
+    const assignBody = (await assignRes.json()) as { assignedVersion: number };
+    expect(assignBody.assignedVersion).toBe(1);
+
+    // 4. Parent approves v1
+    const approveV1 = await callWithJar(parentJar, "/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, learnerId, version: 1, status: "approved" },
+    });
+    expect(approveV1.status).toBe(200);
+
+    // 5. Teacher edits lesson to v2 and owner org-approves v2 WITHOUT re-assigning to classroom
+    await callWithJar(assignedTeacherJar, "/api/parent/lessons/content", {
+      method: "POST",
+      json: { lessonId, expectedVersion: 1, titleVi: "Bài toán trung tâm v2" },
+    });
+    await callWithJar(assignedTeacherJar, "/api/org/lessons/submit", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId },
+    });
+    await callWithJar(ownerJar, "/api/org/lessons/review", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId, decision: "org_approved" },
+    });
+
+    // Parent classroom-lessons view still sees assignedVersion = 1 and isParentApproved = true
+    const parentClassLessonsRes = await callWithJar(parentJar, `/api/parent/classroom-lessons?learnerId=${learnerId}`);
+    expect(parentClassLessonsRes.status).toBe(200);
+    const parentClassLessons = (await parentClassLessonsRes.json()) as {
+      lessons: { lessonId: string; assignedVersion: number; isParentApproved: boolean; titleVi: string }[];
+    };
+    expect(parentClassLessons.lessons).toEqual([
+      expect.objectContaining({
+        lessonId,
+        assignedVersion: 1,
+        isParentApproved: true,
+        titleVi: "Bài toán trung tâm v1",
+      }),
+    ]);
+
+    // 6. Unassigned teacher gets 403 on GET /api/org/classrooms/progress
+    const unassignedProgRes = await callWithJar(
+      unassignedTeacherJar,
+      `/api/org/classrooms/progress?classroomId=${classroomId}`,
+    );
+    expect(unassignedProgRes.status).toBe(403);
+
+    // 7. Assigned teacher and owner get 200 with learner progress summary
+    const assignedProgRes = await callWithJar(
+      assignedTeacherJar,
+      `/api/org/classrooms/progress?classroomId=${classroomId}`,
+    );
+    expect(assignedProgRes.status).toBe(200);
+    const progBody = (await assignedProgRes.json()) as {
+      assignedLessonCount: number;
+      learners: { learnerId: string; assignedCount: number; parentApprovedCount: number; completedCount: number }[];
+    };
+    expect(progBody.assignedLessonCount).toBe(1);
+    expect(progBody.learners).toEqual([
+      expect.objectContaining({
+        learnerId,
+        assignedCount: 1,
+        parentApprovedCount: 1,
+        completedCount: 0,
+      }),
+    ]);
+
+    // 8. Revoking consent immediately removes the learner from classroom progress
+    const revokeRes = await callWithJar(parentJar, "/api/parent/consents/revoke", {
+      method: "POST",
+      json: { organizationId: orgId, learnerId },
+    });
+    expect(revokeRes.status).toBe(200);
+
+    const afterRevokeProgRes = await callWithJar(
+      ownerJar,
+      `/api/org/classrooms/progress?classroomId=${classroomId}`,
+    );
+    expect(afterRevokeProgRes.status).toBe(200);
+    const afterRevokeBody = (await afterRevokeProgRes.json()) as {
+      learners: { learnerId: string }[];
+      progress: { learnerId: string }[];
+    };
+    expect(afterRevokeBody.learners).toEqual([]);
+    expect(afterRevokeBody.progress).toEqual([]);
+  });
 });

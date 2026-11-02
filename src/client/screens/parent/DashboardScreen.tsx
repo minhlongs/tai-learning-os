@@ -271,6 +271,16 @@ export function DashboardScreen({
                   Kỹ năng liên tục chưa đạt cần phụ huynh xem lại, không nên để
                   hệ thống tự ép bé làm lại.
                 </p>
+                <div style={{ marginTop: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    data-testid="needs-attention-practice-cta"
+                    onClick={() => onNavigate("/parent/lessons")}
+                  >
+                    Tạo / giao bài luyện tập gia đình
+                  </button>
+                </div>
               </section>
             ) : null}
 
@@ -659,6 +669,14 @@ function RecentSessions({ rows }: { rows: readonly SessionRow[] }): React.JSX.El
             <li key={row.sessionId}>
               <div className="dashboard-sessions__head">
                 <strong>{row.lessonTitleVi}</strong>
+                {row.purpose === "practice" ? (
+                  <span
+                    className="pill pill--attention"
+                    data-testid={`recent-session-practice-badge-${row.sessionId}`}
+                  >
+                    Luyện tập gia đình · Không tính độc lập
+                  </span>
+                ) : null}
                 <span className={`pill pill--status pill--status--${row.status}`}>
                   {SESSION_LABELS[row.status]}
                 </span>

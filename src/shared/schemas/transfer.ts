@@ -277,7 +277,7 @@ export type LearningPlanItemExport = WithId & {
   subjectId: string;
   skillId: string | null;
   lessonId: string | null;
-  itemKind: "lesson" | "review" | "baseline";
+  itemKind: "lesson" | "review" | "baseline" | "practice";
   status: "scheduled" | "completed" | "skipped" | "rescheduled";
   durationMinutes: number;
   parentNote: string | null;
@@ -775,6 +775,39 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       !exportedLearnerIds.has(approval.learnerId)
     ) {
       errors.push("Bản ghi phê duyệt tham chiếu đến người học không tồn tại trong tệp.");
+    }
+  }
+
+  const VALID_PLAN_ITEM_KINDS = ["lesson", "review", "baseline", "practice"] as const;
+  const VALID_PLAN_ITEM_STATUSES = ["scheduled", "completed", "skipped", "rescheduled"] as const;
+  for (const item of data.learningPlanItems ?? []) {
+    if (!exportedLearnerIds.has(item.learnerId)) {
+      errors.push(`Mục kế hoạch ${item.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+    if (!VALID_PLAN_ITEM_KINDS.includes(item.itemKind)) {
+      errors.push(`Loại mục kế hoạch (${String(item.itemKind)}) không hợp lệ.`);
+    }
+    if (!VALID_PLAN_ITEM_STATUSES.includes(item.status)) {
+      errors.push(`Trạng thái mục kế hoạch (${String(item.status)}) không hợp lệ.`);
+    }
+    if (!Number.isInteger(item.weekIndex) || item.weekIndex < 1 || item.weekIndex > 4) {
+      errors.push(`Tuần của mục kế hoạch ${item.id} phải nằm trong khoảng 1..4.`);
+    }
+    if (!Number.isInteger(item.dayOfWeek) || item.dayOfWeek < 1 || item.dayOfWeek > 7) {
+      errors.push(`Ngày trong tuần của mục kế hoạch ${item.id} phải nằm trong khoảng 1..7.`);
+    }
+    if (item.itemKind === "practice") {
+      if (typeof item.lessonId !== "string" || item.lessonId.trim().length === 0) {
+        errors.push(`Mục kế hoạch luyện tập (${item.id}) bắt buộc phải gắn với một bài luyện tập (lessonId).`);
+      } else if (hasDeclaredLessons && !practiceLessonIds.has(item.lessonId)) {
+        errors.push(
+          `Mục kế hoạch luyện tập (${item.id}) chỉ được phép tham chiếu đến bài luyện tập gia đình (purpose = 'practice').`,
+        );
+      }
+    } else if (typeof item.lessonId === "string" && practiceLessonIds.has(item.lessonId)) {
+      errors.push(
+        `Mục kế hoạch ${item.id} tham chiếu đến bài luyện tập (${item.lessonId}) nên bắt buộc phải có itemKind = 'practice'.`,
+      );
     }
   }
   const hintFloorByLearnerStep = new Map<string, number>();

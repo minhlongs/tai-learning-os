@@ -268,7 +268,7 @@ export type LearningPlanItemRow = {
   subject_id: string;
   skill_id: string | null;
   lesson_id: string | null;
-  item_kind: "lesson" | "review" | "baseline";
+  item_kind: "lesson" | "review" | "baseline" | "practice";
   status: "scheduled" | "completed" | "skipped" | "rescheduled";
   duration_minutes: number;
   parent_note: string | null;
@@ -362,6 +362,7 @@ export type ClassroomLessonAssignmentRow = {
   id: string;
   classroom_id: string;
   lesson_id: string;
+  assigned_version: number;
   assigned_by: string;
   assigned_at: number;
   due_at: number | null;
