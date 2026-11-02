@@ -38,8 +38,10 @@
   - Smooth transition workflows across `school_years` (`POST /api/parent/school-years`, e.g., Grade 4 → Grade 5) while preserving historical sessions, attempts, and competency snapshots per school year on `GET /api/parent/dashboard` and propagating active school year to Curriculum Setup and the 4-Week Planner.
 - [x] **Prerequisite Graph Guided Recommendations**:
   - Deterministic prerequisite-graph engine (`derivePrerequisiteRecommendations`) highlighting `unlocked_next`, `prerequisite_gap`, and `reinforce_supported` lessons on `GET /api/parent/dashboard` with one-click parent approval.
-- [x] **Activated Science & Reasoning Modules + 5-Subject Baseline & 4-Week Planner Parity**:
-  - Grade 4 curriculum packs and baseline diagnostics for `science` (`Khoa học`: `sci-water-cycle`, `sci-plant-needs`, `sci-baseline-grade4`) and `debate` (`Tư duy phản biện`: `deb-claim-reason`, `deb-fact-opinion`, `deb-baseline-grade4`) with `subjects.active = 1` (21 lessons = 16 core + 5 baseline across 5 active subjects), plus cross-tenant organization-lesson visibility filtering across dashboard, baseline, and planner routes.
+- [x] **Activated Science & Reasoning Modules + 5-Subject 25-Lesson Depth Parity**:
+  - Grade 4 curriculum packs and baseline diagnostics across all 5 active subjects (5 lessons per subject = 25 lessons total: 20 core + 5 baseline), including `science` (`Khoa học`: `sci-water-cycle`, `sci-plant-needs`, `sci-states-of-matter`, `sci-light-and-shadow`, `sci-baseline-grade4`) and `debate` (`Tư duy phản biện`: `deb-claim-reason`, `deb-fact-opinion`, `deb-evidence-relevance`, `deb-counterargument-respect`, `deb-baseline-grade4`), plus cross-tenant organization-lesson visibility filtering across dashboard, baseline, and planner routes.
+- [x] **B2B2C Center & Classroom Studio UI (`/parent/organization`)**:
+  - End-to-end UI for creating organizations, managing members with role-based access (`owner` vs `admin` vs `teacher`), viewing consented learners, creating classrooms, enrolling learners, authoring 5-step lessons (`draft` → `submitted` → `org_approved` / `rejected`), and assigning center-approved lessons to classrooms while preserving final parent approval sovereignty.
 
 ---
 
@@ -50,4 +52,4 @@ No `wrangler deploy`, remote D1 creation, or public URL publication may occur un
 1. **Founder Written Authorization**: Explicit sign-off revoking the `LOCAL ONLY` constraint in `wrangler.jsonc`.
 2. **Child Privacy Legal Sign-Off**: Completion of the compliance review specified in `docs/CHILD_PRIVACY_REVIEW.md` §4 (Nghị định 13/2023/NĐ-CP impact assessment).
 3. **Production Secret Provisioning**: High-entropy `SESSION_SECRET` and production `PARENT_PASSWORD_HASH` provisioned via encrypted Worker secrets (never in config files).
-4. **Automated Off-Site Encrypted Backups**: Proven, encrypted backup restoration drill prior to storing any real household history outside the local machine.
+4. [x] **Automated Off-Site Encrypted Backups (Verified Locally — M8)**: Web Crypto `AES-256-GCM` + `PBKDF2-SHA256` (600,000 iterations) authenticated backup encryption (`src/shared/crypto/backup-cipher.ts`) wired into `/parent/data` and `npm run export:learner`, plus automated isolated backup/restore and tamper-rejection drill (`npm run backup:drill`).

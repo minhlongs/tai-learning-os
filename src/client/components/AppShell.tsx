@@ -101,6 +101,13 @@ export function AppShell({
               <button
                 type="button"
                 className="btn btn--ghost"
+                onClick={() => onNavigate("/parent/organization")}
+              >
+                Trung tâm &amp; Lớp học
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
                 onClick={() => onNavigate("/parent/data")}
               >
                 Dữ liệu

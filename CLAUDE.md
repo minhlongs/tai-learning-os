@@ -37,10 +37,10 @@
 # Install dependencies
 npm install
 
-# Apply local D1 migrations (0001_initial_schema.sql through 0010_activate_science_and_debate.sql)
+# Apply local D1 migrations (0001_initial_schema.sql through 0011_science_and_debate_parity.sql)
 npm run db:migrate
 
-# Seed curriculum (21 lessons across 5 active subjects: Math, English, Vietnamese, Science, Debate)
+# Seed curriculum (25 lessons across 5 active subjects: Math, English, Vietnamese, Science, Debate)
 npm run seed:demo
 
 # Start local development server (http://localhost:8791)
@@ -49,13 +49,15 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (10 files, 185 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (13 files, 135 tests)
-npm run test:e2e           # Playwright E2E browser tests (45 tests, Desktop, Tablet, Mobile)
-npm run verify             # Full typecheck + lint + unit test + build
+npm run test               # Vitest unit tests (11 files, 191 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (13 files, 136 tests)
+npm run test:e2e           # Playwright E2E browser tests (48 tests, Desktop, Tablet, Mobile)
+npm run verify             # Full typecheck + lint + unit test + validate:lessons + build
 
 # Data & Security operations (local only)
 npm run export:learner -- ./backup-tai.json
+npm run export:learner -- ./backup-tai.enc.json --passphrase "mat-khau-sao-luu"
+npm run backup:drill       # Isolated AES-256-GCM encrypted backup & restore drill
 npm run unlock:parent      # Clear auth_throttles after accidental lockout
 npm run db:reset-data
 ```

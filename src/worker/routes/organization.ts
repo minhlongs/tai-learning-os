@@ -14,17 +14,51 @@ import type {
   AssignClassroomTeacherResponse,
   ClassroomLearnersResponse,
   ClassroomListResponse,
+  ConsentedOrgLearnersResponse,
   CreateClassroomRequest,
   CreateClassroomResponse,
   CreateOrganizationRequest,
   CreateOrganizationResponse,
   EnrollLearnerRequest,
   EnrollLearnerResponse,
+  MemberOrganizationListResponse,
   OrganizationMemberListResponse,
 } from "../../shared/api-contract";
 import * as repo from "../db/repositories";
 import { badRequest, conflict, forbidden, notFound, ok, readJsonBody } from "../http/response";
 import type { Handler } from "../http/middleware";
+
+/* ── GET /api/org/list ────────────────────────────────────────────────────── */
+
+export const listMemberOrganizationsRoute: Handler = async (context) => {
+  const rows = await repo.listOrganizationsForMember(context.env.DB, context.parent.parentId);
+  return ok<MemberOrganizationListResponse>({
+    organizations: rows.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      role: row.role,
+      createdAt: row.created_at,
+    })),
+  });
+};
+
+/* ── GET /api/org/consented-learners ──────────────────────────────────────── */
+
+export const listConsentedLearnersForOrgRoute: Handler = async (context) => {
+  const orgId = context.url.searchParams.get("organizationId");
+  if (!orgId) {
+    return badRequest("Thiếu tham số organizationId.");
+  }
+
+  const requesterRole = await repo.findMemberRole(context.env.DB, orgId, context.parent.parentId);
+  if (requesterRole !== "owner" && requesterRole !== "admin") {
+    return forbidden("Chỉ chủ sở hữu hoặc quản trị viên mới có quyền xem danh sách học sinh đã cấp chấp thuận (consent).");
+  }
+
+  const learners = await repo.listConsentedLearnersForOrganization(context.env.DB, orgId);
+  return ok<ConsentedOrgLearnersResponse>({ learners });
+};
 
 /* ── POST /api/org/create ─────────────────────────────────────────────────── */
 
@@ -93,6 +127,23 @@ export const addOrganizationMemberRoute: Handler = async (context) => {
   const requesterRole = await repo.findMemberRole(context.env.DB, body.organizationId, context.parent.parentId);
   if (requesterRole !== "owner" && requesterRole !== "admin") {
     return forbidden("Chỉ chủ sở hữu hoặc quản trị viên mới có quyền thêm/quản lý thành viên.");
+  }
+
+  const targetCurrentRole = await repo.findMemberRole(context.env.DB, body.organizationId, body.userId);
+  if (requesterRole === "admin") {
+    if (body.role === "owner") {
+      return forbidden("Quản trị viên (admin) không có quyền bổ nhiệm chủ sở hữu (owner).");
+    }
+    if (targetCurrentRole === "owner") {
+      return forbidden("Quản trị viên (admin) không có quyền thay đổi vai trò của chủ sở hữu (owner).");
+    }
+  }
+
+  if (targetCurrentRole === "owner" && body.role !== "owner") {
+    const ownerCount = await repo.countOrganizationOwners(context.env.DB, body.organizationId);
+    if (ownerCount <= 1) {
+      return badRequest("Không thể hạ vai trò của chủ sở hữu (owner) duy nhất trong tổ chức.");
+    }
   }
 
   const now = Date.now();

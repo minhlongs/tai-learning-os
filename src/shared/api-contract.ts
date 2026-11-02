@@ -662,6 +662,45 @@ export type CreateOrganizationResponse = {
   };
 };
 
+export type MemberOrganizationListResponse = {
+  organizations: {
+    id: string;
+    slug: string;
+    name: string;
+    role: OrganizationRoleContract;
+    createdAt: number;
+  }[];
+};
+
+export type ConsentedOrgLearnersResponse = {
+  learners: {
+    id: string;
+    nickname: string;
+    grade: number | null;
+    grantedAt: number;
+  }[];
+};
+
+export type OrganizationLessonListResponse = {
+  lessons: {
+    lessonId: string;
+    organizationId: string;
+    authorId: string;
+    authorDisplayName: string;
+    subjectId: string;
+    skillId: string | null;
+    titleVi: string;
+    objectiveVi: string;
+    gradeFrom: number;
+    gradeTo: number;
+    stepCount: number;
+    reviewStatus: CenterReviewStatusContract;
+    reviewNote: string | null;
+    createdAt: number;
+    updatedAt: number;
+  }[];
+};
+
 export type AddOrganizationMemberRequest = {
   organizationId: string;
   userId: string;

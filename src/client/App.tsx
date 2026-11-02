@@ -35,6 +35,7 @@ import { DataControlScreen } from "./screens/parent/DataControlScreen";
 import { CurriculumSetupScreen } from "./screens/parent/CurriculumSetupScreen";
 import { BaselineAssessmentScreen } from "./screens/parent/BaselineAssessmentScreen";
 import { FourWeekPlannerScreen } from "./screens/parent/FourWeekPlannerScreen";
+import { OrganizationStudioScreen } from "./screens/parent/OrganizationStudioScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
 import { SessionProvider, useSessionContext } from "./lib/SessionProvider";
 import { clearCsrfToken } from "./lib/csrf-store";
@@ -51,6 +52,7 @@ export type Route =
   | { name: "parent-baseline" }
   | { name: "parent-planner" }
   | { name: "parent-lessons" }
+  | { name: "parent-organization" }
   | { name: "parent-data" }
   | { name: "not-found" };
 
@@ -67,6 +69,7 @@ export function matchRoute(pathname: string): Route {
     if (parts[1] === "baseline") return { name: "parent-baseline" };
     if (parts[1] === "planner") return { name: "parent-planner" };
     if (parts[1] === "lessons") return { name: "parent-lessons" };
+    if (parts[1] === "organization") return { name: "parent-organization" };
     if (parts[1] === "data") return { name: "parent-data" };
     return { name: "not-found" };
   }
@@ -147,6 +150,8 @@ export function Router(): React.JSX.Element {
       return <FourWeekPlannerScreen key={activeLearnerKey} onNavigate={go} />;
     case "parent-lessons":
       return <LessonManagerScreen key={activeLearnerKey} onNavigate={go} />;
+    case "parent-organization":
+      return <OrganizationStudioScreen key={activeLearnerKey} onNavigate={go} />;
     case "parent-data":
       return <DataControlScreen key={activeLearnerKey} onNavigate={go} />;
     case "learner-home":

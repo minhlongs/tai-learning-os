@@ -5,9 +5,14 @@
  * so the CLI export and the `/api/data/export` endpoint produce the same
  * `tai-learning-os-export@v1` envelope and cannot drift apart.
  *
+ * Optional encryption: if `--passphrase <secret>` or `BACKUP_PASSPHRASE` env var is
+ * provided (minimum 8 chars), the envelope is encrypted with Web Crypto AES-256-GCM
+ * (PBKDF2-SHA256, 600,000 iterations) via `encryptBackupEnvelope`.
+ *
  * Usage:
  *   npm run export:learner
  *   npm run export:learner -- ./backup-tai.json
+ *   npm run export:learner -- ./backup-tai.enc.json --passphrase "<secret>"
  */
 import { writeFileSync } from "node:fs";
 import { register } from "node:module";
@@ -16,7 +21,24 @@ register(new URL("./resolve-ts-specifiers.mjs", import.meta.url).href);
 
 const { getPlatformProxy } = await import("wrangler");
 const { exportRecord } = await import("../src/worker/routes/data.ts");
+const { encryptBackupEnvelope } = await import("../src/shared/crypto/backup-cipher.ts");
 
+function parseCliArgs(argv) {
+  let targetPath = null;
+  let passphrase = process.env.BACKUP_PASSPHRASE ?? null;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--passphrase" && i + 1 < argv.length) {
+      passphrase = argv[i + 1];
+      i++;
+    } else if (!arg.startsWith("--") && !targetPath) {
+      targetPath = arg;
+    }
+  }
+  return { targetPath, passphrase };
+}
+
+const { targetPath, passphrase } = parseCliArgs(process.argv.slice(2));
 const proxy = await getPlatformProxy();
 
 try {
@@ -65,11 +87,17 @@ try {
     process.exit(1);
   }
 
-  const formatted = `${JSON.stringify(payload, null, 2)}\n`;
-  const targetPath = process.argv[2];
+  const outputObj =
+    typeof passphrase === "string" && passphrase.trim().length > 0
+      ? await encryptBackupEnvelope(payload, passphrase.trim())
+      : payload;
+
+  const formatted = `${JSON.stringify(outputObj, null, 2)}\n`;
   if (targetPath) {
     writeFileSync(targetPath, formatted, "utf8");
-    console.log(`exported learner record to ${targetPath}`);
+    console.log(
+      `exported ${outputObj.format === "tai-encrypted-backup-v1" ? "encrypted " : ""}learner record to ${targetPath}`,
+    );
   } else {
     process.stdout.write(formatted);
   }

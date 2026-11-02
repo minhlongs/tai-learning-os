@@ -351,4 +351,161 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
     const learnersAfterRevoke = (await teacherAfterRevokeRes.json()) as { learners: { id: string }[] };
     expect(learnersAfterRevoke.learners).toHaveLength(0);
   });
+
+  it("enforces owner vs admin RBAC boundaries, GET /api/org/list, GET /api/org/consented-learners, GET /api/org/lessons, and blocks org_approved status regression", async () => {
+    const db = env.DB;
+    const now = Date.now();
+
+    const ownerId = crypto.randomUUID();
+    const adminId = crypto.randomUUID();
+    const teacherId = crypto.randomUUID();
+    const parentId = crypto.randomUUID();
+
+    await db
+      .prepare(
+        `INSERT INTO parents (id, password_hash, display_name, created_at, updated_at)
+         VALUES
+           (?1, 'hash1', 'Chủ Trung Tâm', ?5, ?5),
+           (?2, 'hash2', 'Quản Trị Viên', ?5, ?5),
+           (?3, 'hash3', 'Cô Giáo Minh', ?5, ?5),
+           (?4, 'hash4', 'Phụ Huynh Bé Bình', ?5, ?5)`,
+      )
+      .bind(ownerId, adminId, teacherId, parentId, now)
+      .run();
+
+    const ownerJar = await createAuthenticatedJar(ownerId, "Chủ Trung Tâm");
+    const adminJar = await createAuthenticatedJar(adminId, "Quản Trị Viên");
+    const teacherJar = await createAuthenticatedJar(teacherId, "Cô Giáo Minh");
+    const parentJar = await createAuthenticatedJar(parentId, "Phụ Huynh Bé Bình");
+
+    // 1. Owner creates organization and adds Admin + Teacher
+    const createOrgRes = await callWithJar(ownerJar, "/api/org/create", {
+      method: "POST",
+      json: { slug: "trung-tam-sao-khue", name: "Trung Tâm Sao Khuê" },
+    });
+    expect(createOrgRes.status).toBe(200);
+    const { organization } = (await createOrgRes.json()) as { organization: { id: string } };
+    const orgId = organization.id;
+
+    await callWithJar(ownerJar, "/api/org/members", {
+      method: "POST",
+      json: { organizationId: orgId, userId: adminId, role: "admin" },
+    });
+    await callWithJar(ownerJar, "/api/org/members", {
+      method: "POST",
+      json: { organizationId: orgId, userId: teacherId, role: "teacher" },
+    });
+
+    // 2. GET /api/org/list returns member organizations with their exact roles
+    const ownerOrgsRes = await callWithJar(ownerJar, "/api/org/list");
+    expect(ownerOrgsRes.status).toBe(200);
+    const ownerOrgs = (await ownerOrgsRes.json()) as { organizations: { id: string; role: string }[] };
+    expect(ownerOrgs.organizations).toEqual([expect.objectContaining({ id: orgId, role: "owner" })]);
+
+    // 3. RBAC: Admin cannot promote anyone to owner (403) and cannot demote an owner (403)
+    const adminPromoteOwnerRes = await callWithJar(adminJar, "/api/org/members", {
+      method: "POST",
+      json: { organizationId: orgId, userId: teacherId, role: "owner" },
+    });
+    expect(adminPromoteOwnerRes.status).toBe(403);
+
+    const adminDemoteOwnerRes = await callWithJar(adminJar, "/api/org/members", {
+      method: "POST",
+      json: { organizationId: orgId, userId: ownerId, role: "teacher" },
+    });
+    expect(adminDemoteOwnerRes.status).toBe(403);
+
+    // 4. RBAC: Sole remaining owner cannot self-demote (400)
+    const ownerSelfDemoteRes = await callWithJar(ownerJar, "/api/org/members", {
+      method: "POST",
+      json: { organizationId: orgId, userId: ownerId, role: "admin" },
+    });
+    expect(ownerSelfDemoteRes.status).toBe(400);
+
+    // 5. GET /api/org/consented-learners: Teacher is forbidden (403); Owner/Admin see only consented learners
+    const createLearnerRes = await callWithJar(parentJar, "/api/parent/learners", {
+      method: "POST",
+      json: { nickname: "Bé Bình", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+    });
+    const { learner } = (await createLearnerRes.json()) as { learner: { id: string } };
+
+    const teacherConsentedRes = await callWithJar(
+      teacherJar,
+      `/api/org/consented-learners?organizationId=${orgId}`,
+    );
+    expect(teacherConsentedRes.status).toBe(403);
+
+    await callWithJar(parentJar, "/api/parent/consents/grant", {
+      method: "POST",
+      json: { organizationId: orgId, learnerId: learner.id },
+    });
+
+    const adminConsentedRes = await callWithJar(
+      adminJar,
+      `/api/org/consented-learners?organizationId=${orgId}`,
+    );
+    expect(adminConsentedRes.status).toBe(200);
+    const consentedBody = (await adminConsentedRes.json()) as { learners: { id: string; nickname: string }[] };
+    expect(consentedBody.learners).toEqual([expect.objectContaining({ id: learner.id, nickname: "Bé Bình" })]);
+
+    // 6. Lesson lifecycle + GET /api/org/lessons + blocking org_approved status regression
+    const draftRes = await callWithJar(teacherJar, "/api/org/lessons/draft", {
+      method: "POST",
+      json: {
+        organizationId: orgId,
+        subjectId: "science",
+        titleVi: "Bài thực hành Khoa học trung tâm",
+        objectiveVi: "Hiểu vòng tuần hoàn của nước",
+        steps: [
+          {
+            position: 1,
+            kind: "concept",
+            content: {
+              type: "multiple_choice",
+              question_vi: "Nước bay hơi tạo thành gì?",
+              choices: [
+                { id: "a", label_vi: "Hơi nước và mây", correct: true },
+                { id: "b", label_vi: "Đá cuội", correct: false },
+              ],
+              hint1_vi: "Nhìn lên bầu trời.",
+              hint2_vi: "Hơi nước ngưng tụ.",
+              hint3_vi: "Tạo thành mây.",
+            },
+            answerKey: { correctChoiceId: "a" },
+            explanationVi: "Nước bay hơi ngưng tụ thành mây.",
+          },
+        ],
+      },
+    });
+    expect(draftRes.status).toBe(200);
+    const { lessonId } = (await draftRes.json()) as { lessonId: string };
+
+    const submitRes = await callWithJar(teacherJar, "/api/org/lessons/submit", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId },
+    });
+    expect(submitRes.status).toBe(200);
+
+    const reviewRes = await callWithJar(ownerJar, "/api/org/lessons/review", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId, decision: "org_approved" },
+    });
+    expect(reviewRes.status).toBe(200);
+
+    const listLessonsRes = await callWithJar(teacherJar, `/api/org/lessons?organizationId=${orgId}`);
+    expect(listLessonsRes.status).toBe(200);
+    const listLessonsBody = (await listLessonsRes.json()) as {
+      lessons: { lessonId: string; reviewStatus: string; stepCount: number }[];
+    };
+    expect(listLessonsBody.lessons).toEqual([
+      expect.objectContaining({ lessonId, reviewStatus: "org_approved", stepCount: 1 }),
+    ]);
+
+    // Re-submitting an already org_approved lesson must be rejected with 400
+    const resubmitApprovedRes = await callWithJar(teacherJar, "/api/org/lessons/submit", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId },
+    });
+    expect(resubmitApprovedRes.status).toBe(400);
+  });
 });

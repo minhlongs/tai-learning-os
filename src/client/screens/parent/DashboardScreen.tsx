@@ -152,6 +152,9 @@ export function DashboardScreen({
             <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent/planner")}>
               Kế hoạch 4 tuần
             </button>
+            <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent/organization")}>
+              Trung tâm &amp; Lớp học
+            </button>
             <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent/data")}>
               Dữ liệu của bé
             </button>

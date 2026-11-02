@@ -2372,6 +2372,52 @@ export async function findOrganizationBySlug(db: Db, slug: string): Promise<Orga
   return row ?? null;
 }
 
+export async function listOrganizationsForMember(
+  db: Db,
+  userId: string,
+): Promise<(OrganizationRow & { role: OrganizationRole })[]> {
+  const result = await db
+    .prepare(
+      `SELECT o.id, o.slug, o.name, o.created_at, o.updated_at, om.role
+       FROM organization_members om
+       JOIN organizations o ON o.id = om.organization_id
+       WHERE om.user_id = ?1
+       ORDER BY o.created_at ASC`,
+    )
+    .bind(userId)
+    .all<OrganizationRow & { role: OrganizationRole }>();
+  return result.results ?? [];
+}
+
+export async function countOrganizationOwners(db: Db, organizationId: string): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS cnt
+       FROM organization_members
+       WHERE organization_id = ?1 AND role = 'owner'`,
+    )
+    .bind(organizationId)
+    .first<{ cnt: number }>();
+  return Number(row?.cnt ?? 0);
+}
+
+export async function listConsentedLearnersForOrganization(
+  db: Db,
+  organizationId: string,
+): Promise<{ id: string; nickname: string; grade: number | null; grantedAt: number }[]> {
+  const result = await db
+    .prepare(
+      `SELECT l.id, l.nickname, l.grade, lc.granted_at AS grantedAt
+       FROM learner_consents lc
+       JOIN learners l ON l.id = lc.learner_id AND l.archived_at IS NULL
+       WHERE lc.organization_id = ?1 AND lc.status = 'active'
+       ORDER BY lc.granted_at DESC`,
+    )
+    .bind(organizationId)
+    .all<{ id: string; nickname: string; grade: number | null; grantedAt: number }>();
+  return result.results ?? [];
+}
+
 export async function addOrganizationMember(
   db: Db,
   input: { id: string; organizationId: string; userId: string; role: OrganizationRole; now: number },
@@ -2771,6 +2817,75 @@ export async function findOrganizationLesson(
     .bind(lessonId)
     .first<OrganizationLessonRow>();
   return row ?? null;
+}
+
+export async function listOrganizationLessons(
+  db: Db,
+  organizationId: string,
+): Promise<
+  {
+    lessonId: string;
+    organizationId: string;
+    authorId: string;
+    authorDisplayName: string;
+    subjectId: string;
+    skillId: string | null;
+    titleVi: string;
+    objectiveVi: string;
+    gradeFrom: number;
+    gradeTo: number;
+    stepCount: number;
+    reviewStatus: "draft" | "submitted" | "org_approved" | "org_rejected";
+    reviewNote: string | null;
+    createdAt: number;
+    updatedAt: number;
+  }[]
+> {
+  const result = await db
+    .prepare(
+      `SELECT ol.lesson_id AS lessonId,
+              ol.organization_id AS organizationId,
+              ol.author_id AS authorId,
+              COALESCE(p.display_name, ol.author_id) AS authorDisplayName,
+              l.subject_id AS subjectId,
+              l.skill_id AS skillId,
+              l.title_vi AS titleVi,
+              l.objective_vi AS objectiveVi,
+              l.grade_from AS gradeFrom,
+              l.grade_to AS gradeTo,
+              (SELECT COUNT(*) FROM lesson_steps ls WHERE ls.lesson_id = l.id AND ls.content_version = l.version) AS stepCount,
+              ol.review_status AS reviewStatus,
+              ol.review_note AS reviewNote,
+              ol.created_at AS createdAt,
+              ol.updated_at AS updatedAt
+       FROM organization_lessons ol
+       JOIN lessons l ON l.id = ol.lesson_id
+       LEFT JOIN parents p ON p.id = ol.author_id
+       WHERE ol.organization_id = ?1
+       ORDER BY ol.updated_at DESC`,
+    )
+    .bind(organizationId)
+    .all<{
+      lessonId: string;
+      organizationId: string;
+      authorId: string;
+      authorDisplayName: string;
+      subjectId: string;
+      skillId: string | null;
+      titleVi: string;
+      objectiveVi: string;
+      gradeFrom: number;
+      gradeTo: number;
+      stepCount: number;
+      reviewStatus: "draft" | "submitted" | "org_approved" | "org_rejected";
+      reviewNote: string | null;
+      createdAt: number;
+      updatedAt: number;
+    }>();
+  return (result.results ?? []).map((row) => ({
+    ...row,
+    stepCount: Number(row.stepCount ?? 0),
+  }));
 }
 
 export async function submitOrganizationLessonForReview(

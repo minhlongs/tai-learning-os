@@ -32,6 +32,12 @@ import type {
   ImportResponse,
 } from "../../../shared/api-contract";
 import { TRANSFER_FORMAT_VERSION, type ExportBody } from "../../../shared/schemas/transfer";
+import {
+  decryptBackupEnvelope,
+  encryptBackupEnvelope,
+  isEncryptedBackupEnvelope,
+  MIN_BACKUP_PASSPHRASE_LENGTH,
+} from "../../../shared/crypto/backup-cipher";
 import { setActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { useSessionContext } from "../../lib/SessionProvider";
@@ -71,9 +77,11 @@ const DELETE_ITEMS: readonly string[] = [
 /* ── Export ─────────────────────────────────────────────────────────────────── */
 
 /** A filename that is descriptive and carries no personal identifier. */
-function exportFileName(): string {
+function exportFileName(encrypted = false): string {
   const iso = new Date().toISOString().replace(/[:.]/g, "-");
-  return `tai-learning-os-export-${iso}.json`;
+  return encrypted
+    ? `tai-learning-os-export-encrypted-${iso}.json`
+    : `tai-learning-os-export-${iso}.json`;
 }
 
 /** Byte length of the UTF-8 text, which is what lands on disk. */
@@ -82,11 +90,11 @@ function byteLength(text: string): number {
 }
 
 /** Hand the envelope to the browser's download machinery and clean up after it. */
-function downloadEnvelope(text: string): void {
+function downloadEnvelope(text: string, fileName: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = exportFileName();
+  link.download = fileName;
   link.rel = "noopener";
   document.body.appendChild(link);
   link.click();
@@ -244,6 +252,7 @@ export function DataControlScreen({
   );
 
   /* Export ------------------------------------------------------------------ */
+  const [exportPassphrase, setExportPassphrase] = useState("");
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exported, setExported] = useState<{
@@ -252,10 +261,14 @@ export function DataControlScreen({
     formatVersion: number;
     exportedAt: number;
     hasEvidence: boolean;
+    encrypted: boolean;
     counts: { label: string; count: number }[];
   } | null>(null);
 
   /* Import ------------------------------------------------------------------ */
+  const [importPassphrase, setImportPassphrase] = useState("");
+  const [importEncryptedPending, setImportEncryptedPending] = useState(false);
+  const rawEncryptedRef = useRef<unknown>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<ImportResponse | null>(null);
@@ -283,58 +296,147 @@ export function DataControlScreen({
   const confirmMatches = requiredPhrase.length > 0 && confirmText === requiredPhrase;
 
   const onExport = useCallback(() => {
+    const trimmedPass = exportPassphrase.trim();
+    if (trimmedPass.length > 0 && trimmedPass.length < MIN_BACKUP_PASSPHRASE_LENGTH) {
+      setExportError(
+        `Mật khẩu mã hóa bản sao lưu phải có ít nhất ${MIN_BACKUP_PASSPHRASE_LENGTH} ký tự (hoặc để trống nếu xuất tệp JSON thường).`,
+      );
+      return;
+    }
     setExportBusy(true);
     setExportError(null);
     setExported(null);
     // The response carries the envelope, so the file is written from the very
     // bytes the server produced rather than from anything assembled here.
-    void api.post<ExportResponse>(endpoints.exportData).then((result) => {
-      setExportBusy(false);
+    void api.post<ExportResponse>(endpoints.exportData).then(async (result) => {
       if (!result.ok) {
+        setExportBusy(false);
         setExportError(failureMessage(result.failure));
         return;
       }
       const envelope = result.value;
-      const text = JSON.stringify(envelope, null, 2);
-      downloadEnvelope(text);
-      setExported({
-        fileName: exportFileName(),
-        bytes: byteLength(text),
-        formatVersion: envelope.formatVersion,
-        exportedAt: envelope.exportedAt,
-        hasEvidence: envelope.containsLearnerEvidence,
-        counts: countCollections(envelope.data),
-      });
-    });
-  }, []);
-
-  const onPickFile = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    // A second pick must not inherit the previous file's verdict.
-    setImportError(null);
-    setImportResult(null);
-    setImportProblems([]);
-    setImportCounts([]);
-    setImportFileName(null);
-    importPayload.current = null;
-    setImportReady(false);
-
-    if (!file) return;
-
-    setImportFileName(file.name);
-    void file.text().then((text) => {
-      const checked = checkEnvelope(text);
-      if (checked.ok) {
-        importPayload.current = checked.envelope;
-        setImportProblems([]);
-        setImportCounts(countCollections(checked.envelope.data));
-      } else {
-        importPayload.current = null;
-        setImportProblems(checked.problems);
+      try {
+        const useEncryption = trimmedPass.length >= MIN_BACKUP_PASSPHRASE_LENGTH;
+        const outputPayload = useEncryption
+          ? await encryptBackupEnvelope(envelope, trimmedPass)
+          : envelope;
+        const text = JSON.stringify(outputPayload, null, 2);
+        const fileName = exportFileName(useEncryption);
+        downloadEnvelope(text, fileName);
+        setExported({
+          fileName,
+          bytes: byteLength(text),
+          formatVersion: envelope.formatVersion,
+          exportedAt: envelope.exportedAt,
+          hasEvidence: envelope.containsLearnerEvidence,
+          encrypted: useEncryption,
+          counts: countCollections(envelope.data),
+        });
+      } catch (err) {
+        setExportError(err instanceof Error ? err.message : "Không thể mã hóa tệp sao lưu.");
+      } finally {
+        setExportBusy(false);
       }
-      setImportReady(checked.ok);
     });
+  }, [exportPassphrase]);
+
+  const evaluateImportText = useCallback(async (text: string, passphrase: string) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      rawEncryptedRef.current = null;
+      setImportEncryptedPending(false);
+      importPayload.current = null;
+      setImportProblems([
+        "Tệp không phải là JSON hợp lệ. Hãy chọn đúng tệp sao lưu mà ứng dụng đã tạo ra.",
+      ]);
+      setImportReady(false);
+      return;
+    }
+
+    if (isEncryptedBackupEnvelope(parsed)) {
+      rawEncryptedRef.current = parsed;
+      setImportEncryptedPending(true);
+      if (!passphrase.trim()) {
+        importPayload.current = null;
+        setImportCounts([]);
+        setImportProblems([
+          "Tệp sao lưu này đã được mã hóa AES-256-GCM. Vui lòng nhập mật khẩu giải mã bên dưới rồi bấm “Giải mã & Kiểm tra tệp”.",
+        ]);
+        setImportReady(false);
+        return;
+      }
+      const decrypted = await decryptBackupEnvelope(parsed, passphrase.trim());
+      if (!decrypted.ok) {
+        importPayload.current = null;
+        setImportCounts([]);
+        setImportProblems(decrypted.errors);
+        setImportReady(false);
+        return;
+      }
+      importPayload.current = decrypted.envelope as unknown as ExportResponse;
+      setImportProblems([]);
+      setImportCounts(countCollections(decrypted.envelope.data));
+      setImportReady(true);
+      return;
+    }
+
+    rawEncryptedRef.current = null;
+    setImportEncryptedPending(false);
+    const checked = checkEnvelope(text);
+    if (checked.ok) {
+      importPayload.current = checked.envelope;
+      setImportProblems([]);
+      setImportCounts(countCollections(checked.envelope.data));
+    } else {
+      importPayload.current = null;
+      setImportProblems(checked.problems);
+    }
+    setImportReady(checked.ok);
   }, []);
+
+  const onPickFile = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      // A second pick must not inherit the previous file's verdict.
+      setImportError(null);
+      setImportResult(null);
+      setImportProblems([]);
+      setImportCounts([]);
+      setImportFileName(null);
+      importPayload.current = null;
+      rawEncryptedRef.current = null;
+      setImportEncryptedPending(false);
+      setImportReady(false);
+
+      if (!file) return;
+
+      setImportFileName(file.name);
+      void file.text().then((text) => {
+        void evaluateImportText(text, importPassphrase);
+      });
+    },
+    [evaluateImportText, importPassphrase],
+  );
+
+  const onDecryptPending = useCallback(() => {
+    const encryptedObj = rawEncryptedRef.current;
+    if (!encryptedObj) return;
+    void decryptBackupEnvelope(encryptedObj, importPassphrase.trim()).then((decrypted) => {
+      if (!decrypted.ok) {
+        importPayload.current = null;
+        setImportCounts([]);
+        setImportProblems(decrypted.errors);
+        setImportReady(false);
+        return;
+      }
+      importPayload.current = decrypted.envelope as unknown as ExportResponse;
+      setImportProblems([]);
+      setImportCounts(countCollections(decrypted.envelope.data));
+      setImportReady(true);
+    });
+  }, [importPassphrase]);
 
   const onImport = useCallback(() => {
     const payload = importPayload.current;
@@ -496,14 +598,40 @@ export function DataControlScreen({
             chứa đầy đủ thành tích học tập của bé, kể cả tên bé đặt trong hồ sơ.
           </p>
 
+          <div className="field" style={{ maxWidth: "420px", marginBottom: "1rem" }}>
+            <label className="field__label" htmlFor="export-passphrase">
+              Mật khẩu mã hóa AES-256-GCM (tùy chọn, tối thiểu {MIN_BACKUP_PASSPHRASE_LENGTH} ký tự)
+            </label>
+            <p className="field__hint" id="export-passphrase-hint">
+              Nếu nhập mật khẩu, tệp tải về sẽ được mã hóa bằng thuật toán PBKDF2-SHA256 + AES-256-GCM ngay trên trình duyệt. Nếu để trống, tệp sẽ được xuất ở dạng JSON thường.
+            </p>
+            <input
+              id="export-passphrase"
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Để trống nếu không cần mã hóa…"
+              aria-describedby="export-passphrase-hint"
+              value={exportPassphrase}
+              onChange={(e) => setExportPassphrase(e.target.value)}
+              disabled={exportBusy}
+              data-testid="export-passphrase-input"
+            />
+          </div>
+
           <div className="data-control__actions">
             <button
               type="button"
               className="btn btn--primary btn--large"
               onClick={onExport}
               disabled={exportBusy}
+              data-testid="export-backup-btn"
             >
-              {exportBusy ? "Đang tạo tệp…" : "Tải tệp sao lưu về máy"}
+              {exportBusy
+                ? "Đang tạo tệp…"
+                : exportPassphrase.trim().length > 0
+                  ? "Tải tệp sao lưu mã hóa AES-256-GCM"
+                  : "Tải tệp sao lưu về máy"}
             </button>
           </div>
 
@@ -532,7 +660,10 @@ export function DataControlScreen({
                 </div>
                 <div className="data-control__fact">
                   <dt>Phiên bản định dạng</dt>
-                  <dd>{exported.formatVersion}</dd>
+                  <dd>
+                    {exported.formatVersion}
+                    {exported.encrypted ? " (Đã mã hóa AES-256-GCM)" : " (JSON thường)"}
+                  </dd>
                 </div>
                 <div className="data-control__fact">
                   <dt>Thời điểm tạo</dt>
@@ -579,11 +710,10 @@ export function DataControlScreen({
 
           <div className="field">
             <label className="field__label" htmlFor="import-file">
-              Chọn tệp sao lưu (định dạng JSON)
+              Chọn tệp sao lưu (định dạng JSON hoặc JSON mã hóa AES-256-GCM)
             </label>
             <p className="field__hint" id="import-file-hint">
-              Chỉ nhận tệp JSON do ứng dụng này tạo ra. Đây là tệp văn bản thuần, mở được
-              bằng trình soạn thảo đơn giản.
+              Chỉ nhận tệp JSON do ứng dụng này tạo ra (bao gồm tệp thường hoặc tệp đã mã hóa bằng mật khẩu).
             </p>
             <input
               className="input data-control__file-input"
@@ -594,6 +724,37 @@ export function DataControlScreen({
               aria-describedby="import-file-hint"
               onChange={onPickFile}
             />
+          </div>
+
+          <div className="field" style={{ maxWidth: "420px", marginBottom: "1rem" }}>
+            <label className="field__label" htmlFor="import-passphrase">
+              Mật khẩu giải mã (nếu tệp sao lưu đã được mã hóa AES-256-GCM)
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <input
+                id="import-passphrase"
+                className="input"
+                style={{ flex: "1 1 220px" }}
+                type="password"
+                autoComplete="off"
+                placeholder="Nhập mật khẩu giải mã…"
+                value={importPassphrase}
+                onChange={(e) => setImportPassphrase(e.target.value)}
+                disabled={importBusy}
+                data-testid="import-passphrase-input"
+              />
+              {importEncryptedPending ? (
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={onDecryptPending}
+                  disabled={importBusy || !importPassphrase.trim()}
+                  data-testid="decrypt-backup-btn"
+                >
+                  Giải mã &amp; Kiểm tra tệp
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="data-control__live">

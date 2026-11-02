@@ -60,15 +60,21 @@ Tại trang **"Bảng theo dõi"** (`/parent`):
 
 Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
 
-### 1. Sao lưu hồ sơ (Export)
-- Nhấn nút **"Tải bản sao lưu (JSON)"** trên giao diện, hoặc chạy lệnh từ terminal:
+### 1. Sao lưu hồ sơ (Export & Mã hóa AES-256-GCM)
+- Nhấn nút **"Tải tệp sao lưu"** trên giao diện (`/parent/data`), hoặc nhập mật khẩu bảo vệ (tối thiểu 8 ký tự) vào ô **"Mật khẩu mã hóa bản sao lưu"** rồi nhấn **"Tải tệp sao lưu mã hóa AES-256-GCM"** (`PBKDF2-SHA256` 600.000 vòng + `AES-256-GCM`).
+- Từ terminal, phụ huynh có thể xuất bản sao lưu JSON tiêu chuẩn hoặc bản mã hóa:
   ```bash
   npm run export:learner -- ./backup-tai-$(date +%Y%m%d).json
+  npm run export:learner -- ./backup-tai-$(date +%Y%m%d).enc.json --passphrase "mat-khau-sao-luu"
   ```
-- Toàn bộ lịch sử bài học, câu trả lời, tiến độ ôn tập và nhật ký kiểm toán sẽ được lưu trữ an toàn trong 1 tập tin JSON tiêu chuẩn (`tai-learning-os-export@v1`).
+- Để kiểm tra định kỳ quy trình sao lưu, giải mã, chống giả mạo và khôi phục dữ liệu trong cơ sở dữ liệu cô lập:
+  ```bash
+  npm run backup:drill
+  ```
+- Toàn bộ lịch sử bài học, câu trả lời, tiến độ ôn tập và nhật ký kiểm toán sẽ được lưu trữ an toàn trong 1 tập tin JSON tiêu chuẩn (`tai-learning-os-export@v1`) hoặc phong bì mã hóa xác thực (`tai-encrypted-backup-v1`).
 
 ### 2. Khôi phục hồ sơ (Import)
-- Dùng khi chuyển dữ liệu sang máy tính mới: Chọn tập tin sao lưu JSON và nhấn **"Khôi phục dữ liệu"**.
+- Dùng khi chuyển dữ liệu sang máy tính mới: Chọn tập tin sao lưu JSON (hoặc tệp đã mã hóa kèm mật khẩu giải mã) và nhấn **"Khôi phục từ tệp này"**.
 - Hệ thống sẽ xác thực toàn bộ tính toàn vẹn của dữ liệu trước khi nạp vào máy.
 
 ### 3. Xóa vĩnh viễn hồ sơ (Hard Delete)
@@ -76,3 +82,13 @@ Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
   - Nhập chính xác chuỗi xác nhận: `XOA Tài`
   - Nhấn **"Xác nhận xóa vĩnh viễn"**.
   - Toàn bộ dữ liệu phiên học, câu trả lời và năng lực sẽ được dọn dẹp sạch sẽ khỏi máy.
+
+---
+
+## 5. Quản Trị Trung Tâm, Lớp Học & Biên Soạn Bài Học (`/parent/organization`)
+
+Tại trang **"Trung tâm & Lớp học"** (`/parent/organization`), phụ huynh hoặc quản trị viên/giáo viên trung tâm có thể:
+1. **Tạo và chuyển đổi Trung tâm (`Organization`)**: Tạo tổ chức giáo dục mới và xem vai trò hiện tại (*Chủ sở hữu*, *Quản trị viên*, *Giáo viên*).
+2. **Quản lý nhân sự & Quyền đồng thuận (`Consent`)**: Thêm giáo viên/quản trị viên vào trung tâm, cấp hoặc thu hồi quyền đồng thuận chia sẻ dữ liệu học tập của từng bé bất kỳ lúc nào.
+3. **Quản lý Lớp học & Ghi danh**: Tạo lớp học, phân công giáo viên phụ trách và ghi danh học sinh đã có đồng thuận hợp lệ của phụ huynh.
+4. **Biên soạn, Duyệt & Giao bài học 5 bước**: Soạn bài học 5 bước (`Khái niệm` → `Ví dụ mẫu` → `Có hướng dẫn` → `Tự làm` → `Vận dụng`), gửi duyệt nội bộ trung tâm (`draft` → `submitted` → `org_approved`) và giao bài cho lớp học. Bài học được giao cho lớp vẫn bắt buộc phải được **phụ huynh của bé phê duyệt lần cuối** tại `/parent/lessons` trước khi hiển thị cho bé.
