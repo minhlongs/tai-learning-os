@@ -643,17 +643,20 @@ export const setLessonApproval: Handler = async (context) => {
       return forbidden("Bạn không có quyền phê duyệt bài học của trung tâm này.");
     }
     const role = await repo.findMemberRole(context.env.DB, orgLesson.organization_id, context.parent.parentId);
-    if (!role) {
-      pinnedOrgAssignedVersion = learnerId
-        ? await repo.findAssignedLessonVersionForLearner(context.env.DB, {
-            learnerId,
-            lessonId: lesson.id,
-          })
-        : null;
-      if (pinnedOrgAssignedVersion === null) {
-        return forbidden("Bạn không có quyền phê duyệt bài học của trung tâm này.");
-      }
-    } else if (body.status === "approved" && orgLesson.review_status !== "org_approved") {
+    pinnedOrgAssignedVersion = learnerId
+      ? await repo.findAssignedLessonVersionForLearner(context.env.DB, {
+          learnerId,
+          lessonId: lesson.id,
+        })
+      : null;
+    if (!role && pinnedOrgAssignedVersion === null) {
+      return forbidden("Bạn không có quyền phê duyệt bài học của trung tâm này.");
+    }
+    if (
+      body.status === "approved" &&
+      (orgLesson.review_status === "org_rejected" ||
+        (orgLesson.review_status !== "org_approved" && pinnedOrgAssignedVersion === null))
+    ) {
       return badRequest("Bài học của trung tâm chưa được trung tâm phê duyệt (org_approved), không thể phê duyệt cho học sinh.");
     }
   }

@@ -823,7 +823,7 @@ export function createSessionGuardedInsert(
                JOIN lessons l ON l.id = cla.lesson_id
                WHERE cla.lesson_id = ?3
                  AND cla.assigned_version = ?4
-                 AND (ol.review_status = 'org_approved' OR cla.assigned_version < l.version)
+                 AND (ol.review_status = 'org_approved' OR (ol.review_status != 'org_rejected' AND cla.assigned_version < l.version))
              )
            )
          ),
@@ -3544,7 +3544,7 @@ export async function findAssignedLessonVersionForLearner(
        JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
        JOIN lessons l ON l.id = cla.lesson_id
        WHERE cla.lesson_id = ?2
-         AND (ol.review_status = 'org_approved' OR cla.assigned_version < l.version)`,
+         AND (ol.review_status = 'org_approved' OR (ol.review_status != 'org_rejected' AND cla.assigned_version < l.version))`,
     )
     .bind(input.learnerId, input.lessonId)
     .first<{ assigned_version: number | null }>();
@@ -3567,7 +3567,7 @@ export async function isLessonAssignedToLearner(
          JOIN lessons l ON l.id = cla.lesson_id
          WHERE cla.lesson_id = ?2
            AND cla.assigned_version = ?3
-           AND (ol.review_status = 'org_approved' OR cla.assigned_version < l.version)
+           AND (ol.review_status = 'org_approved' OR (ol.review_status != 'org_rejected' AND cla.assigned_version < l.version))
          LIMIT 1`,
       )
       .bind(input.learnerId, input.lessonId, input.version)
@@ -3594,7 +3594,7 @@ export async function listAssignedOrgLessonVersionsForLearner(
        JOIN learner_consents lc ON lc.learner_id = ?1 AND lc.organization_id = c.organization_id AND lc.status = 'active'
        JOIN organization_lessons ol ON ol.lesson_id = cla.lesson_id AND ol.organization_id = c.organization_id
        JOIN lessons l ON l.id = cla.lesson_id
-       WHERE (ol.review_status = 'org_approved' OR cla.assigned_version < l.version)
+       WHERE (ol.review_status = 'org_approved' OR (ol.review_status != 'org_rejected' AND cla.assigned_version < l.version))
        GROUP BY cla.lesson_id`,
     )
     .bind(learnerId)

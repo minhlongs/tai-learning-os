@@ -215,16 +215,20 @@ export const exportRecord: Handler = async (context) => {
 
   // Only export lessons that are either currently visible to this learner OR have an
   // authorized historical version with a pinned snapshot in `lesson_versions`.
-  // Never fall back to live `l.version` / `l.title_vi` / `l.objective_vi` for non-visible lessons.
+  // Never fall back to live `l.version` / `l.title_vi` / `l.objective_vi` for non-visible lessons
+  // or when the effective exported version differs from live `l.version`.
   const exportableLessons = lessons.filter((l) => {
     if (l.ownership_type === "family" && l.owner_parent_id !== context.parent.parentId) {
       return false;
     }
-    if (visibleLessonIds.has(l.id)) {
-      return true;
+    const isOrg = l.ownership_type === "organization" || allOrgLessonIds.has(l.id);
+    const effectiveVer =
+      maxAuthorizedVersionByLesson.get(l.id) ??
+      (isOrg ? (assignedOrgVersions.get(l.id) ?? l.version) : l.version);
+    if (!visibleLessonIds.has(l.id) || effectiveVer !== l.version) {
+      return lessonVersionRowMap.has(`${l.id}@${effectiveVer}`);
     }
-    const authVer = maxAuthorizedVersionByLesson.get(l.id);
-    return authVer !== undefined && lessonVersionRowMap.has(`${l.id}@${authVer}`);
+    return true;
   });
   const exportableLessonIds = new Set(exportableLessons.map((l) => l.id));
   const lessonMetadata = rawLessonMetadata.filter((m) => exportableLessonIds.has(m.lesson_id));
@@ -297,9 +301,9 @@ export const exportRecord: Handler = async (context) => {
     })),
     lessons: exportableLessons.map((l) => {
       const isOrg = l.ownership_type === "organization" || allOrgLessonIds.has(l.id);
-      const effectiveVer = visibleLessonIds.has(l.id)
-        ? (isOrg ? (assignedOrgVersions.get(l.id) ?? l.version) : l.version)
-        : maxAuthorizedVersionByLesson.get(l.id)!;
+      const effectiveVer =
+        maxAuthorizedVersionByLesson.get(l.id) ??
+        (isOrg ? (assignedOrgVersions.get(l.id) ?? l.version) : l.version);
       const pinnedSnapshot = lessonVersionRowMap.get(`${l.id}@${effectiveVer}`);
       return {
         id: l.id,
@@ -595,11 +599,15 @@ export const importRecord: Handler = async (context) => {
           ...learner,
           id: learnerIds.get(learner.id) ?? learner.id,
         })),
-        lessons: data.lessons.map((lesson) => ({
-          ...lesson,
-          ownerParentId:
-            lesson.ownershipType === "family" ? context.parent.parentId : (lesson.ownerParentId ?? null),
-        })),
+        lessons: data.lessons.map((lesson) => {
+          const resolvedOwnership = resolveImportedOwnership(lesson);
+          return {
+            ...lesson,
+            ownershipType: resolvedOwnership,
+            ownerParentId:
+              resolvedOwnership === "family" ? context.parent.parentId : (lesson.ownerParentId ?? null),
+          };
+        }),
         schoolYears: data.schoolYears.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
         curriculumIntakes: (data.curriculumIntakes ?? []).map((row) => ({
           ...row,
@@ -717,6 +725,13 @@ export const deleteLearner: Handler = async (context) => {
 
 /* ── import writers ───────────────────────────────────────────────────────── */
 
+function resolveImportedOwnership(
+  lesson: { ownershipType?: "catalogue" | "organization" | "family"; purpose?: "official" | "practice" },
+  fallback: "catalogue" | "organization" | "family" = "catalogue",
+): "catalogue" | "organization" | "family" {
+  return lesson.ownershipType ?? (lesson.purpose === "practice" ? "family" : fallback);
+}
+
 async function detectLessonImportCollision(
   db: Db,
   data: ExportBody,
@@ -757,9 +772,7 @@ async function detectLessonImportCollision(
   for (const importedLesson of data.lessons) {
     const existing = existingLessonById.get(importedLesson.id);
     if (!existing) {
-      const importedOwnership =
-        importedLesson.ownershipType ??
-        (importedLesson.purpose === "practice" ? "family" : "catalogue");
+      const importedOwnership = resolveImportedOwnership(importedLesson, "catalogue");
       if (importedOwnership !== "family") {
         return `Xung đột dữ liệu bài học (${importedLesson.id}): không được phép chèn mới bài học thư viện chung hoặc trung tâm từ tệp sao lưu.`;
       }
@@ -767,7 +780,7 @@ async function detectLessonImportCollision(
     }
 
     const existingOwnership = existing.ownership_type ?? "catalogue";
-    const importedOwnership = importedLesson.ownershipType ?? existingOwnership;
+    const importedOwnership = resolveImportedOwnership(importedLesson, existingOwnership);
     if (existingOwnership !== importedOwnership) {
       return `Xung đột dữ liệu bài học (${importedLesson.id}): loại quyền sở hữu trong tệp (${importedOwnership}) khác với cơ sở dữ liệu (${existingOwnership}).`;
     }
@@ -842,8 +855,7 @@ async function detectLessonImportCollision(
       ? (existing.ownership_type ?? "catalogue") === "family" &&
         (existing.purpose ?? "practice") === "practice"
       : imported
-        ? (imported.ownershipType ?? (imported.purpose === "practice" ? "family" : "catalogue")) ===
-            "family" &&
+        ? resolveImportedOwnership(imported) === "family" &&
           (imported.purpose ?? "practice") === "practice"
         : false;
     if (item.itemKind === "practice" && !isPractice) {
@@ -975,7 +987,7 @@ async function importCollections(
           existing.owner_parent_id === importingParentId
         );
       }
-      return (imported.ownershipType ?? "catalogue") === "family";
+      return resolveImportedOwnership(imported) === "family";
     }
     const existing = existingLessonById.get(lessonId);
     return (
@@ -985,7 +997,7 @@ async function importCollections(
   };
   const isPracticeLesson = (lessonId: string): boolean => {
     const imported = lessonsById.get(lessonId);
-    if (imported && ((imported.ownershipType ?? "catalogue") === "family" || imported.purpose === "practice")) {
+    if (imported && (resolveImportedOwnership(imported) === "family" || imported.purpose === "practice")) {
       return true;
     }
     const existing = existingLessonById.get(lessonId);
@@ -996,7 +1008,7 @@ async function importCollections(
   };
 
   for (const lesson of data.lessons) {
-    const ownershipType = lesson.ownershipType ?? "catalogue";
+    const ownershipType = resolveImportedOwnership(lesson);
     if (ownershipType !== "family") {
       continue;
     }

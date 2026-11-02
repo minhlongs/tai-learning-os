@@ -448,7 +448,7 @@ export const listParentClassroomLessonsRoute: Handler = async (context) => {
   for (const cid of classroomIds) {
     const assigned = await repo.listClassroomAssignedLessons(context.env.DB, cid);
     for (const a of assigned) {
-      if (a.orgReviewStatus !== "org_approved" && a.assignedVersion >= a.liveVersion) continue;
+      if (a.orgReviewStatus !== "org_approved" && (a.orgReviewStatus === "org_rejected" || a.assignedVersion >= a.liveVersion)) continue;
       const approval = await repo.getApproval(context.env.DB, a.lessonId, {
         learnerId: learner.id,
         version: a.assignedVersion,

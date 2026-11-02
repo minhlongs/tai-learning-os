@@ -723,6 +723,32 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
     const startedPinned = (await startPinnedRes.json()) as { lessonTitleVi: string };
     expect(startedPinned.lessonTitleVi).toBe("Bài toán trung tâm v1");
 
+    // 5b. If the organization explicitly rejects the lesson (org_rejected), even a prior assignedVersion < liveVersion
+    // is immediately cut off from parent classroom-lessons, parent approval, and new learner sessions.
+    await callWithJar(ownerJar, "/api/org/lessons/review", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId, decision: "org_rejected" },
+    });
+    const rejectedClassLessonsRes = await callWithJar(
+      parentJar,
+      `/api/parent/classroom-lessons?learnerId=${learnerId}`,
+    );
+    expect(rejectedClassLessonsRes.status).toBe(200);
+    const rejectedClassLessons = (await rejectedClassLessonsRes.json()) as { lessons: unknown[] };
+    expect(rejectedClassLessons.lessons).toEqual([]);
+
+    const rejectedApproveRes = await callWithJar(parentJar, "/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId, learnerId, version: 1, status: "approved" },
+    });
+    expect(rejectedApproveRes.status).toBe(403);
+
+    // Restore org_approved before checking teacher progress
+    await callWithJar(ownerJar, "/api/org/lessons/review", {
+      method: "POST",
+      json: { organizationId: orgId, lessonId, decision: "org_approved" },
+    });
+
     // 6. Unassigned teacher gets 403 on GET /api/org/classrooms/progress
     const unassignedProgRes = await callWithJar(
       unassignedTeacherJar,
