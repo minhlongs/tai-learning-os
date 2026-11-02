@@ -600,10 +600,13 @@ describe("Family Practice Lessons, Mastery Isolation, and Version-Safe Backup", 
       json: { lessonId, expectedVersion: 1, titleVi: "Bài trung tâm L1 (Nội bộ v2)" },
     });
     expect(v2Res.status).toBe(200);
-    // Center owner approves v2 at the organization level so enrolled learners can see v2.
+    // Center owner approves v2 at the organization level and re-assigns v2 to the classroom so enrolled learners see v2.
     await env.DB.prepare(
       "UPDATE organization_lessons SET review_status = 'org_approved' WHERE lesson_id = ?1"
     ).bind(lessonId).run();
+    await env.DB.prepare(
+      "UPDATE classroom_lesson_assignments SET assigned_version = 2 WHERE id = 'asgn-leak'"
+    ).bind().run();
 
     // The withdrawn learner's export only carries the historical v1 snapshot referenced by their v1 approval — NEVER v2!
     const afterExport = await callWithJar(memberJar, "/api/data/export", { method: "POST" });
@@ -871,6 +874,20 @@ describe("Family Practice Lessons, Mastery Isolation, and Version-Safe Backup", 
     });
     expect(startPracRes.status).toBe(200);
     const { sessionId: pracSessionId } = (await startPracRes.json()) as { sessionId: string };
+
+    const pracStep = (await repo.listStepsForLesson(env.DB, practiceLessonId, 1))[0]!;
+    const pracAnswer = JSON.parse(pracStep.answer_key) as { choiceId?: string; correctChoiceId?: string };
+    const pracCorrectChoice = pracAnswer.choiceId ?? pracAnswer.correctChoiceId ?? "c2";
+
+    const pracAttemptRes = await callWithJar(learnerJar, "/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: pracSessionId,
+        stepId: pracStep.id,
+        submission: { kind: "choice", choiceId: pracCorrectChoice },
+      },
+    });
+    expect(pracAttemptRes.status).toBe(200);
 
     const finPracRes = await callWithJar(learnerJar, "/api/learner/sessions/finalize", {
       method: "POST",

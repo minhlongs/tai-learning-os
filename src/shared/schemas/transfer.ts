@@ -477,7 +477,18 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
         if (recL.ownershipType === "family" && recL.purpose === "official") {
           errors.push(`Bài học gia đình (${String(recL.id)}) bắt buộc phải có mục đích là 'practice'.`);
         }
-        if (typeof recL.id === "string" && (recL.ownershipType === "family" || recL.purpose === "practice")) {
+        if (
+          recL.purpose === "practice" &&
+          recL.ownershipType !== undefined &&
+          recL.ownershipType !== "family"
+        ) {
+          errors.push(`Bài học luyện tập (${String(recL.id)}) bắt buộc phải thuộc quyền sở hữu gia đình ('family').`);
+        }
+        if (
+          typeof recL.id === "string" &&
+          (recL.ownershipType === "family" ||
+            (recL.ownershipType === undefined && recL.purpose === "practice"))
+        ) {
           practiceLessonIds.add(recL.id);
         }
       }

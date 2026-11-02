@@ -700,6 +700,29 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
       }),
     ]);
 
+    // Parent detail view defaults to the pinned assignedVersion = 1 and rejects unassigned v2
+    const parentDetailDefaultRes = await callWithJar(parentJar, `/api/parent/lessons/${lessonId}?learnerId=${learnerId}`);
+    expect(parentDetailDefaultRes.status).toBe(200);
+    const parentDetailDefault = (await parentDetailDefaultRes.json()) as { version: number; titleVi: string };
+    expect(parentDetailDefault.version).toBe(1);
+    expect(parentDetailDefault.titleVi).toBe("Bài toán trung tâm v1");
+
+    const parentDetailV2Res = await callWithJar(
+      parentJar,
+      `/api/parent/lessons/${lessonId}?learnerId=${learnerId}&version=2`,
+    );
+    expect(parentDetailV2Res.status).toBe(403);
+
+    // Learner can start a session on the pinned assignedVersion = 1 even after the lesson is bumped to v2
+    const learnerJar = await createAuthenticatedJar(parentId, "Phụ huynh Bé Minh", "learner");
+    const startPinnedRes = await callWithJar(learnerJar, "/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId, learnerId },
+    });
+    expect(startPinnedRes.status).toBe(200);
+    const startedPinned = (await startPinnedRes.json()) as { lessonTitleVi: string };
+    expect(startedPinned.lessonTitleVi).toBe("Bài toán trung tâm v1");
+
     // 6. Unassigned teacher gets 403 on GET /api/org/classrooms/progress
     const unassignedProgRes = await callWithJar(
       unassignedTeacherJar,
