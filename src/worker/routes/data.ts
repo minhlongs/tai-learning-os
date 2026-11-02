@@ -672,6 +672,10 @@ async function importCollections(db: Db, data: ExportBody): Promise<void> {
   }
 
   for (const lv of data.lessonVersions ?? []) {
+    const parentLesson = lessonsById.get(lv.lessonId);
+    if (!parentLesson || lv.version < 1 || lv.version > parentLesson.version) {
+      continue;
+    }
     await db
       .prepare(
         `INSERT OR IGNORE INTO lesson_versions

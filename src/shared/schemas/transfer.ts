@@ -441,17 +441,73 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     if (!Array.isArray(data.lessonVersions)) {
       errors.push("Danh sách lessonVersions không hợp lệ.");
     } else {
+      const exportedLessonsById = new Map<string, number>();
+      if (Array.isArray(data.lessons)) {
+        for (const l of data.lessons) {
+          if (typeof l === "object" && l !== null && typeof l.id === "string" && typeof l.version === "number") {
+            exportedLessonsById.set(l.id, l.version);
+          }
+        }
+      }
       for (const lv of data.lessonVersions) {
         if (typeof lv !== "object" || lv === null || Array.isArray(lv)) {
           errors.push("Một dòng trong lessonVersions không hợp lệ.");
           continue;
         }
-        const rec = lv as { lessonId?: unknown; version?: unknown };
+        const rec = lv as {
+          lessonId?: unknown;
+          version?: unknown;
+          titleVi?: unknown;
+          titleEn?: unknown;
+          objectiveVi?: unknown;
+          objectiveEn?: unknown;
+          createdAt?: unknown;
+        };
         if (typeof rec.lessonId !== "string" || rec.lessonId.length === 0) {
           errors.push("Một dòng trong lessonVersions thiếu mã bài học (lessonId).");
         }
         if (typeof rec.version !== "number" || !Number.isInteger(rec.version) || rec.version < 1) {
           errors.push("Một dòng trong lessonVersions có số phiên bản (version) không hợp lệ.");
+        }
+        if (typeof rec.titleVi !== "string" || rec.titleVi.trim().length === 0 || rec.titleVi.length > 500) {
+          errors.push("Một dòng trong lessonVersions có tiêu đề tiếng Việt (titleVi) không hợp lệ.");
+        }
+        if (typeof rec.titleEn !== "string" || rec.titleEn.length > 500) {
+          errors.push("Một dòng trong lessonVersions có tiêu đề tiếng Anh (titleEn) không hợp lệ.");
+        }
+        if (
+          typeof rec.objectiveVi !== "string" ||
+          rec.objectiveVi.trim().length === 0 ||
+          rec.objectiveVi.length > 2000
+        ) {
+          errors.push("Một dòng trong lessonVersions có mục tiêu tiếng Việt (objectiveVi) không hợp lệ.");
+        }
+        if (typeof rec.objectiveEn !== "string" || rec.objectiveEn.length > 2000) {
+          errors.push("Một dòng trong lessonVersions có mục tiêu tiếng Anh (objectiveEn) không hợp lệ.");
+        }
+        if (
+          typeof rec.createdAt !== "number" ||
+          !Number.isFinite(rec.createdAt) ||
+          rec.createdAt < 0 ||
+          rec.createdAt > Date.now() + CLOCK_TOLERANCE_MS
+        ) {
+          errors.push("Một dòng trong lessonVersions có thời điểm tạo (createdAt) không hợp lệ.");
+        }
+        if (
+          typeof rec.lessonId === "string" &&
+          rec.lessonId.length > 0 &&
+          typeof rec.version === "number" &&
+          Number.isInteger(rec.version) &&
+          rec.version >= 1
+        ) {
+          const maxLessonVersion = exportedLessonsById.get(rec.lessonId);
+          if (maxLessonVersion === undefined) {
+            errors.push(`Dòng lessonVersions tham chiếu đến bài học không có trong tệp (${rec.lessonId}).`);
+          } else if (rec.version > maxLessonVersion) {
+            errors.push(
+              `Dòng lessonVersions của bài ${rec.lessonId} có phiên bản (${rec.version}) vượt quá phiên bản hiện hành (${maxLessonVersion}).`,
+            );
+          }
         }
       }
     }
