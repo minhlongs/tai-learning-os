@@ -839,10 +839,15 @@ describe("Family Practice Lessons, Mastery Isolation, and Version-Safe Backup", 
     });
     expect(badImpRes.status).toBe(400);
 
-    // Valid import succeeds and restores the scheduled practice item (under the newly assigned learnerId)
+    // Valid import succeeds and restores the scheduled practice item (under the newly assigned learnerId),
+    // including when legacy/handcrafted practice lessons omit ownershipType while declaring purpose = 'practice'.
+    const legacyStyleEnvelope: ExportEnvelope = JSON.parse(JSON.stringify(envelope));
+    legacyStyleEnvelope.data.lessons = legacyStyleEnvelope.data.lessons.map((l) =>
+      l.id === practiceLessonId ? { ...l, ownershipType: undefined } : l,
+    );
     const goodImpRes = await callWithJar(jarA, "/api/data/import", {
       method: "POST",
-      json: envelope,
+      json: legacyStyleEnvelope,
     });
     expect(goodImpRes.status).toBe(200);
 
