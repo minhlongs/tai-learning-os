@@ -918,7 +918,9 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
         (a) =>
           a.learnerId === row.learnerId &&
           a.skillId === row.skillId &&
-          (a.purpose ?? "official") === "official",
+          a.purpose !== "practice" &&
+          !practiceLessonIds.has(a.lessonId) &&
+          !practiceSessionIds.has(a.sessionId),
       );
       const anyObservedCorrect = maxObserved >= 1;
       const anyObservedTransfer = skillAttempts.some(
