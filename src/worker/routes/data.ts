@@ -222,9 +222,15 @@ export const exportRecord: Handler = async (context) => {
   });
   const exportableLessonIds = new Set(exportableLessons.map((l) => l.id));
   const lessonMetadata = rawLessonMetadata.filter((m) => exportableLessonIds.has(m.lesson_id));
+  const exportableLessonVersionRows = lessonVersionRows.filter((lv) =>
+    exportableLessonIds.has(lv.lesson_id),
+  );
 
   const lessonSteps: ExportBody["lessonSteps"] = [];
   for (const step of stepRows) {
+    if (!exportableLessonIds.has(step.lesson_id)) {
+      continue;
+    }
     const content = safeJson(step.content);
     const answerKey = safeJson(step.answer_key);
     // A step whose content no longer validates is a content bug, not something
@@ -308,7 +314,7 @@ export const exportRecord: Handler = async (context) => {
         updatedAt: pinnedSnapshot ? pinnedSnapshot.created_at : l.updated_at,
       };
     }),
-    lessonVersions: lessonVersionRows.map((lv) => ({
+    lessonVersions: exportableLessonVersionRows.map((lv) => ({
       lessonId: lv.lesson_id,
       version: lv.version,
       titleVi: lv.title_vi,
@@ -318,7 +324,9 @@ export const exportRecord: Handler = async (context) => {
       createdAt: lv.created_at,
     })),
     lessonSteps,
-    reviewApprovals: (approvals.results ?? []).map((row) => ({
+    reviewApprovals: (approvals.results ?? [])
+      .filter((row) => exportableLessonIds.has(String(row.lesson_id)))
+      .map((row) => ({
       id: String(row.id),
       learnerId: (row.learner_id as string | null) ?? null,
       lessonId: String(row.lesson_id),
@@ -713,6 +721,10 @@ async function detectLessonImportCollision(
   for (const sess of data.learningSessions) referencedLessonIdSet.add(sess.lessonId);
   for (const att of data.learningAttempts) referencedLessonIdSet.add(att.lessonId);
   for (const app of data.reviewApprovals) referencedLessonIdSet.add(app.lessonId);
+  for (const meta of data.lessonMetadata ?? []) referencedLessonIdSet.add(meta.lessonId);
+  for (const item of data.learningPlanItems ?? []) {
+    if (item.lessonId) referencedLessonIdSet.add(item.lessonId);
+  }
   const lessonIds = [...referencedLessonIdSet];
   if (lessonIds.length === 0) return null;
 
@@ -768,9 +780,9 @@ async function detectLessonImportCollision(
     if (
       existing &&
       ((existing.ownership_type ?? "catalogue") === "family" || existing.purpose === "practice") &&
-      sess.purpose === "official"
+      sess.purpose !== "practice"
     ) {
-      return `Xung đột mục đích phiên học (${sess.id}): bài luyện tập (${sess.lessonId}) không được phép chứa phiên học chính thức (official).`;
+      return `Xung đột mục đích phiên học (${sess.id}): bài luyện tập (${sess.lessonId}) bắt buộc phải có mục đích phiên học là 'practice'.`;
     }
   }
 
@@ -779,9 +791,9 @@ async function detectLessonImportCollision(
     if (
       existing &&
       ((existing.ownership_type ?? "catalogue") === "family" || existing.purpose === "practice") &&
-      (att.purpose === "official" || att.evidenceKind === "observed")
+      (att.purpose !== "practice" || att.evidenceKind === "observed")
     ) {
-      return `Xung đột mục đích lượt làm bài (${att.id}): bài luyện tập (${att.lessonId}) không được phép ghi nhận bằng chứng chính thức (official/observed).`;
+      return `Xung đột mục đích lượt làm bài (${att.id}): bài luyện tập (${att.lessonId}) bắt buộc phải có mục đích 'practice' và không được phép ghi nhận bằng chứng độc lập (observed).`;
     }
   }
 
@@ -898,9 +910,21 @@ async function importCollections(
   const existingLessonById = new Map(existingLessons.map((l) => [l.id, l]));
   const isFamilyLesson = (lessonId: string): boolean => {
     const imported = lessonsById.get(lessonId);
-    if (imported) return (imported.ownershipType ?? "catalogue") === "family";
+    if (imported) {
+      const existing = existingLessonById.get(lessonId);
+      if (existing) {
+        return (
+          (existing.ownership_type ?? "catalogue") === "family" &&
+          existing.owner_parent_id === importingParentId
+        );
+      }
+      return (imported.ownershipType ?? "catalogue") === "family";
+    }
     const existing = existingLessonById.get(lessonId);
-    return (existing?.ownership_type ?? "catalogue") === "family";
+    return (
+      (existing?.ownership_type ?? "catalogue") === "family" &&
+      existing?.owner_parent_id === importingParentId
+    );
   };
   const isPracticeLesson = (lessonId: string): boolean => {
     const imported = lessonsById.get(lessonId);
@@ -1106,7 +1130,8 @@ async function importCollections(
   for (const attempt of data.learningAttempts) {
     const parentSession = sessionsById.get(attempt.sessionId);
     const attemptPurpose =
-      isPracticeLesson(attempt.lessonId) || parentSession?.purpose === "practice"
+      isPracticeLesson(attempt.lessonId) ||
+      (parentSession ? isPracticeLesson(parentSession.lessonId) || parentSession.purpose === "practice" : false)
         ? "practice"
         : (attempt.purpose ?? "official");
     await repo.recordAttempt(db, {
