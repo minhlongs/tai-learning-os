@@ -1,13 +1,13 @@
 ---
 title: "Milestone M12: Grade 5 Curriculum Expansion & Academic Year 5 Subject Parity"
 description: "Add 25 Grade 5 lessons (5 per active subject) as seed-managed content, extend the skills/objectives catalogue with Grade 5 rows, and prove Grade 4 → Grade 5 school-year continuity."
-status: in_progress
+status: completed
 priority: P1
 effort: 8h
 branch: feat/m12-grade5-curriculum
 tags: [m12, grade5, curriculum, expansion, validator]
 created: 2026-11-03
-updated: 2026-11-04
+updated: 2026-11-05
 ---
 
 # Plan — Milestone M12: Grade 5 Curriculum Expansion
@@ -188,3 +188,25 @@ catalogue rows only on a database that already ran the migration.
 
 - No stale file paths, conflicting counts, or unresolved contradictions remain across `plan.md` and the repository.
 
+
+## Delivery Record
+
+- Merged: PR #32 (squash) → `main` as `9f67baa`, 2026-11-05.
+- Labels: `ready to ship stable` applied to PR #32 and issue #31; `in progress` removed.
+- Gates: `npm run verify` PASS; unit 198/198 (11 files); integration 148/148 (15 files);
+  `validate:lessons` 50 lessons / 257 steps / 0 issues.
+- CI: not applicable — this repository has no `.github/workflows`, so no checks run on
+  branches or `main`. Local verification is the gate.
+
+### Post-plan findings accepted during implementation
+
+1. **The answer-distribution assertion had never executed.** A malformed nested
+   `it(...)` block left `test/unit/content-registry.test.ts` unparseable, so the file
+   failed to transform and all 17 tests were skipped. After the syntax repair the
+   assertion ran for the first time and immediately failed on `b` at 40%.
+2. **All 25 Grade 5 lessons shared one answer sequence.** Fixed to 25 distinct
+   sequences with a=30/b=30/c=30/d=35 across the 125 choice-bearing steps.
+3. **Six hint disclosures at levels 1–2.** One level-1 and five level-2 hints stated
+   the answer or the whole operation, contrary to the ladder in
+   `docs/LEARNING_ENGINE.md`. Corrected; level-1/2 disclosures in Grade 5 now 0.
+4. **Stale test counts in README** (196/141) updated to the measured 198/148.
