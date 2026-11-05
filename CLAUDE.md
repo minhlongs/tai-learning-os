@@ -37,10 +37,10 @@
 # Install dependencies
 npm install
 
-# Apply local D1 migrations (0001_initial_schema.sql through 0013_practice_planner_and_classroom_progress.sql)
+# Apply local D1 migrations (0001_initial_schema.sql through 0014_grade5_curriculum_expansion.sql)
 npm run db:migrate
 
-# Seed curriculum (25 lessons across 5 active subjects: Math, English, Vietnamese, Science, Debate)
+# Seed curriculum (50 lessons for Grades 4–5 across 5 active subjects)
 npm run seed:demo
 
 # Start local development server (http://localhost:8791)
@@ -49,8 +49,8 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (11 files, 197 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (14 files, 144 tests)
+npm run test               # Vitest unit tests (11 files, 198 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (15 files, 148 tests)
 npm run test:e2e           # Playwright E2E browser tests (54 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + validate:lessons + build
 

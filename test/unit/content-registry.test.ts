@@ -11,33 +11,38 @@ import type { LessonDefinition } from "../../src/shared/content/types";
  * a lesson reaches the learner. So these tests hold the same bar the seed holds:
  * a lesson that would fail seeding is a lesson that must not ship.
  *
- * They also hold the content promises the product made. Nine lessons across
- * three subjects, each with an independent attempt and a transfer check, each
+ * They also hold the content promises the product made. Fifty lessons across
+ * five subjects, each with an independent attempt and a transfer check, each
  * step explainable in Vietnamese — because a child who cannot follow the
  * explanation has been given a right answer with no reason.
  */
 
 describe("lesson registry — shape", () => {
-  it("covers five active subjects (5 Math, 5 English, 5 Vietnamese, 5 Science, 5 Debate = 25 lessons including 5 baselines)", () => {
-    expect(LESSONS).toHaveLength(25);
+  it("covers five active subjects (10 Math, 10 English, 10 Vietnamese, 10 Science, 10 Debate = 50 lessons including 10 baselines)", () => {
+    expect(LESSONS).toHaveLength(50);
 
     const bySubject = new Map<string, number>();
     for (const lesson of LESSONS) {
       bySubject.set(lesson.subjectId, (bySubject.get(lesson.subjectId) ?? 0) + 1);
     }
-    expect(bySubject.get("math")).toBe(5);
-    expect(bySubject.get("english")).toBe(5);
-    expect(bySubject.get("vietnamese")).toBe(5);
-    expect(bySubject.get("science")).toBe(5);
-    expect(bySubject.get("debate")).toBe(5);
+    expect(bySubject.get("math")).toBe(10);
+    expect(bySubject.get("english")).toBe(10);
+    expect(bySubject.get("vietnamese")).toBe(10);
+    expect(bySubject.get("science")).toBe(10);
+    expect(bySubject.get("debate")).toBe(10);
 
     const baselineLessons = LESSONS.filter((lesson) => lesson.isBaseline);
-    expect(baselineLessons).toHaveLength(5);
+    expect(baselineLessons).toHaveLength(10);
     expect(baselineLessons.map((l) => l.subjectId).sort()).toEqual([
       "debate",
+      "debate",
+      "english",
       "english",
       "math",
+      "math",
       "science",
+      "science",
+      "vietnamese",
       "vietnamese",
     ]);
   });
@@ -47,9 +52,43 @@ describe("lesson registry — shape", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("distributes Grade 5 answers so no single position is guessable", () => {
+    const grade5ChoiceIds = LESSONS.filter(
+      (lesson) => lesson.gradeFrom === 5 && lesson.gradeTo === 5,
+    ).flatMap((lesson) =>
+      lesson.steps.flatMap((step) => {
+        if (step.content.type === "fraction_visual") return [];
+        return [correctChoiceId(step.content)];
+      }),
+    );
+    const counts = new Map<string, number>();
+    for (const id of grade5ChoiceIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+
+    expect(grade5ChoiceIds).toHaveLength(125);
+    // Every position must be used, and none may dominate: a distribution where
+    // one letter holds even a third of the answers is guessable.
+    expect([...counts.keys()].sort()).toEqual(["a", "b", "c", "d"]);
+    for (const [choiceId, count] of counts) {
+      expect(count / grade5ChoiceIds.length, `choice "${choiceId}" share`).toBeLessThanOrEqual(0.3);
+    }
+
+    // Per-lesson sequences must vary too. If every core lesson used the same
+    // order, the position of an answer would still be predictable even with an
+    // even aggregate distribution.
+    const patterns = LESSONS.filter(
+      (lesson) => lesson.gradeFrom === 5 && lesson.gradeTo === 5 && lesson.steps.length >= 5,
+    ).map((lesson) =>
+      lesson.steps
+        .map((step) => (step.content.type === "fraction_visual" ? "-" : correctChoiceId(step.content)))
+        .join(""),
+    );
+    const distinctPatterns = new Set(patterns).size;
+    expect(distinctPatterns, "distinct Grade 5 answer sequences").toBeGreaterThan(1);
+  });
+
   it("uses unique skill ids across core (non-baseline) lessons, so a core lesson cannot shadow another's evidence", () => {
     const coreLessons = LESSONS.filter((lesson) => !lesson.isBaseline);
-    expect(coreLessons).toHaveLength(20);
+    expect(coreLessons).toHaveLength(40);
     const skillIds = coreLessons.map((lesson) => lesson.skillId);
     expect(new Set(skillIds).size).toBe(skillIds.length);
   });

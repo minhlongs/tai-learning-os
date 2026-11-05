@@ -131,9 +131,6 @@ export type LearnerMultipleChoiceSpec = {
   question_vi: string;
   question_en?: string;
   choices: LearnerChoice[];
-  hint1_vi: string;
-  hint2_vi: string;
-  hint3_vi: string;
 };
 
 export type LearnerExerciseSpec =
@@ -188,8 +185,9 @@ export function toLearnerExercise(spec: ExerciseSpec): LearnerExerciseSpec {
     }
     case "multiple_choice":
       return {
-        ...spec,
         type: "multiple_choice",
+        question_vi: spec.question_vi,
+        ...(spec.question_en === undefined ? {} : { question_en: spec.question_en }),
         choices: spec.choices.map(({ id, label_vi }) => ({ id, label_vi })),
       };
   }

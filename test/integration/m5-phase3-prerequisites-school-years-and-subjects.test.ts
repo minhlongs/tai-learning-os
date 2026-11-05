@@ -330,6 +330,20 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
     expect(transitioned.schoolYear.grade).toBe(5);
     expect(transitioned.schoolYear.isActive).toBe(true);
 
+    const transitionAudit = await env.DB.prepare(
+      "SELECT action, subject, detail FROM audit_events WHERE action = 'school_year.transitioned' AND subject = ?1 ORDER BY created_at DESC LIMIT 1",
+    )
+      .bind("learner-sy")
+      .first<{ action: string; subject: string; detail: string }>();
+    expect(transitionAudit?.action).toBe("school_year.transitioned");
+    expect(transitionAudit?.subject).toBe("learner-sy");
+    expect(JSON.parse(transitionAudit!.detail)).toMatchObject({
+      schoolYearId: transitioned.schoolYear.id,
+      previousGrade: 4,
+      grade: 5,
+      label: "2027-2028",
+    });
+
     // Start a new session in 2027-2028 on deb-claim-reason
     await callWithJar(parentJar, "/api/parent/lessons/approval", {
       method: "POST",
@@ -444,16 +458,21 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
 
     const parentJar = await createAuthenticatedJar("parent-m6", "Mẹ Tài", "parent");
 
-    // 1. GET /api/parent/baseline returns all 5 baseline lessons across the 5 active subjects
+    // 1. GET /api/parent/baseline returns both Grade 4 and Grade 5 diagnostics across all subjects
     const baseGetRes = await callWithJar(parentJar, "/api/parent/baseline");
     expect(baseGetRes.status).toBe(200);
     const baseGetBody = (await baseGetRes.json()) as BaselineGetResponse;
     expect(baseGetBody.baselineLessons.map((l) => l.lessonId).sort()).toEqual([
       "deb-baseline-grade4",
+      "deb-baseline-grade5",
       "eng-baseline-grade4",
+      "eng-baseline-grade5",
       "math-baseline-grade4",
+      "math-baseline-grade5",
       "sci-baseline-grade4",
+      "sci-baseline-grade5",
       "vie-baseline-grade4",
+      "vie-baseline-grade5",
     ]);
 
     // 2. POST /api/parent/baseline evaluates Science and Debate baselines, excluding cross-tenant `sci-plant-needs`

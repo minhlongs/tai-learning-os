@@ -702,7 +702,7 @@ test.describe("M4 Browser Verification Flows", () => {
     ).toBeVisible();
   });
 
-  test("10. M8: B2B2C Organization & Classroom Studio (/parent/organization), 25-lesson Science/Debate parity, and AES-256-GCM encrypted backup export/import", async ({ page }) => {
+  test("10. M8: B2B2C Organization & Classroom Studio (/parent/organization), multi-subject curriculum parity, and AES-256-GCM encrypted backup export/import", async ({ page }) => {
     const csrf = await signInAsParent(page);
     const withCsrf = { headers: { "x-tlo-csrf": csrf } };
 

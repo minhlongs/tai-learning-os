@@ -87,8 +87,7 @@ export const sentenceClarity: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
-        "Câu c có chủ ngữ là “chú mèo con” và vị ngữ là “ngủ say trên giường”, nên là câu đầy đủ. Câu a chỉ gọi tên, câu b chỉ kể việc làm mà thiếu người làm — cả hai chưa phải câu hoàn chỉnh.",
-    },
+        "Câu “Chú mèo con ngủ say trên giường” có chủ ngữ là “chú mèo con” và vị ngữ là “ngủ say trên giường”, nên là câu đầy đủ. Câu chỉ gọi tên chú mèo, câu chỉ kể việc ngủ mà thiếu người làm, và câu còn lại chỉ là từ nối — cả ba chưa phải câu hoàn chỉnh.",    },
     {
       position: 4,
       kind: "guided",
@@ -109,8 +108,7 @@ export const sentenceClarity: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
-        "Câu c vừa viết hoa chữ đầu vừa có dấu chấm cuối câu nên người đọc biết bắt đầu và kết thúc ở đâu. Câu a thiếu chữ hoa, câu b thiếu dấu chấm, còn câu d thiếu cả hai.",
-    },
+        "Câu “Mẹ dắt em đi công viên.” vừa viết hoa chữ đầu vừa có dấu chấm cuối câu nên người đọc biết bắt đầu và kết thúc ở đâu. Các câu còn lại thiếu chữ hoa đầu câu, thiếu dấu chấm, hoặc thiếu cả hai.",    },
     {
       position: 5,
       kind: "independent",
@@ -131,8 +129,7 @@ export const sentenceClarity: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
-        "Câu a có chủ ngữ “cả lớp”, vị ngữ “cùng trồng cây ở sân trường”, viết hoa đầu câu và có dấu chấm, nên đầy đủ và rõ ràng. Ba câu còn lại chỉ là cụm từ hoặc câu bị cụt, người đọc không biết ai làm việc gì.",
-    },
+        "Câu có chủ ngữ “cả lớp”, vị ngữ “cùng trồng cây ở sân trường”, viết hoa đầu câu và có dấu chấm, nên đầy đủ và rõ ràng. Ba câu còn lại chỉ là cụm từ hoặc câu bị cụt, người đọc không biết ai làm việc gì.",    },
     {
       position: 6,
       kind: "transfer",
