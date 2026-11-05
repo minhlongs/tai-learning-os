@@ -47,6 +47,7 @@ const MIGRATION_FILES = [
   "0011_science_and_debate_parity.sql",
   "0012_family_practice_and_version_lineage.sql",
   "0013_practice_planner_and_classroom_progress.sql",
+  "0014_grade5_curriculum_expansion.sql",
 ];
 
 function stripLeadingComments(statement) {
@@ -87,7 +88,7 @@ const proxy = await getPlatformProxy({
 try {
   const db = proxy.env.DB;
 
-  // 1. Apply all 11 migrations in order
+  // 1. Apply all shipped migrations in order
   for (const file of MIGRATION_FILES) {
     const rawSql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
     for (const part of unstable_splitSqlQuery(rawSql)) {
@@ -98,7 +99,7 @@ try {
     }
   }
 
-  // 2. Seed all 25 lessons & steps + parent + learner + real learning records
+  // 2. Seed all 50 catalogue lessons and steps + parent + learner + real learning records
   const now = Date.now() - 120_000;
   for (const lesson of LESSONS) {
     await db
@@ -387,8 +388,8 @@ try {
   assert(exportRes.status === 200, `exportRecord returned HTTP ${exportRes.status}`);
   const exportedEnvelope = await exportRes.json();
   assert(exportedEnvelope.learners?.length === undefined && exportedEnvelope.data.learners.length === 1, "exported 1 learner");
-  assert(exportedEnvelope.data.lessons.length === 26, `expected 26 lessons (25 catalogue + 1 family) in export, got ${exportedEnvelope.data.lessons.length}`);
-  assert(exportedEnvelope.data.lessonVersions.length === 27, `expected 27 lessonVersions (25 catalogue v1 + 2 family v1/v2) in export, got ${exportedEnvelope.data.lessonVersions.length}`);
+  assert(exportedEnvelope.data.lessons.length === 51, `expected 51 lessons (50 catalogue + 1 family) in export, got ${exportedEnvelope.data.lessons.length}`);
+  assert(exportedEnvelope.data.lessonVersions.length === 52, `expected 52 lessonVersions (50 catalogue v1 + 2 family v1/v2) in export, got ${exportedEnvelope.data.lessonVersions.length}`);
   assert(exportedEnvelope.data.learningSessions.length === 2, "expected 2 sessions in export");
   assert(exportedEnvelope.data.learningAttempts.length === 2, "expected 2 attempts in export");
   assert(exportedEnvelope.data.skillEvidence.length === 1, "expected 1 skillEvidence in export");
@@ -471,8 +472,8 @@ try {
   const importReport = await importRes.json();
   assert(importReport.ok === true, "importReport.ok must be true");
   assert(importReport.counts.learners === 1, "restored 1 learner");
-  assert(importReport.counts.lessons === 26, "restored 26 lessons");
-  assert(importReport.counts.lessonVersions === 27, "restored 27 lessonVersions");
+  assert(importReport.counts.lessons === 51, "restored 51 lessons");
+  assert(importReport.counts.lessonVersions === 52, "restored 52 lessonVersions");
   assert(importReport.counts.learningSessions === 2, "restored 2 learningSessions");
   assert(importReport.counts.learningAttempts === 2, "restored 2 learningAttempts");
   assert(importReport.counts.skillEvidence === 1, "restored 1 skillEvidence");

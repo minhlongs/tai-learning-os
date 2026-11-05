@@ -100,6 +100,7 @@ function migrationStatements(): string[] {
     "0011_science_and_debate_parity.sql",
     "0012_family_practice_and_version_lineage.sql",
     "0013_practice_planner_and_classroom_progress.sql",
+    "0014_grade5_curriculum_expansion.sql",
   ];
   const statements: string[] = [];
   for (const name of names) {

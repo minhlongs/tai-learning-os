@@ -275,7 +275,7 @@ describe("M4 UI Closure, Multi-Learner Header Scoping & Grade 4 Curriculum Expan
 
   it("2. Enriches reviewDue on GET /api/learner/home with lessonId and lessonTitleVi for approved lessons, and seeds all Grade 4 lessons", async () => {
     const seedResult = await seedLessons(env.DB);
-    expect(seedResult.unchanged).toBe(25);
+    expect(seedResult.unchanged).toBe(50);
 
     const now = Date.now();
     const passHash = await hashPassword("ParentPass123!", 100_000);

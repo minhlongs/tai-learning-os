@@ -31,5 +31,6 @@ export default defineConfig({
     // like a data bug. Isolating the files gives each its own handle.
     fileParallelism: false,
     isolate: true,
+    hookTimeout: 30_000,
   },
 });

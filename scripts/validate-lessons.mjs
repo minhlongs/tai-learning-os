@@ -5,7 +5,10 @@
  *   1. Exercise schema & answerKey consistency via `validateRegistry()`.
  *   2. Required pedagogy sequence (`concept` first, `independent` present, `transfer` last).
  *   3. Progressive hints (`hint1_vi`, `hint2_vi`, `hint3_vi` non-empty and distinct).
- *   4. Zero answer-key leakage after `toLearnerExercise()`.
+ *   4. Explanations must not cite a choice by letter: the learner's payload
+ *      renders options without letters, so a "Câu a" reference both contradicts
+ *      the answer key after a relabel and discloses answer position.
+ *   5. Zero answer-key leakage after `toLearnerExercise()`.
  */
 import { register } from "node:module";
 
@@ -58,6 +61,15 @@ for (const lesson of LESSONS) {
         problems.push({
           lessonId: lesson.id,
           message: `step ${step.position}: progressive hints (hint1_vi, hint2_vi, hint3_vi) must be distinct`,
+        });
+      }
+      // The learner's payload renders choices without letters, so an explanation
+      // naming one ("Câu a") cannot be matched to an option and instead
+      // contradicts the answer key whenever the positions are relabeled.
+      if (/Câu [abcd](?!\p{L})/u.test(step.explanationVi)) {
+        problems.push({
+          lessonId: lesson.id,
+          message: `step ${step.position}: explanationVi must describe the option by its text, not cite a choice letter ("Câu a")`,
         });
       }
     }
