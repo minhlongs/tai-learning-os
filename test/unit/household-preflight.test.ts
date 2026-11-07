@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
@@ -495,3 +497,338 @@ describe("read-only household preflight check", () => {
     expect(missingHouseholdReport.nextActionVi).toContain("/login");
   });
 });
+
+function createDiskMigratedSqliteFixture(): {
+  tmpRoot: string;
+  d1StateDir: string;
+  sqlitePath: string;
+  cleanup: () => void;
+} {
+  const tmpRoot = mkdtempSync(join(tmpdir(), "tlo-preflight-fixture-"));
+  const d1StateDir = join(tmpRoot, ".wrangler", "state", "v3", "d1", "miniflare-D1DatabaseObject");
+  mkdirSync(d1StateDir, { recursive: true });
+  const sqlitePath = join(
+    d1StateDir,
+    "55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite",
+  );
+
+  const raw = new DatabaseSync(sqlitePath);
+  try {
+    raw.exec("PRAGMA foreign_keys = ON;");
+    for (const file of MIGRATION_FILES) {
+      const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
+      for (const part of unstable_splitSqlQuery(sqlText)) {
+        const cleaned = part.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
+        if (cleaned) raw.exec(cleaned);
+      }
+    }
+    seed50CatalogueLessons(raw);
+  } finally {
+    raw.close();
+  }
+
+  return {
+    tmpRoot,
+    d1StateDir,
+    sqlitePath,
+    cleanup() {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    },
+  };
+}
+
+function snapshotSqliteFileState(d1StateDir: string, sqlitePath: string) {
+  const stat = statSync(sqlitePath);
+  const sha256 = createHash("sha256").update(readFileSync(sqlitePath)).digest("hex");
+  const dirEntries = readdirSync(d1StateDir).sort();
+  return {
+    sha256,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    dirEntries,
+    hasSidecarFiles: dirEntries.some(
+      (f) => f.endsWith("-wal") || f.endsWith("-shm") || f.endsWith("-journal"),
+    ),
+  };
+}
+
+describe("household-preflight CLI & read-only D1 adapter", () => {
+  const CLI_SCRIPT = join(REPO_ROOT, "scripts", "household-preflight.mjs");
+  const CANARY_SESSION_SECRET = "canary-session-secret-99887766554433221100";
+  const CANARY_ENV_HASH = "pbkdf2-sha256:600000$envsalt9988$envdigest77665544";
+  const CANARY_DB_HASH =
+    "pbkdf2-sha256:600000$dbsalt001122334455$dbdigestdeadbeefcafe0123456789";
+
+  it("evaluates fresh, provisioned, approved, missing-config, and foreign-polluted fixtures with pure JSON stdout and zero secret leaks", () => {
+    const fixture = createDiskMigratedSqliteFixture();
+    try {
+      // 1. Missing .dev.vars -> ok: false, exit code 1, pure JSON, no sidecars
+      const missingDevVarsRun = spawnSync(
+        process.execPath,
+        [CLI_SCRIPT, "--target-root", fixture.tmpRoot],
+        { cwd: REPO_ROOT, encoding: "utf8" },
+      );
+      expect(missingDevVarsRun.status).toBe(1);
+      expect(missingDevVarsRun.stderr).toBe("");
+      const missingDevVarsJson = JSON.parse(missingDevVarsRun.stdout) as {
+        ok: boolean;
+        devVars: { devVarsPresent: boolean; hasSessionSecret: boolean };
+        nextActionVi: string;
+      };
+      expect(missingDevVarsJson.ok).toBe(false);
+      expect(missingDevVarsJson.devVars.devVarsPresent).toBe(false);
+      expect(missingDevVarsJson.nextActionVi).toContain("SESSION_SECRET");
+
+      // 2. Write .dev.vars with canary secrets; fresh household (0 parents, 0 learners) -> ok: false, exit code 1
+      writeFileSync(
+        join(fixture.tmpRoot, ".dev.vars"),
+        `SESSION_SECRET=${CANARY_SESSION_SECRET}\nPARENT_PASSWORD_HASH=${CANARY_ENV_HASH}\n`,
+      );
+      const freshHouseholdRun = spawnSync(
+        process.execPath,
+        [CLI_SCRIPT, "--target-root", fixture.tmpRoot],
+        { cwd: REPO_ROOT, encoding: "utf8" },
+      );
+      expect(freshHouseholdRun.status).toBe(1);
+      expect(freshHouseholdRun.stderr).toBe("");
+      const freshJson = JSON.parse(freshHouseholdRun.stdout) as {
+        ok: boolean;
+        household: { hasParent: boolean; hasLearner: boolean };
+        nextActionVi: string;
+      };
+      expect(freshJson.ok).toBe(false);
+      expect(freshJson.household.hasParent).toBe(false);
+      expect(freshJson.household.hasLearner).toBe(false);
+      expect(freshJson.nextActionVi).toContain("/login");
+
+      // 3. Provision household identity + 2 approved lessons (and 1 stale approval)
+      const setupDb = new DatabaseSync(fixture.sqlitePath);
+      try {
+        setupDb
+          .prepare(
+            "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-1', 'Phụ huynh', ?, 1000, 1000)",
+          )
+          .run(CANARY_DB_HASH);
+        setupDb
+          .prepare(
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+          )
+          .run();
+        setupDb
+          .prepare(
+            "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES ('sy-2026', 'learner-tai', '2026-2027', '2026-09-01', '2027-06-30', 4, 1000)",
+          )
+          .run();
+        setupDb
+          .prepare(
+            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'parent.created', 'parent-1', NULL, 1000), ('au-2', 'parent:parent-1', 'learner.enrolled', 'learner-tai', NULL, 1000)",
+          )
+          .run();
+        setupDb
+          .prepare(
+            "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at) VALUES ('ra-1', 'learner-tai', 'lesson-1', 1, 'approved', 'parent-1', 1001), ('ra-2', 'learner-tai', 'lesson-2', 1, 'approved', 'parent-1', 1002)",
+          )
+          .run();
+        setupDb.prepare("UPDATE lessons SET version = 2 WHERE id = 'lesson-3'").run();
+        setupDb
+          .prepare(
+            "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at) VALUES ('ra-stale', 'learner-tai', 'lesson-3', 1, 'approved', 'parent-1', 1003)",
+          )
+          .run();
+      } finally {
+        setupDb.close();
+      }
+
+      const provisionedRun = spawnSync(
+        process.execPath,
+        [CLI_SCRIPT, "--target-root", fixture.tmpRoot],
+        { cwd: REPO_ROOT, encoding: "utf8" },
+      );
+      expect(provisionedRun.status).toBe(0);
+      expect(provisionedRun.stderr).toBe("");
+      expect(provisionedRun.stdout.trim().startsWith("{")).toBe(true);
+      expect(provisionedRun.stdout).not.toContain("Using secrets defined in");
+      expect(provisionedRun.stdout).not.toContain(CANARY_SESSION_SECRET);
+      expect(provisionedRun.stdout).not.toContain(CANARY_ENV_HASH);
+      expect(provisionedRun.stdout).not.toContain(CANARY_DB_HASH);
+      expect(provisionedRun.stdout).not.toContain("pbkdf2-sha256");
+
+      const provisionedJson = JSON.parse(provisionedRun.stdout) as {
+        ok: boolean;
+        integrityCheck: string;
+        approvedLessonsCount: number;
+        readyForLearnerSession: boolean;
+        household: { learnerNickname: string; schoolYearLabel: string };
+      };
+      expect(provisionedJson.ok).toBe(true);
+      expect(provisionedJson.integrityCheck).toBe("ok");
+      expect(provisionedJson.approvedLessonsCount).toBe(2);
+      expect(provisionedJson.readyForLearnerSession).toBe(true);
+      expect(provisionedJson.household.learnerNickname).toBe("Tài");
+      expect(provisionedJson.household.schoolYearLabel).toBe("2026-2027");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("preserves exact SQLite SHA-256, size, mtimeMs, and creates zero -wal/-shm/-journal files across success and error paths", () => {
+    const fixture = createDiskMigratedSqliteFixture();
+    try {
+      writeFileSync(
+        join(fixture.tmpRoot, ".dev.vars"),
+        `SESSION_SECRET=${CANARY_SESSION_SECRET}\nPARENT_PASSWORD_HASH=${CANARY_ENV_HASH}\n`,
+      );
+      const setupDb = new DatabaseSync(fixture.sqlitePath);
+      try {
+        setupDb
+          .prepare(
+            "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-1', 'Phụ huynh', ?, 1000, 1000)",
+          )
+          .run(CANARY_DB_HASH);
+        setupDb
+          .prepare(
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+          )
+          .run();
+        setupDb
+          .prepare(
+            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'parent.created', 'parent-1', NULL, 1000), ('au-2', 'parent:parent-1', 'learner.enrolled', 'learner-tai', NULL, 1000)",
+          )
+          .run();
+      } finally {
+        setupDb.close();
+      }
+
+      const beforeSuccess = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
+      expect(beforeSuccess.hasSidecarFiles).toBe(false);
+
+      const okRun = spawnSync(
+        process.execPath,
+        [CLI_SCRIPT, "--target-root", fixture.tmpRoot],
+        { cwd: REPO_ROOT, encoding: "utf8" },
+      );
+      expect(okRun.status).toBe(0);
+
+      const afterSuccess = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
+      expect(afterSuccess).toEqual(beforeSuccess);
+
+      // Inject foreign audit actor to force an error path and verify the SQLite file still does not change on disk
+      const polluteDb = new DatabaseSync(fixture.sqlitePath);
+      try {
+        polluteDb
+          .prepare(
+            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-foreign', 'learner:foreign-pilot', 'session.started', 's1', '{}', 2000)",
+          )
+          .run();
+      } finally {
+        polluteDb.close();
+      }
+
+      const beforeFailure = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
+      const failRun = spawnSync(
+        process.execPath,
+        [CLI_SCRIPT, "--target-root", fixture.tmpRoot],
+        { cwd: REPO_ROOT, encoding: "utf8" },
+      );
+      expect(failRun.status).not.toBe(0);
+      expect(failRun.stderr).not.toContain(CANARY_SESSION_SECRET);
+      expect(failRun.stderr).not.toContain(CANARY_DB_HASH);
+
+      const afterFailure = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
+      expect(afterFailure).toEqual(beforeFailure);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("blocks all write/session methods on createReadOnlyD1Adapter, enforces SQLITE_READONLY on mutating SQL/PRAGMAs, and handles ?1/?2 parameters, empty sets, and NULL columns", async () => {
+    const { createReadOnlyD1Adapter } = (await import("../../scripts/household-preflight.mjs")) as {
+      createReadOnlyD1Adapter: (rawDb: DatabaseSync) => D1Database;
+    };
+
+    const fixture = createDiskMigratedSqliteFixture();
+    try {
+      const beforeState = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
+      const rawDb = new DatabaseSync(fixture.sqlitePath, { readOnly: true });
+      try {
+        const adapter = createReadOnlyD1Adapter(rawDb);
+
+        // 1. All write / raw / session methods on the adapter throw immediately
+        await expect(adapter.prepare("SELECT 1").run()).rejects.toThrow(
+          /forbids run\(\) and all write\/session operations/i,
+        );
+        await expect(adapter.prepare("SELECT 1").raw()).rejects.toThrow(
+          /forbids raw\(\) and all write\/session operations/i,
+        );
+        await expect(adapter.batch([])).rejects.toThrow(
+          /forbids batch\(\) and all write\/session operations/i,
+        );
+        await expect(adapter.exec("SELECT 1")).rejects.toThrow(
+          /forbids exec\(\) and all write\/session operations/i,
+        );
+        await expect(adapter.dump()).rejects.toThrow(
+          /forbids dump\(\) and all write\/session operations/i,
+        );
+        expect(() => adapter.withSession()).toThrow(
+          /forbids withSession\(\) and all write\/session operations/i,
+        );
+
+        // 2. Even if someone calls .first() or .all() with mutating SQL or write PRAGMA, SQLite readOnly mode rejects it
+        await expect(
+          adapter
+            .prepare(
+              "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('x', 'y', 'z', 1, 1) RETURNING id",
+            )
+            .first(),
+        ).rejects.toThrow(/readonly/i);
+        await expect(adapter.prepare("PRAGMA user_version = 123").first()).rejects.toThrow(
+          /readonly/i,
+        );
+
+        // 3. Positional parameters ?1, ?2, empty results, and NULL column handling
+        const boundRow = await adapter
+          .prepare("SELECT id, skill_id, grade_from FROM lessons WHERE id = ?1 AND grade_from = ?2")
+          .bind("lesson-1", 4)
+          .first<{ id: string; skill_id: string | null; grade_from: number }>();
+        expect(boundRow).toEqual({
+          id: "lesson-1",
+          skill_id: null,
+          grade_from: 4,
+        });
+
+        const nullColValue = await adapter
+          .prepare("SELECT skill_id FROM lessons WHERE id = ?1")
+          .bind("lesson-1")
+          .first<string>("skill_id");
+        expect(nullColValue).toBeNull();
+
+        const namedColValue = await adapter
+          .prepare("SELECT title_vi FROM lessons WHERE id = ?1")
+          .bind("lesson-1")
+          .first<string>("title_vi");
+        expect(namedColValue).toBe("Bài 1");
+
+        const emptyFirst = await adapter
+          .prepare("SELECT id FROM lessons WHERE id = ?1")
+          .bind("non-existent-lesson")
+          .first();
+        expect(emptyFirst).toBeNull();
+
+        const emptyAll = await adapter
+          .prepare("SELECT id FROM lessons WHERE id = ?1")
+          .bind("non-existent-lesson")
+          .all();
+        expect(emptyAll.results).toEqual([]);
+        expect(emptyAll.success).toBe(true);
+      } finally {
+        rawDb.close();
+      }
+
+      const afterState = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
+      expect(afterState).toEqual(beforeState);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+});
+
