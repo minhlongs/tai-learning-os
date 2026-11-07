@@ -25,7 +25,7 @@ import type {
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
-import { useSessionContext } from "../../lib/SessionProvider";
+import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";
 

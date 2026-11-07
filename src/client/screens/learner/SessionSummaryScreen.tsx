@@ -26,7 +26,7 @@ import type { ReactNode } from "react";
 import type { FinalizeSessionResponse, SessionSummary } from "../../../shared/api-contract";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
-import { useSessionContext } from "../../lib/SessionProvider";
+import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";
 import { formatDate, formatDaysUntil } from "../../lib/format";

@@ -13,8 +13,8 @@ import { setActiveLearnerId } from "../lib/active-learner-store";
 import { api, failureMessage } from "../lib/api";
 import { clearCsrfToken } from "../lib/csrf-store";
 import { endpoints } from "../lib/endpoints";
-import { useSessionContext } from "../lib/SessionProvider";
-import { navigate } from "../App";
+import { useSessionContext } from "../lib/session-context";
+import { navigate } from "../routing";
 import { AppShell, type AppShellProps } from "./AppShell";
 
 export type ProtectedScreenProps = {

@@ -17,13 +17,13 @@
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { register } from "node:module";
+import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-register(new URL("./resolve-ts-specifiers.mjs", import.meta.url).href);
+registerTsSpecifiers();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");

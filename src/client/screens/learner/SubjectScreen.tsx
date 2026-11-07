@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import type { LearnerSubjectListResponse, SubjectSummary } from "../../../shared/api-contract";
 import { api, failureMessage } from "../../lib/api";
-import { useSessionContext } from "../../lib/SessionProvider";
+import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";
 import { endpoints } from "../../lib/endpoints";

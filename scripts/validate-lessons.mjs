@@ -10,9 +10,9 @@
  *      the answer key after a relabel and discloses answer position.
  *   5. Zero answer-key leakage after `toLearnerExercise()`.
  */
-import { register } from "node:module";
+import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 
-register(new URL("./resolve-ts-specifiers.mjs", import.meta.url).href);
+registerTsSpecifiers();
 
 const { LESSONS } = await import("../src/shared/content/index.ts");
 const { validateRegistry } = await import("../test/integration/lesson-seed.ts");
