@@ -2,7 +2,10 @@
 
 > **Release Policy: PR-MERGE AUTHORIZED / PRODUCTION DEPLOY BLOCKED.**
 > Git push, pull request creation, and squash/merge to `main` are authorized following comprehensive local multi-layer verification.
-> Remote deploy (`wrangler deploy`), remote migrations, remote resource provisioning, paid/external LLM APIs, and live child pilot remain strictly blocked.
+>
+> **Blocked:** Remote deploy (`wrangler deploy`), remote migrations, remote resource provisioning, paid/external LLM APIs, and hosted child pilot — a public server, cloud data processing, or any learner outside this household.
+>
+> **Permitted:** Localhost use on this household machine for the single learner registered in it, supervised in person by the parent/owner. Local-only runs write exactly the data the schema already defines and send nothing off the device. Simulated multi-learner data must stay in the isolated pilot database (see `npm run seed:pilot`) and never enter the household learner's database, because the append-only audit ledger cannot be cleaned once written.
 
 ---
 

@@ -2,7 +2,11 @@
 
 > **Release Policy: PR-MERGE AUTHORIZED / PRODUCTION DEPLOY BLOCKED.**
 > Git push, pull request creation, and squash/merge to `main` are authorized following comprehensive local multi-layer verification.
-> Remote deploy (`wrangler deploy`), remote migrations, remote resource provisioning, paid/external LLM APIs, and live child pilot remain strictly blocked.
+>
+> **Blocked:** Remote deploy (`wrangler deploy`), remote migrations, remote resource provisioning, paid/external LLM APIs, and hosted child pilot — a public server, cloud data processing, or any learner outside this household.
+>
+> **Permitted:** Localhost use on this household machine for the single learner registered in it, supervised in person by the parent/owner. Local-only runs write exactly the data the schema already defines and send nothing off the device.
+>
 > This document outlines the 90-day evolution from the Gate 01 Local MVP to a rich household learning
 > system, along with the strict conditions required before any cloud or remote deployment is permitted.
 

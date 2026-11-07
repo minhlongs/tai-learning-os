@@ -260,10 +260,10 @@ export async function seedPilotFixture(db: D1Database): Promise<{
 
     await db
       .prepare(
-        `INSERT OR REPLACE INTO classroom_teachers (id, classroom_id, teacher_id, assigned_at)
-         VALUES (?1, ?2, ?3, ?4)`,
+        `INSERT OR REPLACE INTO classroom_teachers (classroom_id, teacher_id, created_at)
+         VALUES (?1, ?2, ?3)`,
       )
-      .bind(`ct-${c.id}`, c.id, c.teacherId, now)
+      .bind(c.id, c.teacherId, now)
       .run();
   }
 
@@ -280,10 +280,10 @@ export async function seedPilotFixture(db: D1Database): Promise<{
     const classroomId = PILOT_CLASSROOMS[item.classroomName].id;
     await db
       .prepare(
-        `INSERT OR REPLACE INTO classroom_enrollments (id, classroom_id, learner_id, enrolled_by, status, enrolled_at)
-         VALUES (?1, ?2, ?3, ?4, 'enrolled', ?5)`,
+        `INSERT OR REPLACE INTO classroom_enrollments (id, classroom_id, learner_id, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'enrolled', ?4, ?4)`,
       )
-      .bind(`enroll-${item.learnerId}`, classroomId, item.learnerId, PILOT_OWNER.id, now)
+      .bind(`enroll-${item.learnerId}`, classroomId, item.learnerId, now)
       .run();
   }
 
