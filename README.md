@@ -72,7 +72,7 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (198 tests across 11 files)
+# Chạy toàn bộ Unit Tests (214 tests across 13 files)
 npm run test
 
 # Chạy toàn bộ Integration Tests với workerd D1 (148 tests across 15 files)
@@ -93,6 +93,9 @@ npm run export:learner -- ./backup-tai.enc.json --passphrase "mat-khau-sao-luu"
 
 # Mở khóa tạm thời tài khoản phụ huynh khi nhập sai mật khẩu quá 5 lần
 npm run unlock:parent
+
+# Lưu trữ DB cục bộ hiện tại vào backups/ và cấp phát lại DB hộ gia đình sạch 100%
+npm run db:reprovision-household
 ```
 
 ---

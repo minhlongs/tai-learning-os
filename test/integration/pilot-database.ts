@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -207,12 +207,21 @@ export function assertPilotIsolation(): void {
  * resolved. Returns undefined when nothing up to the filesystem root exists,
  * which is not expected on any real path.
  */
-function realExistingAncestor(target: string): string | undefined {
+function realExistingAncestor(target: string, depth = 0): string | undefined {
+  if (depth > 32) return undefined;
   let current = resolve(target).replace(/\/+$/, "") || "/";
   for (;;) {
     try {
       return realpathSync(current);
     } catch {
+      try {
+        if (lstatSync(current).isSymbolicLink()) {
+          const linkTarget = resolve(dirname(current), readlinkSync(current));
+          return realExistingAncestor(linkTarget, depth + 1);
+        }
+      } catch {
+        // Not an existing symlink entry; continue walking up to parent
+      }
       const parent = dirname(current);
       if (parent === current) return undefined;
       current = parent;

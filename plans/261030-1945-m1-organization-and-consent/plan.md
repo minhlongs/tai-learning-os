@@ -1,3 +1,11 @@
+---
+title: "M1 — Organization, Classroom & Parent Consent Grant"
+status: completed
+created: 2026-10-30
+branch: fix/group-a-security-remediation
+route: feature
+---
+
 # M1 — Organization, Classroom & Parent Consent Grant
 
 Status: completed

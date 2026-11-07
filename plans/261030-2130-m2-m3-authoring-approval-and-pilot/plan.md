@@ -1,3 +1,9 @@
+---
+title: "M2 & M3: Teacher Lesson Authoring, Center & Parent Approval, and Multi-Learner Pilot Fixture"
+status: completed
+created: 2026-10-30
+---
+
 # M2 & M3: Teacher Lesson Authoring, Center & Parent Approval, and Multi-Learner Pilot Fixture
 
 - **Status:** completed

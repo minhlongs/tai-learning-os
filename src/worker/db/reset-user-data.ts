@@ -68,7 +68,8 @@ export async function resetUserData(db: D1Database): Promise<void> {
     if (count > 0) {
       throw new Error(
         `Cannot reset user data: audit_events contains ${count} immutable row(s) protected by append-only triggers. ` +
-          `User-data reset refuses to drop triggers or partially delete state.`,
+          `User-data reset refuses to drop triggers or partially delete state. ` +
+          `Use 'npm run db:reprovision-household' to archive the existing SQLite file and provision a clean database.`,
       );
     }
   }
