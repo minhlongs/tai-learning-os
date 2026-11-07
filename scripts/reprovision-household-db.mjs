@@ -24,11 +24,11 @@
  * Local only. Never touches remote Cloudflare resources.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
-import { register } from "node:module";
+import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-register(new URL("./resolve-ts-specifiers.mjs", import.meta.url).href);
+registerTsSpecifiers();
 
 const { getPlatformProxy, unstable_splitSqlQuery } = await import("wrangler");
 const { seedLessons } = await import("../test/integration/lesson-seed.ts");

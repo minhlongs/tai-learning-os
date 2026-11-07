@@ -40,7 +40,7 @@ import type { ApprovalStatus } from "../../../shared/schemas/attempt";
 import type { ExerciseSpec } from "../../../shared/schemas/exercise";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
-import { useSessionContext } from "../../lib/SessionProvider";
+import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";
 import { endpoints } from "../../lib/endpoints";

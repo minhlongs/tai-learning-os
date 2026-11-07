@@ -15,9 +15,9 @@
  *   npm run export:learner -- ./backup-tai.enc.json --passphrase "<secret>"
  */
 import { writeFileSync } from "node:fs";
-import { register } from "node:module";
+import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 
-register(new URL("./resolve-ts-specifiers.mjs", import.meta.url).href);
+registerTsSpecifiers();
 
 const { getPlatformProxy } = await import("wrangler");
 const { exportRecord } = await import("../src/worker/routes/data.ts");

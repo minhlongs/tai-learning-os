@@ -13,9 +13,9 @@
 import { useState } from "react";
 import { api, failureMessage, type ApiResult } from "../lib/api";
 import { forgetSession } from "../lib/useSession";
-import { useSessionContext } from "../lib/SessionProvider";
+import { useSessionContext } from "../lib/session-context";
 import type { SessionInfo } from "../../shared/api-contract";
-import { navigate } from "../App";
+import { navigate } from "../routing";
 import "../styles/login.css";
 
 type Mode = "login" | "bootstrap";

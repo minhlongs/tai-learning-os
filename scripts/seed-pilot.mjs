@@ -19,9 +19,9 @@
  *
  * LOCAL ONLY.
  */
-import { register } from "node:module";
+import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 
-register(new URL("./resolve-ts-specifiers.mjs", import.meta.url).href);
+registerTsSpecifiers();
 
 const { seedPilotFixture } = await import("../test/integration/pilot-fixture.ts");
 const { openPilotDatabase, getPilotPersistDir } = await import("../test/integration/pilot-database.ts");

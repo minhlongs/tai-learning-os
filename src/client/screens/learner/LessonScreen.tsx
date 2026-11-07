@@ -35,7 +35,7 @@ import type { LessonStepKind } from "../../../shared/schemas/attempt";
 import type { Submission } from "../../../shared/schemas/answer";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
-import { useSessionContext } from "../../lib/SessionProvider";
+import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";
 import { ExerciseBody } from "./components/ExerciseBody";

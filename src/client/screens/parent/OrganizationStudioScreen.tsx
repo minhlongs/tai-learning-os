@@ -56,7 +56,7 @@ import type { ExerciseSpec } from "../../../shared/schemas/exercise";
 import { api, failureMessage } from "../../lib/api";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { endpoints } from "../../lib/endpoints";
-import { useSessionContext } from "../../lib/SessionProvider";
+import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";
 import "../../styles/organization-studio.css";

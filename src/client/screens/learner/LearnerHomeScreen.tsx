@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import type { LearnerHomeResponse } from "../../../shared/api-contract";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
-import { useSessionContext } from "../../lib/SessionProvider";
+import { useSessionContext } from "../../lib/session-context";
 import { competencyClass, competencyGlyph, competencyLabel } from "../../lib/format";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";

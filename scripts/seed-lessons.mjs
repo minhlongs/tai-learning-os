@@ -17,7 +17,7 @@
  *
  * Local only.
  */
-import { register } from "node:module";
+import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 
 /**
  * The extensionless specifiers the project uses need this hook, and a hook can
@@ -28,7 +28,7 @@ import { register } from "node:module";
  * The hook path is built from an absolute file URL because `register` resolves
  * a bare relative specifier against a `data:` base, which fails.
  */
-register(new URL("./resolve-ts-specifiers.mjs", import.meta.url).href);
+registerTsSpecifiers();
 
 const { getPlatformProxy } = await import("wrangler");
 const { seedLessons } = await import("../test/integration/lesson-seed.ts");

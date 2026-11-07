@@ -40,7 +40,7 @@ import {
 } from "../../../shared/crypto/backup-cipher";
 import { setActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
-import { useSessionContext } from "../../lib/SessionProvider";
+import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { endpoints } from "../../lib/endpoints";
 import "../../styles/data-control.css";

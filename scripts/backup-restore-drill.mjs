@@ -8,13 +8,13 @@
  * Safety invariant: NEVER opens or touches `.wrangler/state` or `.dev.vars`.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { register } from "node:module";
+import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
-register(new URL("./resolve-ts-specifiers.mjs", import.meta.url).href);
+registerTsSpecifiers();
 
 const { exportRecord, deleteLearner, importRecord } = await import("../src/worker/routes/data.ts");
 const { LESSONS } = await import("../src/shared/content/index.ts");
