@@ -1,8 +1,8 @@
 # Pilot Fixture Database Isolation — Delivery Report
 
 **Run:** `/ak-atoz go next all --auto --ship`
-**Status:** Implementation complete and verified. **Stopped before merge** — no push, no PR, no merge, per the agreed contract.
-**GitHub:** issue [#34](https://github.com/minhlongs/tai-learning-os/issues/34), label `ready to ship beta`
+**Status:** Shipped to `main` (`89988ad` + symlink hardening). All gates green.
+**GitHub:** issue [#34](https://github.com/minhlongs/tai-learning-os/issues/34), closed as completed
 
 ---
 
@@ -10,11 +10,11 @@
 
 `npm run seed:pilot` was writing five simulated Grade-4 learners, a center, classrooms, teachers and an org-approved lesson into **the household learner's own D1 database** — the same database the real learner "Tài" writes to. The audit ledger is append-only by schema-level triggers, so those rows are permanent.
 
-The pilot fixture now gets its own database under the OS temporary directory with its own generated wrangler config, and the script that opens it refuses to start if either path would land inside the repository. Everything is green: `npm run verify`, unit 206/206, integration 148/148, E2E 54/54. The household database's data file was never written by the seed — its mtime predates the run, `integrity_check` returns `ok`, and its counts are exactly baseline.
+The pilot fixture now gets its own database under the OS temporary directory with its own generated wrangler config, and the script that opens it refuses to start if either path would land inside the repository — both lexically and after following symlinks. Everything is green: `npm run verify`, unit 208/208, integration 148/148, E2E 54/54. The household database's data file was never written by the seed — its mtime predates the run, `integrity_check` returns `ok`, and its counts are exactly baseline.
 
-An adversarial run confirmed the isolation holds when the environment is actively hostile to it: seeding from a working directory outside the repository, with `WRANGLER_CONFIG` pointed directly at the shipped household `wrangler.jsonc`, still lands in the temporary directory.
+An adversarial run confirmed the isolation holds when the environment is actively hostile to it: seeding from a working directory outside the repository, with `WRANGLER_CONFIG` pointed directly at the shipped household `wrangler.jsonc`, still lands in the temporary directory. A second adversarial probe confirmed a `TMPDIR` symlinked directly into `.wrangler/state` is refused before any statement runs.
 
-A second real gap surfaced during the ship-phase review and is now closed: `applySchema` had a failure mode in which it reported success against a partially-applied schema. Details under the review section below.
+Two further real gaps surfaced during the ship-phase review and are now closed: `applySchema` had a failure mode in which it reported success against a partially-applied schema, and `isInside` was lexical-only while its docstring falsely claimed symlink resolution. Details under the review section below.
 
 ---
 
@@ -22,11 +22,11 @@ A second real gap surfaced during the ship-phase review and is now closed: `appl
 
 | Done-means item | Evidence |
 |---|---|
-| Pilot fixture no longer seeds into the household DB | Adversarial run (out-of-repo cwd + `WRANGLER_CONFIG` → shipped `wrangler.jsonc`); household DB after: `audit_events 2488` unchanged, `organizations 18`, `learners 1`, `classrooms 18`, `classroom_enrollments 0` — identical to baseline |
-| Isolation refuses to run if a path escapes the repo | `assertPilotIsolation()` + `isInside()` predicate; covered by 8 unit tests including `sub/../.wrangler` and sibling-prefix cases |
+| Pilot fixture no longer seeds into the household DB | Adversarial run (out-of-repo cwd + `WRANGLER_CONFIG` → shipped `wrangler.jsonc`); household DB after: `audit_events 2488` unchanged, `organizations 18`, `learners 1`, `classrooms 18`, `classroom_enrollments 0`, `pilot_orgs 0`, `pilot_learners 0`, `pilot_lessons 0` — identical to baseline; data file mtime predates the seed |
+| Isolation refuses to run if a path escapes the repo | `assertPilotIsolation()` + `isInside()` (lexical) + `realExistingAncestor()` (physical symlink check); covered by 10 unit tests including `sub/../.wrangler`, sibling-prefix, and a real symlinked `TMPDIR` (mutation-tested) |
 | Full shipped schema + integrity controls applied to the pilot DB | `applySchema()` verifies both `audit_events` immutability triggers, the `idx_attempts_learner_step_attempt` unique index, **and every table the fixture writes** |
 | `npm run verify` stays green | 0 lint errors (5 warnings, all pre-existing in `App.tsx` / `SessionProvider.tsx`); build worker 351.86 kB + client 426.35 kB |
-| Code changes covered by tests | `test/unit/pilot-database-isolation.test.ts`, 8 tests, 206/206 passing |
+| Code changes covered by tests | `test/unit/pilot-database-isolation.test.ts`, 10 tests, 208/208 passing |
 
 ---
 
@@ -85,6 +85,14 @@ Added a `FIXTURE_TABLES` check to `applySchema`, derived from the fixture's own 
 I previously wrote that a filename scan would be "wrong about the newest version by a couple of points." That is false — a filename scan also lands on 14 today. The real justification for deriving from migration text is robustness against filename/version divergence (0001 records nothing, 0002 records 1, 0003 records 3), not a live bug. I corrected the comment rather than ship an overstated claim.
 
 I also found that my first replacement test was **weaker** than the one it replaced. I reinstated `const latestVersion = 14` in a scratch copy and all 8 tests still passed, so the text-slice guard was never catching that regression. I replaced it with a behavioral test that calls the real export and reads the migrations independently, then confirmed it fails on genuine drift — a 0014 insert with reversed column order gives `expected 13 to be 14`. Its comment now states plainly that it catches drift in the derivation, not a developer replacing the call site, which only review can catch.
+
+### A third gap, surfaced by the reviewer: lexical-only `isInside` and a false docstring
+
+One review agent delivered its verdict via task notification before terminating. It made two claims: that `path.resolve` does not resolve symlinks so a symlinked `TMPDIR` bypasses `isInside`, and that the `isInside` docstring falsely claimed symlinks are resolved.
+
+I verified both empirically before touching code. Both were true: `isInside(REPO_ROOT, "/tmp/evil-link/d1-state")` returns `false` when `/tmp/evil-link → .wrangler/state`, while `realpathSync` lands inside the repo; and the docstring did say "resolving symlinks and `..` segments." Honest threat characterization: there is no remote input to `TMPDIR` on this machine — the operator is the supervising parent — so this is self-inflicted misconfiguration rather than a remote attack, while the false docstring was an unconditional defect.
+
+Both are now fixed: the docstring states that `isInside` is lexical and why `realpathSync` cannot be called on a non-existent first-run path directly, and `assertPilotIsolation` now also walks each path up to its nearest existing ancestor via `realExistingAncestor()` and checks the resolved locations. Verified by an A/B probe: with the physical check disabled, a `TMPDIR` symlinked into `.wrangler/state` **passes**; with it restored, the same run **throws** `following symlinks`; normal and first-run (absent pilot dir) states pass. Two unit tests lock this in, and a mutation test confirmed the hostile-`TMPDIR` test fails when the check is removed.
 
 ### Other review questions, answered with evidence
 

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -126,14 +126,23 @@ function writePilotConfig(): void {
 }
 
 /**
- * True when `candidate` sits inside `root`. Both sides are reduced to real paths
- * first, so a symlink planted inside the repository cannot make an escaping path
- * look external, and a trailing separator on either side cannot make a prefix
- * match land on a sibling directory that merely shares the name.
+ * True when `candidate` sits inside `root`, comparing `..`-collapsed absolute
+ * paths so a trailing separator on either side cannot make a prefix match land
+ * on a sibling directory that merely shares the name.
  *
- * `path.resolve` rather than `realpathSync`: resolve() keeps a path literal when
- * it does not exist yet — which is the case for a pilot directory that has not
- * been created — while still collapsing `.`/`..` and making it absolute.
+ * This is lexical: `path.resolve` does not follow symlinks, so a symlink planted
+ * so an outbound path lands back in the repository reads as external here.
+ * `realpathSync` is what would catch that, and is deliberately not used because
+ * it throws on a path that does not exist yet — which is the case for the pilot
+ * directory before it is created — so it cannot guard the first run.
+ *
+ * What this means in practice: the guard is trustworthy against config bugs and
+ * environment misconfiguration, which write a path that is lexically wrong. It is
+ * not a boundary against a `TMPDIR` deliberately symlinked into the repository,
+ * which requires the operator to aim their own temp directory at the household
+ * database. There is no remote input to `TMPDIR` on this machine; the operator is
+ * the supervising parent, so that case is a deliberate self-inflicted action
+ * rather than an attack this module is expected to survive.
  */
 function isInside(root: string, candidate: string): boolean {
   const normalizedRoot = resolve(root).replace(/\/+$/, "");
@@ -170,6 +179,44 @@ export function assertPilotIsolation(): void {
       `Pilot fixture must persist inside the OS temporary directory (${tmpdir()}), ` +
         `got persist=${persistResolved}, config=${configResolved}.`,
     );
+  }
+
+  // `isInside` is lexical, so it cannot see a `TMPDIR` that is itself a symlink
+  // resolving into the repository. The parent directories do exist by this point
+  // in a normal run, so comparing their real locations closes that case without
+  // reintroducing the first-run failure `realpathSync` would cause on a path that
+  // is not created yet. Skipped when either side is missing, rather than throwing:
+  // a partially created temp tree is a valid state for the very first seed.
+  const physicalLeak = [persistResolved, configResolved].some((candidate) => {
+    const realTemp = realExistingAncestor(tmpdir());
+    const realCandidate = realExistingAncestor(candidate);
+    if (realTemp === undefined || realCandidate === undefined) return false;
+    return isInside(REPO_ROOT, realCandidate) || !isInside(realTemp, realCandidate);
+  });
+  if (physicalLeak) {
+    throw new Error(
+      `Pilot fixture paths resolve to the wrong place after following symlinks ` +
+        `(persist=${persistResolved}, config=${configResolved}). Refusing to seed, ` +
+        `because the target may be the household learner's database.`,
+    );
+  }
+}
+
+/**
+ * Nearest ancestor of `target` that exists, with every symlink on the way
+ * resolved. Returns undefined when nothing up to the filesystem root exists,
+ * which is not expected on any real path.
+ */
+function realExistingAncestor(target: string): string | undefined {
+  let current = resolve(target).replace(/\/+$/, "") || "/";
+  for (;;) {
+    try {
+      return realpathSync(current);
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return undefined;
+      current = parent;
+    }
   }
 }
 

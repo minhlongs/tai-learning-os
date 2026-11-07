@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -166,5 +174,54 @@ describe("pilot database isolation", () => {
     expect(isInside(`${tmpdir()}/`, join(tmpdir(), "pilot"))).toBe(true);
     expect(isInside(tmpdir(), join(tmpdir(), "pilot"))).toBe(true);
     expect(isInside(tmpdir(), "/etc")).toBe(false);
+  });
+
+  it("refuses to seed when the temp directory is a symlink into the repository", async () => {
+    // The lexical guard above cannot see this, because resolve() does not follow
+    // symlinks: a TMPDIR that is a symlink into the repository produces a path
+    // that spells external while every write lands in .wrangler/state. The module
+    // therefore also compares the real locations of the paths involved.
+    //
+    // This calls the module's own guard rather than re-implementing the physical
+    // check, so deleting that check from the module fails here instead of passing
+    // silently. The module derives its pilot paths from `tmpdir()` at import time
+    // and `tmpdir()` re-reads `TMPDIR` on every call, so setting the variable
+    // before importing with a fresh query string re-evaluates those constants
+    // under the hostile directory.
+    const scratch = join(tmpdir(), "pilot-symlink-probe");
+    const hostileTmpdir = join(scratch, "hostile-tmpdir");
+    const originalTmpdir = process.env.TMPDIR;
+    mkdirSync(scratch, { recursive: true });
+    symlinkSync(join(REPO_ROOT, ".wrangler", "state"), hostileTmpdir);
+
+    try {
+      // First prove the lexical check really is the one that misses this shape,
+      // otherwise the assertion below could be satisfied for the wrong reason.
+      expect(isInside(REPO_ROOT, join(hostileTmpdir, "tai-learning-os-pilot-runtime", "d1-state")))
+        .toBe(false);
+
+      process.env.TMPDIR = hostileTmpdir;
+      const { assertPilotIsolation } = await import("../integration/pilot-database.js?hostile");
+      expect(() => assertPilotIsolation()).toThrow(/following symlinks/);
+    } finally {
+      if (originalTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTmpdir;
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("still seeds normally when the temp directory is genuinely external", async () => {
+    // The hardening must not become a false-alarm generator: the ordinary case,
+    // where TMPDIR resolves somewhere under the system temp tree, has to pass.
+    // The pilot directory itself is deliberately not created first, because the
+    // first run is exactly that state and it is why the physical check walks up
+    // to the nearest existing ancestor instead of calling realpathSync on a path
+    // that does not exist yet — realpathSync would throw there.
+    const { assertPilotIsolation } = await import("../integration/pilot-database.js?normal");
+    expect(() => assertPilotIsolation()).not.toThrow();
+
+    // The real temp directory is outside the repository, so the external case is
+    // genuinely external and not merely spelled that way.
+    expect(isInside(REPO_ROOT, realpathSync(tmpdir()))).toBe(false);
   });
 });
