@@ -1,3 +1,11 @@
+---
+title: "Milestone M9 — UI Endpoint Closure, 21-Collection Export Parity, and RBAC Teacher Assignment"
+status: completed
+created: 2026-11-02
+branch: feat/m9-ui-closure-and-export-parity
+route: feature
+---
+
 # Plan: Milestone M9 — UI Endpoint Closure, 21-Collection Export Parity, and RBAC Teacher Assignment
 
 - **Plan ID**: `261102-0825-m9-ui-closure-and-export-parity`

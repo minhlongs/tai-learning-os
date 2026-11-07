@@ -1,3 +1,11 @@
+---
+title: "M0 — Parent Correction as Evidence, and PII-free Audit Ledger"
+status: completed
+created: 2026-10-30
+branch: fix/group-a-security-remediation
+route: bugfix
+---
+
 # M0 — Parent Correction as Evidence, and PII-free Audit Ledger
 
 Status: completed

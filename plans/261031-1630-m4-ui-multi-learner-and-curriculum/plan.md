@@ -1,3 +1,11 @@
+---
+title: "M4 — UI Closure (M0–M3 & Spaced Review), Multi-Learner Switcher, Grade 4 Curriculum Expansion & CLI Validator"
+status: completed
+created: 2026-10-31
+branch: feat/m4-ui-multi-learner-and-curriculum
+route: feature
+---
+
 # M4 — UI Closure (M0–M3 & Spaced Review), Multi-Learner Switcher, Grade 4 Curriculum Expansion & CLI Validator
 
 - **Status:** completed
