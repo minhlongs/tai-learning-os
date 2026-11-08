@@ -72,7 +72,7 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (230 tests across 15 files)
+# Chạy toàn bộ Unit Tests (247 tests across 16 files)
 npm run test
 
 # Chạy toàn bộ Integration Tests với workerd D1 (148 tests across 15 files)
@@ -99,6 +99,9 @@ npm run db:reprovision-household
 
 # Kiểm tra sẵn sàng chỉ-đọc (read-only preflight) của DB hộ gia đình và số bài học đã duyệt cho Tài
 npm run household:preflight
+
+# Duyệt bài học hộ gia đình cho Tài một cách nguyên tử và idempotent (mặc định theo lớp đã đăng ký)
+npm run household:approve-lessons
 ```
 
 ---

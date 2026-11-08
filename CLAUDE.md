@@ -52,7 +52,7 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (15 files, 230 tests)
+npm run test               # Vitest unit tests (16 files, 247 tests)
 npm run test:integration   # Vitest Worker + D1 integration tests (15 files, 148 tests)
 npm run test:e2e           # Playwright E2E browser tests (54 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + validate:lessons + build
@@ -65,6 +65,7 @@ npm run unlock:parent      # Clear auth_throttles after accidental lockout
 npm run db:reset-data
 npm run db:reprovision-household  # Archive the current D1 files into backups/, then provision a clean household database (keeps parent, learner, school-year, and 50 lessons)
 npm run household:preflight       # Read-only preflight check of .dev.vars key presence, D1 integrity, clean-room state, and approved-lesson readiness for Tài
+npm run household:approve-lessons # Idempotently approve catalogue/family lessons for the household learner (defaults to enrolled grade)
 ```
 
 ---

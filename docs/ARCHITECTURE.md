@@ -153,14 +153,17 @@ TAI LEARNING OS operates under a strict **Local Only / Production Blocked** poli
 
 ---
 
-## 5. Verification Status (Gate 01)
+## 5. Verification Status
 
 | Verification Suite | Test Count | Status |
 |---|---|---|
 | TypeScript Typecheck (Worker & App) | 0 errors | **Pass** |
 | ESLint Code Quality | 0 errors | **Pass** |
-| Vitest Unit Test Suite | 7 files, 163 tests | **Pass** |
-| Vitest Integration Test Suite (D1 + workerd) | 4 files, 67 tests | **Pass** |
-| Playwright E2E Suite (Desktop, Tablet & Mobile) | 3 viewports, 15 tests | **Pass** |
+| Vitest Unit Test Suite | 16 files, 247 tests | **Pass** |
+| Vitest Integration Test Suite (D1 + workerd) | 15 files, 148 tests | **Pass** |
+| Playwright E2E Suite (Desktop, Tablet & Mobile) | 3 viewports, 54 tests | **Pass** |
 | Production Build (Vite & Worker bundle) | Clean build | **Pass** |
 | Local D1 Data Export (`npm run export:learner`) | Valid JSON envelope, strictly read-only | **Pass** |
+| Household Preflight (`npm run household:preflight`) | Read-only `DatabaseSync` (`{ readOnly: true }`), zero disk writes | **Pass** |
+| Household Lesson Approval (`npm run household:approve-lessons`) | Atomic, idempotent approval + `audit_events` | **Pass** |
+| Encrypted Backup & Restore Drill (`npm run backup:drill`) | Isolated AES-256-GCM export, decrypt, restore & audit verification | **Pass** |

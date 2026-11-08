@@ -23,6 +23,7 @@
     "db:reset-data": "node scripts/reset-local-d1.mjs",
     "db:reprovision-household": "node scripts/reprovision-household-db.mjs",
     "household:preflight": "node scripts/household-preflight.mjs",
+    "household:approve-lessons": "node scripts/approve-household-lessons.mjs",
     "seed:demo": "node scripts/seed-lessons.mjs",
     "seed:pilot": "node scripts/seed-pilot.mjs",
     "hash:password": "node scripts/hash-parent-password.mjs",
