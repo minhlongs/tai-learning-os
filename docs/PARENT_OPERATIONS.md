@@ -67,6 +67,7 @@ Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
   npm run export:learner -- ./backup-tai-$(date +%Y%m%d).json
   npm run export:learner -- ./backup-tai-$(date +%Y%m%d).enc.json --passphrase "mat-khau-sao-luu"
   ```
+- **Khác biệt cần biết về nhật ký kiểm toán:** bản sao lưu tải từ giao diện (`/parent/data`) được ghi lại một dòng `data.exported` trong nhật ký kiểm toán. Bản sao lưu chạy từ terminal (`npm run export:learner`) **không** ghi dòng này, vì lệnh terminal được thiết kế chỉ đọc tuyệt đối — nó không thay đổi một byte nào trong cơ sở dữ liệu. Việc sao lưu từ terminal vẫn tạo ra đúng một tệp như lúc tải từ giao diện; chỉ có dấu vết trong nhật ký là khác. Nếu phụ huynh cần dấu vết trong nhật ký, hãy xuất bản sao lưu từ trang "Quản lý dữ liệu".
 - Để kiểm tra định kỳ quy trình sao lưu, giải mã, chống giả mạo và khôi phục dữ liệu trong cơ sở dữ liệu cô lập:
   ```bash
   npm run backup:drill

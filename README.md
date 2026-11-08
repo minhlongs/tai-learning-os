@@ -72,7 +72,7 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (225 tests across 14 files)
+# Chạy toàn bộ Unit Tests (230 tests across 15 files)
 npm run test
 
 # Chạy toàn bộ Integration Tests với workerd D1 (148 tests across 15 files)
