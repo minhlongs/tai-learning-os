@@ -216,7 +216,7 @@ async function inspectHouseholdDatabaseState(
     );
   }
 
-  const allowedActors = new Set<string>(["system"]);
+  const allowedActors = new Set<string>(["system", "cli-operator"]);
   if (snapshot.parent?.id) allowedActors.add(`parent:${snapshot.parent.id}`);
   if (snapshot.learner?.id) allowedActors.add(`learner:${snapshot.learner.id}`);
 
@@ -308,7 +308,7 @@ export async function inspectHouseholdPreflight(
       "Chạy npm run dev và mở /login để hoàn tất thiết lập tài khoản phụ huynh và hồ sơ học sinh.";
   } else if (approvedLessonsCount === 0) {
     nextActionVi =
-      "DB hộ gia đình sạch 100%, nhưng chưa có bài học nào được duyệt. Hãy chạy npm run dev, đăng nhập Phụ huynh và mở /parent/lessons để duyệt bài cho Tài trước buổi học.";
+      "DB hộ gia đình sạch 100%, nhưng chưa có bài học nào được duyệt. Hãy chạy npm run household:approve-lessons (hoặc mở /parent/lessons) để duyệt bài cho Tài trước buổi học.";
   } else {
     nextActionVi = `Sẵn sàng cho buổi học của ${household.learnerNickname ?? "học sinh"} (${approvedLessonsCount} bài học đã được phụ huynh duyệt).`;
   }

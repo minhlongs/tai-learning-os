@@ -515,6 +515,9 @@ function createDiskMigratedSqliteFixture(): {
   const raw = new DatabaseSync(sqlitePath);
   try {
     raw.exec("PRAGMA foreign_keys = ON;");
+    // Match Miniflare's real D1 persistence shape: a WAL-mode database whose
+    // `-wal`/`-shm` sidecars are present alongside the main file.
+    raw.exec("PRAGMA journal_mode = WAL;");
     for (const file of MIGRATION_FILES) {
       const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
       for (const part of unstable_splitSqlQuery(sqlText)) {
@@ -524,6 +527,7 @@ function createDiskMigratedSqliteFixture(): {
     }
     seed50CatalogueLessons(raw);
   } finally {
+    // Leave the `-wal`/`-shm` sidecars on disk, as a live household database does.
     raw.close();
   }
 
@@ -546,10 +550,27 @@ function snapshotSqliteFileState(d1StateDir: string, sqlitePath: string) {
     size: stat.size,
     mtimeMs: stat.mtimeMs,
     dirEntries,
-    hasSidecarFiles: dirEntries.some(
-      (f) => f.endsWith("-wal") || f.endsWith("-shm") || f.endsWith("-journal"),
-    ),
   };
+}
+
+/**
+ * Assert the invariant the read-only CLI actually guarantees: the primary
+ * database file is left byte-identical (`SHA-256`, `size`, `mtimeMs`).
+ *
+ * Sidecar files (`-wal`/`-shm`) are deliberately excluded: opening a WAL-mode
+ * database read-only maps the shared-memory index, which refreshes the `-shm`
+ * file's `mtime` without touching the database contents. Miniflare's local D1
+ * state is WAL-mode, so the production fixture ships those sidecars.
+ */
+function expectSqliteFileUnchanged(
+  before: ReturnType<typeof snapshotSqliteFileState>,
+  after: ReturnType<typeof snapshotSqliteFileState>,
+): void {
+  expect({ sha256: after.sha256, size: after.size, mtimeMs: after.mtimeMs }).toEqual({
+    sha256: before.sha256,
+    size: before.size,
+    mtimeMs: before.mtimeMs,
+  });
 }
 
 describe("household-preflight CLI & read-only D1 adapter", () => {
@@ -671,7 +692,7 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
     }
   });
 
-  it("preserves exact SQLite SHA-256, size, mtimeMs, and creates zero -wal/-shm/-journal files across success and error paths", () => {
+  it("preserves exact WAL-mode SQLite SHA-256, size, and mtimeMs across success and error paths while a real write alters SHA-256", () => {
     const fixture = createDiskMigratedSqliteFixture();
     try {
       writeFileSync(
@@ -700,7 +721,6 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
       }
 
       const beforeSuccess = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
-      expect(beforeSuccess.hasSidecarFiles).toBe(false);
 
       const okRun = spawnSync(
         process.execPath,
@@ -710,9 +730,10 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
       expect(okRun.status).toBe(0);
 
       const afterSuccess = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
-      expect(afterSuccess).toEqual(beforeSuccess);
+      expectSqliteFileUnchanged(beforeSuccess, afterSuccess);
 
-      // Inject foreign audit actor to force an error path and verify the SQLite file still does not change on disk
+      // Positive control: a real write alters the primary .sqlite SHA-256 on close,
+      // and the subsequent failing preflight run leaves that new SHA-256 unchanged.
       const polluteDb = new DatabaseSync(fixture.sqlitePath);
       try {
         polluteDb
@@ -725,6 +746,8 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
       }
 
       const beforeFailure = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
+      expect(beforeFailure.sha256).not.toBe(beforeSuccess.sha256);
+
       const failRun = spawnSync(
         process.execPath,
         [CLI_SCRIPT, "--target-root", fixture.tmpRoot],
@@ -735,7 +758,7 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
       expect(failRun.stderr).not.toContain(CANARY_DB_HASH);
 
       const afterFailure = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
-      expect(afterFailure).toEqual(beforeFailure);
+      expectSqliteFileUnchanged(beforeFailure, afterFailure);
     } finally {
       fixture.cleanup();
     }
@@ -825,7 +848,7 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
       }
 
       const afterState = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
-      expect(afterState).toEqual(beforeState);
+      expectSqliteFileUnchanged(beforeState, afterState);
     } finally {
       fixture.cleanup();
     }

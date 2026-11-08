@@ -1,0 +1,713 @@
+import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { readdirSync, readFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { unstable_splitSqlQuery } from "wrangler";
+import {
+  approveHouseholdLessons,
+  parseApproveLessonsCliArgs,
+} from "../../scripts/approve-household-lessons.mjs";
+import { createReadOnlyD1Adapter } from "../../scripts/household-preflight.mjs";
+import { parseUnlockCliArgs, unlockParentAuthThrottles } from "../../scripts/unlock-parent.mjs";
+import { inspectHouseholdPreflight } from "../../src/worker/db/household-preflight";
+
+const HERE = new URL(".", import.meta.url).pathname;
+const REPO_ROOT = join(HERE, "..", "..");
+const MIGRATIONS_DIR = join(REPO_ROOT, "migrations");
+const APPROVE_CLI = join(REPO_ROOT, "scripts", "approve-household-lessons.mjs");
+const UNLOCK_CLI = join(REPO_ROOT, "scripts", "unlock-parent.mjs");
+
+const MIGRATION_FILES = [
+  "0001_initial_schema.sql",
+  "0002_reference_content.sql",
+  "0003_curriculum_and_trust_closure.sql",
+  "0004_evidence_integrity.sql",
+  "0005_organization_and_consent.sql",
+  "0006_lesson_authoring_and_assignments.sql",
+  "0007_learner_version_approvals_and_session_continuation.sql",
+  "0008_grade4_curriculum_expansion.sql",
+  "0009_version_snapshots_and_legacy_approval_hardening.sql",
+  "0010_phase3_science_debate_and_school_years.sql",
+  "0011_science_and_debate_parity.sql",
+  "0012_family_practice_and_version_lineage.sql",
+  "0013_practice_planner_and_classroom_progress.sql",
+  "0014_grade5_curriculum_expansion.sql",
+];
+
+const CANARY_PARENT_HASH = "pbkdf2-sha256:600000$dbsalt001122334455$dbdigestdeadbeefcafe0123456789";
+const FIXED_NOW = 1_800_000_000_000;
+
+function createMigratedFixture(tag: string): {
+  tmpRoot: string;
+  sqlitePath: string;
+  cleanup: () => void;
+} {
+  const tmpRoot = mkdtempSync(join(tmpdir(), `tlo-${tag}-`));
+  const d1StateDir = join(tmpRoot, ".wrangler", "state", "v3", "d1", "miniflare-D1DatabaseObject");
+  mkdirSync(d1StateDir, { recursive: true });
+  const sqlitePath = join(
+    d1StateDir,
+    "55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite",
+  );
+
+  const raw = new DatabaseSync(sqlitePath);
+  try {
+    raw.exec("PRAGMA foreign_keys = ON;");
+    raw.exec("PRAGMA journal_mode = WAL;");
+    for (const file of MIGRATION_FILES) {
+      const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
+      for (const part of unstable_splitSqlQuery(sqlText)) {
+        const cleaned = part.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
+        if (cleaned) raw.exec(cleaned);
+      }
+    }
+  } finally {
+    raw.close();
+  }
+
+  return {
+    tmpRoot,
+    sqlitePath,
+    cleanup() {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    },
+  };
+}
+
+function openWritable(sqlitePath: string): DatabaseSync {
+  const raw = new DatabaseSync(sqlitePath);
+  raw.exec("PRAGMA foreign_keys = ON;");
+  return raw;
+}
+
+/**
+ * Seeds a deterministic catalogue: 10 grade-4 lessons (2 math + 8 english) and
+ * 5 grade-5 science lessons.
+ */
+function seedLessons(raw: DatabaseSync): void {
+  const rows: Array<{ id: string; subject: string; from: number; to: number }> = [];
+  for (let i = 1; i <= 2; i += 1) {
+    rows.push({ id: `math-g4-${i}`, subject: "math", from: 4, to: 4 });
+  }
+  for (let i = 1; i <= 8; i += 1) {
+    rows.push({ id: `eng-g4-${i}`, subject: "english", from: 4, to: 4 });
+  }
+  for (let i = 1; i <= 5; i += 1) {
+    rows.push({ id: `sci-g5-${i}`, subject: "science", from: 5, to: 5 });
+  }
+  for (const row of rows) {
+    raw
+      .prepare(
+        `INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
+                              grade_from, grade_to, version, created_at, updated_at)
+         VALUES (?, ?, NULL, ?, ?, 'obj', 'obj', ?, ?, 1, 1000, 1000)`,
+      )
+      .run(row.id, row.subject, `Bài ${row.id}`, `Lesson ${row.id}`, row.from, row.to);
+    raw
+      .prepare(
+        `INSERT INTO lesson_versions (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+         VALUES (?, 1, ?, ?, 'obj', 'obj', 1000)`,
+      )
+      .run(row.id, `Bài ${row.id}`, `Lesson ${row.id}`);
+  }
+}
+
+function seedHousehold(raw: DatabaseSync): void {
+  raw
+    .prepare(
+      "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-1', 'Phụ huynh', ?, 1000, 1000)",
+    )
+    .run(CANARY_PARENT_HASH);
+  raw
+    .prepare(
+      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+    )
+    .run();
+  raw
+    .prepare(
+      "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES ('sy-2026', 'learner-tai', '2026-2027', '2026-09-01', '2027-06-30', 4, 1000)",
+    )
+    .run();
+  raw
+    .prepare(
+      "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'parent.created', 'parent-1', NULL, 1000)",
+    )
+    .run();
+}
+
+function countRows(raw: DatabaseSync, table: string, where: string, ...binds: unknown[]): number {
+  const row = raw.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${where}`).get(...binds);
+  return Number(row?.n ?? 0);
+}
+
+describe("approve-household-lessons CLI argument parsing", () => {
+  it("defaults to no filter, the cwd target root, and parses every documented flag", () => {
+    expect(parseApproveLessonsCliArgs([])).toEqual({
+      targetRoot: process.cwd(),
+      grade: null,
+      subject: null,
+      lessonIds: [],
+      all: false,
+      note: null,
+    });
+
+    expect(
+      parseApproveLessonsCliArgs([
+        "--target-root",
+        "/tmp/other-root",
+        "--grade",
+        "4",
+        "--subject",
+        " math ",
+        "--lesson",
+        "math-g4-1, eng-g4-2 ,",
+        "--note",
+        "duyệt cho buổi tối",
+      ]),
+    ).toEqual({
+      targetRoot: "/tmp/other-root",
+      grade: 4,
+      subject: "math",
+      lessonIds: ["math-g4-1", "eng-g4-2"],
+      all: false,
+      note: "duyệt cho buổi tối",
+    });
+
+    expect(parseApproveLessonsCliArgs(["--all"])).toMatchObject({ all: true });
+    // Trailing value-bearing flag at the end of argv is ignored safely.
+    expect(parseApproveLessonsCliArgs(["--grade"])).toMatchObject({ grade: null });
+  });
+
+  it("refuses an invalid grade value", () => {
+    expect(() => parseApproveLessonsCliArgs(["--grade", "abc"])).toThrow(/Invalid --grade value/);
+    expect(() => parseApproveLessonsCliArgs(["--grade", "0"])).toThrow(/Invalid --grade value/);
+    expect(() => parseApproveLessonsCliArgs(["--grade", "--all"])).toThrow(/Invalid --grade value/);
+  });
+});
+
+describe("approveHouseholdLessons", () => {
+  it("approves the learner's grade catalogue lessons by default and is idempotent on re-run", () => {
+    const fixture = createMigratedFixture("approve-default");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(raw);
+        seedHousehold(raw);
+
+        const first = approveHouseholdLessons(raw, {}, FIXED_NOW);
+        expect(first.ok).toBe(true);
+        expect(first.parentId).toBe("parent-1");
+        expect(first.learnerId).toBe("learner-tai");
+        expect(first.learnerNickname).toBe("Tài");
+        expect(first.targetGrade).toBe(4);
+        expect(first.newlyApprovedCount).toBe(10);
+        expect(first.alreadyApprovedCount).toBe(0);
+        expect(first.totalApprovedCount).toBe(10);
+        expect(first.readyForLearnerSession).toBe(true);
+
+        expect(countRows(raw, "review_approvals", "status = 'approved'")).toBe(10);
+        expect(
+          countRows(raw, "review_approvals", "decided_by = ? AND learner_id = ?", "parent-1", "learner-tai"),
+        ).toBe(10);
+        expect(countRows(raw, "audit_events", "action = 'lesson.approval.approved'")).toBe(10);
+        expect(
+          countRows(raw, "audit_events", "action = 'lesson.approval.approved' AND actor = ?", "parent:parent-1"),
+        ).toBe(10);
+        // Every approval is pinned to the lesson's live version.
+        const unpinned = raw
+          .prepare(
+            `SELECT COUNT(*) AS n FROM review_approvals ra
+             JOIN lessons l ON l.id = ra.lesson_id
+             WHERE ra.learner_id = 'learner-tai' AND ra.lesson_version <> l.version`,
+          )
+          .get();
+        expect(Number(unpinned?.n ?? 0)).toBe(0);
+
+        const second = approveHouseholdLessons(raw, {}, FIXED_NOW + 1);
+        expect(second.newlyApprovedCount).toBe(0);
+        expect(second.alreadyApprovedCount).toBe(10);
+        expect(second.totalApprovedCount).toBe(10);
+        // No duplicate audit rows on the second run.
+        expect(countRows(raw, "audit_events", "action = 'lesson.approval.approved'")).toBe(10);
+        expect(countRows(raw, "review_approvals", "1 = 1")).toBe(10);
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("honors --grade, --subject, and --lesson filters", () => {
+    const fixture = createMigratedFixture("approve-filters");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(raw);
+        seedHousehold(raw);
+        raw
+          .prepare(
+            `INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
+                                  grade_from, grade_to, version, ownership_type, owner_parent_id, created_at, updated_at)
+             VALUES ('family-mine', 'math', NULL, 'Bài nhà tôi', 'My family lesson', 'obj', 'obj', 4, 4, 1, 'family', 'parent-1', 1000, 1000)`,
+          )
+          .run();
+        raw
+          .prepare(
+            `INSERT INTO lesson_versions (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+             VALUES ('family-mine', 1, 'Bài nhà tôi', 'My family lesson', 'obj', 'obj', 1000)`,
+          )
+          .run();
+
+        const gradeOnly = approveHouseholdLessons(raw, { grade: 5 }, FIXED_NOW);
+        expect(gradeOnly.targetGrade).toBe(5);
+        expect(gradeOnly.newlyApprovedCount).toBe(5);
+        expect(countRows(raw, "review_approvals", "lesson_id LIKE 'sci-g5-%'")).toBe(5);
+
+        const subjectOnly = approveHouseholdLessons(raw, { grade: 4, subject: "math" }, FIXED_NOW);
+        expect(subjectOnly.newlyApprovedCount).toBe(3);
+        const mathIds = raw
+          .prepare(
+            `SELECT lesson_id FROM review_approvals ra
+             JOIN lessons l ON l.id = ra.lesson_id
+             WHERE ra.learner_id = 'learner-tai' AND l.subject_id = 'math' ORDER BY lesson_id ASC`,
+          )
+          .all();
+        expect(mathIds.map((r) => r.lesson_id)).toEqual(["family-mine", "math-g4-1", "math-g4-2"]);
+
+        const single = approveHouseholdLessons(raw, { lessonIds: ["eng-g4-7"] }, FIXED_NOW);
+        expect(single.newlyApprovedCount).toBe(1);
+        expect(single.approvedLessonIds).toEqual(["eng-g4-7"]);
+        expect(approveHouseholdLessons(raw, { lessonIds: ["eng-g4-7"] }, FIXED_NOW).newlyApprovedCount).toBe(0);
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("approves every grade with --all and records the note length only", () => {
+    const fixture = createMigratedFixture("approve-all");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(raw);
+        seedHousehold(raw);
+
+        const all = approveHouseholdLessons(
+          raw,
+          { all: true, note: "duyệt toàn bộ chương trình" },
+          FIXED_NOW,
+        );
+        expect(all.newlyApprovedCount).toBe(15);
+        expect(all.totalApprovedCount).toBe(15);
+
+        const auditDetail = raw
+          .prepare(
+            `SELECT detail FROM audit_events
+             WHERE action = 'lesson.approval.approved' AND subject = 'math-g4-1'`,
+          )
+          .get();
+        expect(JSON.parse(String(auditDetail?.detail))).toMatchObject({
+          note: "duyệt toàn bộ chương trình".length,
+          learnerId: "learner-tai",
+          version: 1,
+        });
+        const storedNote = raw
+          .prepare("SELECT note FROM review_approvals WHERE lesson_id = 'math-g4-1'")
+          .get();
+        expect(String(storedNote?.note)).toBe("duyệt toàn bộ chương trình");
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("re-approves a lesson when its live version moves past the approved version", () => {
+    const fixture = createMigratedFixture("approve-version");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(raw);
+        seedHousehold(raw);
+
+        expect(approveHouseholdLessons(raw, { lessonIds: ["math-g4-1"] }, FIXED_NOW).newlyApprovedCount).toBe(1);
+        raw.prepare("UPDATE lessons SET version = 2 WHERE id = 'math-g4-1'").run();
+
+        const bumped = approveHouseholdLessons(raw, { lessonIds: ["math-g4-1"] }, FIXED_NOW + 5);
+        expect(bumped.newlyApprovedCount).toBe(1);
+        expect(bumped.totalApprovedCount).toBe(1);
+        expect(countRows(raw, "review_approvals", "1 = 1")).toBe(2);
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("lets an explicit filter approve a grade other than the learner's own", () => {
+    const fixture = createMigratedFixture("approve-foreign-grade");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(raw);
+        seedHousehold(raw);
+
+        const report = approveHouseholdLessons(raw, { grade: 5 }, FIXED_NOW);
+        expect(report.targetGrade).toBe(5);
+        expect(report.newlyApprovedCount).toBe(5);
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("refuses a household-polluted or empty database without writing anything", () => {
+    const fixture = createMigratedFixture("approve-refuse");
+    try {
+      // Empty database: no parent and no learner.
+      const emptyRaw = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(emptyRaw);
+        expect(() => approveHouseholdLessons(emptyRaw, {}, FIXED_NOW)).toThrow(
+          /household parent or learner profile not found/i,
+        );
+      } finally {
+        emptyRaw.close();
+      }
+
+      // Multi-learner pollution must be refused before any write.
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedHousehold(raw);
+        raw
+          .prepare(
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-other', 'parent-1', 'Khác', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+          )
+          .run();
+        expect(() => approveHouseholdLessons(raw, {}, FIXED_NOW)).toThrow(
+          /multi-learner or organization pollution detected/i,
+        );
+        expect(countRows(raw, "review_approvals", "1 = 1")).toBe(0);
+        expect(countRows(raw, "audit_events", "action = 'lesson.approval.approved'")).toBe(0);
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("refuses an empty filter result instead of approving nothing silently", () => {
+    const fixture = createMigratedFixture("approve-empty-filter");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(raw);
+        seedHousehold(raw);
+        expect(() => approveHouseholdLessons(raw, { subject: "history" }, FIXED_NOW)).toThrow(
+          /no eligible lessons matched the requested filter/i,
+        );
+        expect(countRows(raw, "review_approvals", "1 = 1")).toBe(0);
+        expect(countRows(raw, "audit_events", "action = 'lesson.approval.approved'")).toBe(0);
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("runs from the terminal with --target-root against an isolated fixture and never leaks the password hash", () => {
+    const fixture = createMigratedFixture("approve-cli");
+    try {
+      const setup = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(setup);
+        seedHousehold(setup);
+      } finally {
+        setup.close();
+      }
+
+      const run = spawnSync(
+        process.execPath,
+        [APPROVE_CLI, "--target-root", fixture.tmpRoot],
+        { cwd: REPO_ROOT, encoding: "utf8" },
+      );
+      expect(run.status).toBe(0);
+      expect(run.stderr).toBe("");
+      expect(run.stdout).not.toContain("Using secrets defined in");
+      expect(run.stdout).not.toContain(CANARY_PARENT_HASH);
+      expect(run.stdout).not.toContain("pbkdf2-sha256");
+
+      const report = JSON.parse(run.stdout) as {
+        ok: boolean;
+        newlyApprovedCount: number;
+        readyForLearnerSession: boolean;
+      };
+      expect(report.ok).toBe(true);
+      expect(report.newlyApprovedCount).toBe(10);
+      expect(report.readyForLearnerSession).toBe(true);
+
+      const verify = openWritable(fixture.sqlitePath);
+      try {
+        expect(countRows(verify, "review_approvals", "1 = 1")).toBe(10);
+      } finally {
+        verify.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("fails cleanly when the local D1 SQLite file is missing", () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "tlo-approve-missing-db-"));
+    try {
+      const run = spawnSync(process.execPath, [APPROVE_CLI, "--target-root", tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain("local D1 SQLite database not found");
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("unlockParentAuthThrottles", () => {
+  it("clears every throttle row, writes an audit row attributed to the household parent, and is idempotent", () => {
+    const fixture = createMigratedFixture("unlock-parent");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedHousehold(raw);
+        raw
+          .prepare(
+            `INSERT INTO auth_throttles (key, scope, failed_count, window_started_at, locked_until, updated_at)
+             VALUES ('ip:198.51.100.1', 'ip', 5, 1000, 2000, 1000),
+                    ('account:parent-1', 'account', 5, 1000, 2000, 1000)`,
+          )
+          .run();
+
+        const result = unlockParentAuthThrottles(raw, FIXED_NOW);
+        expect(result.clearedCount).toBe(2);
+        expect(result.actor).toBe("parent:parent-1");
+
+        expect(countRows(raw, "auth_throttles", "1 = 1")).toBe(0);
+        const audit = raw
+          .prepare(
+            "SELECT actor, action, subject, created_at FROM audit_events WHERE action = 'parent.throttle_unlocked_cli'",
+          )
+          .get();
+        expect(audit?.actor).toBe("parent:parent-1");
+        expect(audit?.action).toBe("parent.throttle_unlocked_cli");
+        expect(audit?.subject).toBe("auth_throttles");
+        expect(Number(audit?.created_at)).toBe(FIXED_NOW);
+
+        // A second run reports zero records cleared but stays a valid audit trail.
+        const again = unlockParentAuthThrottles(raw, FIXED_NOW + 1);
+        expect(again.clearedCount).toBe(0);
+        expect(countRows(raw, "audit_events", "action = 'parent.throttle_unlocked_cli'")).toBe(2);
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("attributes the audit row to system when no parent exists yet", () => {
+    const fixture = createMigratedFixture("unlock-system");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        raw
+          .prepare(
+            `INSERT INTO auth_throttles (key, scope, failed_count, window_started_at, locked_until, updated_at)
+             VALUES ('ip:198.51.100.1', 'ip', 5, 1000, 2000, 1000)`,
+          )
+          .run();
+        const result = unlockParentAuthThrottles(raw, FIXED_NOW);
+        expect(result.actor).toBe("system");
+        expect(result.clearedCount).toBe(1);
+        expect(countRows(raw, "auth_throttles", "1 = 1")).toBe(0);
+      } finally {
+        raw.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("parses --target-root and clears the real fixture database from the terminal", () => {
+    expect(parseUnlockCliArgs([])).toEqual({ targetRoot: process.cwd() });
+    expect(parseUnlockCliArgs(["--target-root", "/tmp/other-root"])).toEqual({
+      targetRoot: "/tmp/other-root",
+    });
+
+    const fixture = createMigratedFixture("unlock-cli");
+    try {
+      const setup = openWritable(fixture.sqlitePath);
+      try {
+        seedHousehold(setup);
+        setup
+          .prepare(
+            `INSERT INTO auth_throttles (key, scope, failed_count, window_started_at, locked_until, updated_at)
+             VALUES ('ip:198.51.100.1', 'ip', 5, 1000, 2000, 1000)`,
+          )
+          .run();
+      } finally {
+        setup.close();
+      }
+
+      const run = spawnSync(process.execPath, [UNLOCK_CLI, "--target-root", fixture.tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(run.status).toBe(0);
+      expect(run.stderr).toBe("");
+      expect(run.stdout).toContain("1 throttle record(s) cleared");
+
+      const verify = openWritable(fixture.sqlitePath);
+      try {
+        expect(countRows(verify, "auth_throttles", "1 = 1")).toBe(0);
+        expect(
+          countRows(
+            verify,
+            "audit_events",
+            "action = ? AND actor = ?",
+            "parent.throttle_unlocked_cli",
+            "parent:parent-1",
+          ),
+        ).toBe(1);
+      } finally {
+        verify.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("fails cleanly when the local D1 SQLite file is missing", () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "tlo-unlock-missing-db-"));
+    try {
+      const run = spawnSync(process.execPath, [UNLOCK_CLI, "--target-root", tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain("local D1 SQLite database not found");
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves household:preflight passing after unlockParentAuthThrottles, legacy cli-operator events, and approveHouseholdLessons", async () => {
+    const fixture = createMigratedFixture("cli-preflight-compat");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        // Seed 50 catalogue lessons so preflight's catalogue invariant is satisfied.
+        for (let i = 1; i <= 50; i += 1) {
+          const id = `cat-lesson-${i}`;
+          const grade = i <= 25 ? 4 : 5;
+          raw
+            .prepare(
+              `INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
+                                    grade_from, grade_to, version, created_at, updated_at)
+               VALUES (?, 'math', NULL, ?, ?, 'obj', 'obj', ?, ?, 1, 1000, 1000)`,
+            )
+            .run(id, `Bài ${i}`, `Lesson ${i}`, grade, grade);
+          raw
+            .prepare(
+              `INSERT INTO lesson_versions (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+               VALUES (?, 1, ?, ?, 'obj', 'obj', 1000)`,
+            )
+            .run(id, `Bài ${i}`, `Lesson ${i}`);
+        }
+        seedHousehold(raw);
+
+        // Legacy `cli-operator` audit rows must remain acceptable, and the new
+        // unlock writer must emit a household `parent:` actor instead.
+        raw
+          .prepare(
+            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-legacy', 'cli-operator', 'parent.throttle_unlocked_cli', 'auth_throttles', '{}', 1500)",
+          )
+          .run();
+        unlockParentAuthThrottles(raw, FIXED_NOW);
+      } finally {
+        raw.close();
+      }
+
+      const ro1 = new DatabaseSync(fixture.sqlitePath, { readOnly: true });
+      try {
+        const preReport = await inspectHouseholdPreflight(
+          createReadOnlyD1Adapter(ro1),
+          { devVarsPresent: true, hasSessionSecret: true, hasParentPasswordHash: true },
+          "ok",
+        );
+        expect(preReport.ok).toBe(true);
+        expect(preReport.approvedLessonsCount).toBe(0);
+        expect(preReport.readyForLearnerSession).toBe(false);
+        expect(preReport.nextActionVi).toContain("household:approve-lessons");
+      } finally {
+        ro1.close();
+      }
+
+      const rawApprove = openWritable(fixture.sqlitePath);
+      try {
+        const approvalReport = approveHouseholdLessons(rawApprove, {}, FIXED_NOW + 10);
+        expect(approvalReport.newlyApprovedCount).toBe(25);
+        expect(approvalReport.readyForLearnerSession).toBe(true);
+      } finally {
+        rawApprove.close();
+      }
+
+      const ro2 = new DatabaseSync(fixture.sqlitePath, { readOnly: true });
+      try {
+        const postReport = await inspectHouseholdPreflight(
+          createReadOnlyD1Adapter(ro2),
+          { devVarsPresent: true, hasSessionSecret: true, hasParentPasswordHash: true },
+          "ok",
+        );
+        expect(postReport.ok).toBe(true);
+        expect(postReport.approvedLessonsCount).toBe(25);
+        expect(postReport.readyForLearnerSession).toBe(true);
+      } finally {
+        ro2.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+});
+
+describe("household CLI discovery helpers", () => {
+  it("finds the hashed D1 SQLite file next to wrangler metadata and nothing else", () => {
+    const fixture = createMigratedFixture("cli-discovery");
+    try {
+      const d1StateDir = join(
+        fixture.tmpRoot,
+        ".wrangler",
+        "state",
+        "v3",
+        "d1",
+        "miniflare-D1DatabaseObject",
+      );
+      const entries = readdirSync(d1StateDir).sort();
+      expect(entries).toContain("55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite");
+      expect(entries.some((name) => name.endsWith(".json"))).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+});
