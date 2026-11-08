@@ -163,4 +163,4 @@ TAI LEARNING OS operates under a strict **Local Only / Production Blocked** poli
 | Vitest Integration Test Suite (D1 + workerd) | 4 files, 67 tests | **Pass** |
 | Playwright E2E Suite (Desktop, Tablet & Mobile) | 3 viewports, 15 tests | **Pass** |
 | Production Build (Vite & Worker bundle) | Clean build | **Pass** |
-| Local D1 Data Export (`npm run export:learner`) | Valid JSON envelope | **Pass** |
+| Local D1 Data Export (`npm run export:learner`) | Valid JSON envelope, strictly read-only | **Pass** |

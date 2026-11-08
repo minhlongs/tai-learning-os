@@ -42,21 +42,27 @@ const MAX_IMPORT_BYTES = 2_000_000;
  * so a future import can be audited: a restored backup must stay
  * distinguishable from a fresh manual export.
  */
-export const exportRecord: Handler = async (context) => {
-  const db = context.env.DB;
-  const requestedLearnerId =
-    context.url.searchParams.get("learnerId")?.trim() ||
-    context.request.headers.get("x-tlo-learner-id")?.trim() ||
-    "";
+export async function buildLearnerExportEnvelope(
+  db: Db,
+  parentId: string,
+  requestedLearnerId = "",
+): Promise<
+  | { ok: true; learnerId: string; envelope: ExportResponse }
+  | { ok: false; status: number; response: Response }
+> {
   const learner =
     requestedLearnerId.length > 0
-      ? await repo.findLearnerForParent(db, requestedLearnerId, context.parent.parentId)
-      : await repo.findFirstLearnerForParent(db, context.parent.parentId);
+      ? await repo.findLearnerForParent(db, requestedLearnerId, parentId)
+      : await repo.findFirstLearnerForParent(db, parentId);
   if (!learner) {
     if (requestedLearnerId.length > 0) {
-      return notFound("Không tìm thấy hồ sơ người học.");
+      return { ok: false, status: 404, response: notFound("Không tìm thấy hồ sơ người học.") };
     }
-    return badRequest("Chưa có hồ sơ người học để xuất dữ liệu.");
+    return {
+      ok: false,
+      status: 400,
+      response: badRequest("Chưa có hồ sơ người học để xuất dữ liệu."),
+    };
   }
 
   const [
@@ -98,7 +104,7 @@ export const exportRecord: Handler = async (context) => {
            WHERE decided_by = ?1 AND (learner_id = ?2 OR learner_id IS NULL)
            ORDER BY decided_at ASC`,
         )
-        .bind(context.parent.parentId, learner.id)
+        .bind(parentId, learner.id)
         .all<Record<string, unknown>>(),
       db
         .prepare(
@@ -118,7 +124,7 @@ export const exportRecord: Handler = async (context) => {
            WHERE actor = ?1 OR actor = ?2
            ORDER BY created_at ASC`,
         )
-        .bind(`learner:${learner.id}`, `parent:${context.parent.parentId}`)
+        .bind(`learner:${learner.id}`, `parent:${parentId}`)
         .all<Record<string, unknown>>(),
       db.prepare("SELECT skill_id, prerequisite_id FROM skill_prerequisites").all<Record<string, unknown>>(),
       repo.listCurriculumObjectives(db),
@@ -135,7 +141,7 @@ export const exportRecord: Handler = async (context) => {
   const [learnerVisibleLessons, assignedOrgVersions, allOrgLessonIds] = await Promise.all([
     filterVisibleLessonsForParent(
       db,
-      context.parent.parentId,
+      parentId,
       learner.id,
       rawLessons,
     ),
@@ -161,7 +167,7 @@ export const exportRecord: Handler = async (context) => {
   const authorizedLessonVersions = new Set<string>();
   const familyOwnedLessonIds = new Set<string>();
   for (const l of lessons) {
-    if (l.ownership_type === "family" && l.owner_parent_id === context.parent.parentId) {
+    if (l.ownership_type === "family" && l.owner_parent_id === parentId) {
       familyOwnedLessonIds.add(l.id);
       for (let v = 1; v <= l.version; v += 1) {
         authorizedLessonVersions.add(`${l.id}@${v}`);
@@ -218,7 +224,7 @@ export const exportRecord: Handler = async (context) => {
   // Never fall back to live `l.version` / `l.title_vi` / `l.objective_vi` for non-visible lessons
   // or when the effective exported version differs from live `l.version`.
   const exportableLessons = lessons.filter((l) => {
-    if (l.ownership_type === "family" && l.owner_parent_id !== context.parent.parentId) {
+    if (l.ownership_type === "family" && l.owner_parent_id !== parentId) {
       return false;
     }
     const isOrg = l.ownership_type === "organization" || allOrgLessonIds.has(l.id);
@@ -498,7 +504,7 @@ export const exportRecord: Handler = async (context) => {
       auditEvents.results ?? [],
       {
         learnerId: learner.id,
-        parentId: context.parent.parentId,
+        parentId,
         sessionIds: new Set((sessions.results ?? []).map((r) => String(r.id))),
         goalIds: new Set(goals.map((g) => g.id)),
         planItemIds: new Set(learningPlanItems.map((p) => p.id)),
@@ -513,22 +519,39 @@ export const exportRecord: Handler = async (context) => {
   };
 
   const now = Date.now();
+  return {
+    ok: true,
+    learnerId: learner.id,
+    envelope: {
+      formatVersion: TRANSFER_FORMAT_VERSION,
+      exportedAt: now,
+      source: "manual_export",
+      containsLearnerEvidence: body.learningSessions.length > 0,
+      data: body,
+    },
+  };
+}
+
+export const exportRecord: Handler = async (context) => {
+  const db = context.env.DB;
+  const requestedLearnerId =
+    context.url.searchParams.get("learnerId")?.trim() ||
+    context.request.headers.get("x-tlo-learner-id")?.trim() ||
+    "";
+
+  const built = await buildLearnerExportEnvelope(db, context.parent.parentId, requestedLearnerId);
+  if (!built.ok) return built.response;
+
   await repo.recordAudit(db, {
     id: crypto.randomUUID(),
     actor: `parent:${context.parent.parentId}`,
     action: "data.exported",
-    subject: learner.id,
+    subject: built.learnerId,
     detail: JSON.stringify({ formatVersion: TRANSFER_FORMAT_VERSION }),
-    now,
+    now: built.envelope.exportedAt,
   });
 
-  return ok<ExportResponse>({
-    formatVersion: TRANSFER_FORMAT_VERSION,
-    exportedAt: now,
-    source: "manual_export",
-    containsLearnerEvidence: body.learningSessions.length > 0,
-    data: body,
-  });
+  return ok<ExportResponse>(built.envelope);
 };
 
 /* ── POST /api/data/import ─────────────────────────────────────────────────── */

@@ -1,9 +1,13 @@
 /**
- * Exports the local learner record to a JSON file (or stdout if no path is given).
+ * Strictly read-only CLI export of the local learner record (`npm run export:learner`).
  *
- * Local only. It uses the exact `exportRecord` handler from `src/worker/routes/data.ts`
- * so the CLI export and the `/api/data/export` endpoint produce the same
- * `tai-learning-os-export@v1` envelope and cannot drift apart.
+ * Opens the local D1 SQLite database directly via `node:sqlite`
+ * `DatabaseSync(..., { readOnly: true })` wrapped in `createReadOnlyD1Adapter`,
+ * then invokes `buildLearnerExportEnvelope` from `src/worker/routes/data.ts`
+ * so the CLI export and `/api/data/export` produce the identical
+ * `tai-learning-os-export@v1` envelope. A CLI backup writes nothing to the
+ * database: the learner file is left byte-identical and no row is appended to
+ * the append-only `audit_events` ledger.
  *
  * Optional encryption: if `--passphrase <secret>` or `BACKUP_PASSPHRASE` env var is
  * provided (minimum 8 chars), the envelope is encrypted with Web Crypto AES-256-GCM
@@ -13,98 +17,110 @@
  *   npm run export:learner
  *   npm run export:learner -- ./backup-tai.json
  *   npm run export:learner -- ./backup-tai.enc.json --passphrase "<secret>"
+ *   npm run export:learner -- ./backup-tai.json --target-root <dir>
+ *     (read <dir>/.wrangler/state/v3/d1/miniflare-D1DatabaseObject instead of the current working directory)
  */
-import { writeFileSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { createReadOnlyD1Adapter } from "./household-preflight.mjs";
 import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 
 registerTsSpecifiers();
 
-const { getPlatformProxy } = await import("wrangler");
-const { exportRecord } = await import("../src/worker/routes/data.ts");
+const { buildLearnerExportEnvelope } = await import("../src/worker/routes/data.ts");
 const { encryptBackupEnvelope } = await import("../src/shared/crypto/backup-cipher.ts");
 
-function parseCliArgs(argv) {
+export function parseExportCliArgs(argv) {
   let targetPath = null;
   let passphrase = process.env.BACKUP_PASSPHRASE ?? null;
-  for (let i = 0; i < argv.length; i++) {
+  let targetRoot = process.cwd();
+  for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--passphrase" && i + 1 < argv.length) {
       passphrase = argv[i + 1];
-      i++;
+      i += 1;
+    } else if (arg === "--target-root" && i + 1 < argv.length) {
+      targetRoot = resolve(argv[i + 1]);
+      i += 1;
     } else if (!arg.startsWith("--") && !targetPath) {
       targetPath = arg;
     }
   }
-  return { targetPath, passphrase };
+  return { targetPath, passphrase, targetRoot };
 }
 
-const { targetPath, passphrase } = parseCliArgs(process.argv.slice(2));
-const proxy = await getPlatformProxy();
+const isMainModule =
+  Boolean(process.argv[1]) &&
+  existsSync(resolve(process.argv[1])) &&
+  realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
 
-try {
-  const parentRow = await proxy.env.DB
-    .prepare(
-      `SELECT p.id, p.display_name
-       FROM parents p
-       LEFT JOIN learners l ON l.parent_id = p.id
-       ORDER BY (l.id IS NOT NULL) DESC, p.created_at ASC
-       LIMIT 1`,
-    )
-    .first();
+if (isMainModule) {
+  const { targetPath, passphrase, targetRoot } = parseExportCliArgs(process.argv.slice(2));
+  const d1StateDir = join(
+    targetRoot,
+    ".wrangler",
+    "state",
+    "v3",
+    "d1",
+    "miniflare-D1DatabaseObject",
+  );
+  const sqliteFile = existsSync(d1StateDir)
+    ? readdirSync(d1StateDir).find((name) => /^[0-9a-f]+\.sqlite$/i.test(name))
+    : undefined;
 
-  if (!parentRow) {
-    console.error("export refused: no parent account found in local D1.");
-    await proxy.dispose();
-    process.exit(1);
-  }
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  const url = new URL("http://localhost/api/data/export");
-  const request = new Request(url.toString(), { method: "POST" });
-
-  const response = await exportRecord({
-    request,
-    url,
-    env: proxy.env,
-    parent: {
-      parentId: String(parentRow.id),
-      displayName: String(parentRow.display_name),
-      claims: {
-        sub: String(parentRow.id),
-        iat: nowSec,
-        exp: nowSec + 60,
-        jti: "cli-export",
-      },
-      csrfToken: "cli-export",
-    },
-    requestId: crypto.randomUUID(),
-  });
-
-  const payload = await response.json();
-  if (!response.ok) {
-    console.error(`export refused (${response.status}): ${JSON.stringify(payload)}`);
-    await proxy.dispose();
-    process.exit(1);
-  }
-
-  const outputObj =
-    typeof passphrase === "string" && passphrase.trim().length > 0
-      ? await encryptBackupEnvelope(payload, passphrase.trim())
-      : payload;
-
-  const formatted = `${JSON.stringify(outputObj, null, 2)}\n`;
-  if (targetPath) {
-    writeFileSync(targetPath, formatted, "utf8");
-    console.log(
-      `exported ${outputObj.format === "tai-encrypted-backup-v1" ? "encrypted " : ""}learner record to ${targetPath}`,
+  if (!existsSync(d1StateDir) || !sqliteFile) {
+    console.error(
+      `export refused: local D1 SQLite database not found in ${d1StateDir}. Run "npm run db:migrate && npm run seed:demo" first.`,
     );
-  } else {
-    process.stdout.write(formatted);
+    process.exit(1);
   }
-} catch (error) {
-  console.error(`export failed: ${error instanceof Error ? error.message : String(error)}`);
-  await proxy.dispose();
-  process.exit(1);
-}
 
-await proxy.dispose();
+  const rawDb = new DatabaseSync(join(d1StateDir, sqliteFile), { readOnly: true });
+  try {
+    const db = createReadOnlyD1Adapter(rawDb);
+    const parentRow = await db
+      .prepare(
+        `SELECT p.id, p.display_name
+         FROM parents p
+         LEFT JOIN learners l ON l.parent_id = p.id
+         ORDER BY (l.id IS NOT NULL) DESC, p.created_at ASC
+         LIMIT 1`,
+      )
+      .first();
+
+    if (!parentRow) {
+      console.error("export refused: no parent account found in local D1.");
+      process.exit(1);
+    }
+
+    const built = await buildLearnerExportEnvelope(db, String(parentRow.id));
+    if (!built.ok) {
+      const errBody = await built.response.json();
+      console.error(`export refused (${built.status}): ${JSON.stringify(errBody)}`);
+      process.exit(1);
+    }
+
+    const payload = built.envelope;
+    const outputObj =
+      typeof passphrase === "string" && passphrase.trim().length > 0
+        ? await encryptBackupEnvelope(payload, passphrase.trim())
+        : payload;
+
+    const formatted = `${JSON.stringify(outputObj, null, 2)}\n`;
+    if (targetPath) {
+      writeFileSync(targetPath, formatted, "utf8");
+      console.log(
+        `exported ${outputObj.format === "tai-encrypted-backup-v1" ? "encrypted " : ""}learner record to ${targetPath}`,
+      );
+    } else {
+      process.stdout.write(formatted);
+    }
+  } catch (error) {
+    console.error(`export failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  } finally {
+    rawDb.close();
+  }
+}
