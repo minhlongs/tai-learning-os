@@ -78,135 +78,137 @@ export function parseApproveLessonsCliArgs(argv) {
  * registered household learner.
  */
 export function approveHouseholdLessons(rawDb, options = {}, now = Date.now()) {
-  const counts = rawDb
-    .prepare(
-      `SELECT
-         (SELECT COUNT(*) FROM parents) AS parents_count,
-         (SELECT COUNT(*) FROM learners WHERE archived_at IS NULL) AS learners_count,
-         (SELECT COUNT(*) FROM organizations) AS organizations_count,
-         (SELECT COUNT(*) FROM classrooms) AS classrooms_count`,
-    )
-    .get();
-
-  const parentsCount = Number(counts?.parents_count ?? 0);
-  const learnersCount = Number(counts?.learners_count ?? 0);
-  const organizationsCount = Number(counts?.organizations_count ?? 0);
-  const classroomsCount = Number(counts?.classrooms_count ?? 0);
-
-  if (
-    parentsCount > 1 ||
-    learnersCount > 1 ||
-    organizationsCount !== 0 ||
-    classroomsCount !== 0
-  ) {
-    throw new Error(
-      `Household lesson approval refused: multi-learner or organization pollution detected ` +
-        `(parentsCount=${parentsCount}, learnersCount=${learnersCount}, ` +
-        `organizationsCount=${organizationsCount}, classroomsCount=${classroomsCount})`,
-    );
-  }
-
-  if (parentsCount === 0 || learnersCount === 0) {
-    throw new Error(
-      "Household lesson approval refused: household parent or learner profile not found in D1.",
-    );
-  }
-
-  const parent = rawDb
-    .prepare("SELECT id, display_name FROM parents ORDER BY created_at ASC LIMIT 1")
-    .get();
-  const learner = rawDb
-    .prepare(
-      "SELECT id, parent_id, nickname, grade FROM learners WHERE parent_id = ? AND archived_at IS NULL ORDER BY created_at ASC LIMIT 1",
-    )
-    .get(String(parent.id));
-
-  if (!learner) {
-    throw new Error(
-      "Household lesson approval refused: active learner profile does not belong to the household parent.",
-    );
-  }
-
-  const parentId = String(parent.id);
-  const learnerId = String(learner.id);
-  const learnerNickname = String(learner.nickname);
-  const learnerGrade = learner.grade === null || learner.grade === undefined ? null : Number(learner.grade);
-
-  const requestedLessonIds = Array.isArray(options.lessonIds) ? options.lessonIds : [];
-  const hasExplicitFilter =
-    Boolean(options.all) ||
-    (options.grade !== null && options.grade !== undefined) ||
-    Boolean(options.subject) ||
-    requestedLessonIds.length > 0;
-
-  const targetGrade = hasExplicitFilter
-    ? (options.grade ?? null)
-    : (learnerGrade ?? 4);
-
-  let sql = `
-    SELECT l.id, l.version
-    FROM lessons l
-    WHERE (
-      l.ownership_type IS NULL
-      OR l.ownership_type = 'catalogue'
-      OR (l.ownership_type = 'family' AND l.owner_parent_id = ?)
-    )
-    AND l.id NOT IN (SELECT lesson_id FROM organization_lessons)
-  `;
-  const binds = [parentId];
-
-  if (targetGrade !== null && targetGrade !== undefined) {
-    sql += " AND l.grade_from <= ? AND l.grade_to >= ?";
-    binds.push(Number(targetGrade), Number(targetGrade));
-  }
-  if (options.subject) {
-    sql += " AND l.subject_id = ?";
-    binds.push(String(options.subject));
-  }
-  if (requestedLessonIds.length > 0) {
-    const placeholders = requestedLessonIds.map(() => "?").join(", ");
-    sql += ` AND l.id IN (${placeholders})`;
-    binds.push(...requestedLessonIds);
-  }
-  sql += " ORDER BY l.subject_id ASC, l.grade_from ASC, l.id ASC";
-
-  const candidateLessons = rawDb.prepare(sql).all(...binds);
-  if (candidateLessons.length === 0) {
-    throw new Error(
-      "Household lesson approval refused: no eligible lessons matched the requested filter.",
-    );
-  }
-
-  const normalizedNote =
-    typeof options.note === "string" && options.note.length > 0
-      ? options.note.slice(0, 500)
-      : null;
-
-  let newlyApprovedCount = 0;
-  let alreadyApprovedCount = 0;
-  const approvedLessonIds = [];
-
-  const selectExistingStmt = rawDb.prepare(
-    `SELECT status, decided_by
-     FROM review_approvals
-     WHERE learner_id = ? AND lesson_id = ? AND lesson_version = ?`,
-  );
-  const upsertApprovalStmt = rawDb.prepare(
-    `INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
-     VALUES (?, ?, ?, ?, 'approved', ?, ?, ?)
-     ON CONFLICT(learner_id, lesson_id, lesson_version) DO UPDATE SET
-       status = excluded.status,
-       decided_by = excluded.decided_by,
-       decided_at = excluded.decided_at,
-       note = excluded.note`,
-  );
-  const insertAuditStmt = rawDb.prepare(
-    `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
-     VALUES (?, ?, 'lesson.approval.approved', ?, ?, ?)`,
-  );
-
+  rawDb.exec("PRAGMA busy_timeout = 5000;");
   rawDb.exec("BEGIN IMMEDIATE;");
   try {
+    const counts = rawDb
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM parents) AS parents_count,
+           (SELECT COUNT(*) FROM learners WHERE archived_at IS NULL) AS learners_count,
+           (SELECT COUNT(*) FROM organizations) AS organizations_count,
+           (SELECT COUNT(*) FROM classrooms) AS classrooms_count`,
+      )
+      .get();
+
+    const parentsCount = Number(counts?.parents_count ?? 0);
+    const learnersCount = Number(counts?.learners_count ?? 0);
+    const organizationsCount = Number(counts?.organizations_count ?? 0);
+    const classroomsCount = Number(counts?.classrooms_count ?? 0);
+
+    if (
+      parentsCount > 1 ||
+      learnersCount > 1 ||
+      organizationsCount !== 0 ||
+      classroomsCount !== 0
+    ) {
+      throw new Error(
+        `Household lesson approval refused: multi-learner or organization pollution detected ` +
+          `(parentsCount=${parentsCount}, learnersCount=${learnersCount}, ` +
+          `organizationsCount=${organizationsCount}, classroomsCount=${classroomsCount})`,
+      );
+    }
+
+    if (parentsCount === 0 || learnersCount === 0) {
+      throw new Error(
+        "Household lesson approval refused: household parent or learner profile not found in D1.",
+      );
+    }
+
+    const parent = rawDb
+      .prepare("SELECT id, display_name FROM parents ORDER BY created_at ASC LIMIT 1")
+      .get();
+    const learner = rawDb
+      .prepare(
+        "SELECT id, parent_id, nickname, grade FROM learners WHERE parent_id = ? AND archived_at IS NULL ORDER BY created_at ASC LIMIT 1",
+      )
+      .get(String(parent.id));
+
+    if (!learner) {
+      throw new Error(
+        "Household lesson approval refused: active learner profile does not belong to the household parent.",
+      );
+    }
+
+    const parentId = String(parent.id);
+    const learnerId = String(learner.id);
+    const learnerNickname = String(learner.nickname);
+    const learnerGrade =
+      learner.grade === null || learner.grade === undefined ? null : Number(learner.grade);
+
+    const requestedLessonIds = Array.isArray(options.lessonIds) ? options.lessonIds : [];
+    const hasExplicitFilter =
+      Boolean(options.all) ||
+      (options.grade !== null && options.grade !== undefined) ||
+      Boolean(options.subject) ||
+      requestedLessonIds.length > 0;
+
+    const targetGrade = hasExplicitFilter
+      ? (options.grade ?? null)
+      : (learnerGrade ?? 4);
+
+    let sql = `
+      SELECT l.id, l.version
+      FROM lessons l
+      WHERE (
+        l.ownership_type IS NULL
+        OR l.ownership_type = 'catalogue'
+        OR (l.ownership_type = 'family' AND l.owner_parent_id = ?)
+      )
+      AND l.id NOT IN (SELECT lesson_id FROM organization_lessons)
+    `;
+    const binds = [parentId];
+
+    if (targetGrade !== null && targetGrade !== undefined) {
+      sql += " AND l.grade_from <= ? AND l.grade_to >= ?";
+      binds.push(Number(targetGrade), Number(targetGrade));
+    }
+    if (options.subject) {
+      sql += " AND l.subject_id = ?";
+      binds.push(String(options.subject));
+    }
+    if (requestedLessonIds.length > 0) {
+      const placeholders = requestedLessonIds.map(() => "?").join(", ");
+      sql += ` AND l.id IN (${placeholders})`;
+      binds.push(...requestedLessonIds);
+    }
+    sql += " ORDER BY l.subject_id ASC, l.grade_from ASC, l.id ASC";
+
+    const candidateLessons = rawDb.prepare(sql).all(...binds);
+    if (candidateLessons.length === 0) {
+      throw new Error(
+        "Household lesson approval refused: no eligible lessons matched the requested filter.",
+      );
+    }
+
+    const normalizedNote =
+      typeof options.note === "string" && options.note.length > 0
+        ? options.note.slice(0, 500)
+        : null;
+
+    let newlyApprovedCount = 0;
+    let alreadyApprovedCount = 0;
+    const approvedLessonIds = [];
+
+    const selectExistingStmt = rawDb.prepare(
+      `SELECT status, decided_by
+       FROM review_approvals
+       WHERE learner_id = ? AND lesson_id = ? AND lesson_version = ?`,
+    );
+    const upsertApprovalStmt = rawDb.prepare(
+      `INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
+       VALUES (?, ?, ?, ?, 'approved', ?, ?, ?)
+       ON CONFLICT(learner_id, lesson_id, lesson_version) DO UPDATE SET
+         status = excluded.status,
+         decided_by = excluded.decided_by,
+         decided_at = excluded.decided_at,
+         note = excluded.note`,
+    );
+    const insertAuditStmt = rawDb.prepare(
+      `INSERT INTO audit_events (id, actor, action, subject, detail, created_at)
+       VALUES (?, ?, 'lesson.approval.approved', ?, ?, ?)`,
+    );
+
     for (const row of candidateLessons) {
       const lessonId = String(row.id);
       const version = Number(row.version);
@@ -243,7 +245,31 @@ export function approveHouseholdLessons(rawDb, options = {}, now = Date.now()) {
       newlyApprovedCount += 1;
       approvedLessonIds.push(lessonId);
     }
+
+    const totalApprovedRow = rawDb
+      .prepare(
+        `SELECT COUNT(DISTINCT ra.lesson_id) AS approved_count
+         FROM review_approvals ra
+         JOIN lessons l ON l.id = ra.lesson_id AND l.version = ra.lesson_version
+         WHERE ra.learner_id = ? AND ra.decided_by = ? AND ra.status = 'approved'`,
+      )
+      .get(learnerId, parentId);
+    const totalApprovedCount = Number(totalApprovedRow?.approved_count ?? 0);
+
     rawDb.exec("COMMIT;");
+
+    return {
+      ok: true,
+      parentId,
+      learnerId,
+      learnerNickname,
+      targetGrade,
+      newlyApprovedCount,
+      alreadyApprovedCount,
+      totalApprovedCount,
+      readyForLearnerSession: totalApprovedCount > 0,
+      approvedLessonIds,
+    };
   } catch (error) {
     try {
       rawDb.exec("ROLLBACK;");
@@ -252,29 +278,6 @@ export function approveHouseholdLessons(rawDb, options = {}, now = Date.now()) {
     }
     throw error;
   }
-
-  const totalApprovedRow = rawDb
-    .prepare(
-      `SELECT COUNT(DISTINCT ra.lesson_id) AS approved_count
-       FROM review_approvals ra
-       JOIN lessons l ON l.id = ra.lesson_id AND l.version = ra.lesson_version
-       WHERE ra.learner_id = ? AND ra.decided_by = ? AND ra.status = 'approved'`,
-    )
-    .get(learnerId, parentId);
-  const totalApprovedCount = Number(totalApprovedRow?.approved_count ?? 0);
-
-  return {
-    ok: true,
-    parentId,
-    learnerId,
-    learnerNickname,
-    targetGrade,
-    newlyApprovedCount,
-    alreadyApprovedCount,
-    totalApprovedCount,
-    readyForLearnerSession: totalApprovedCount > 0,
-    approvedLessonIds,
-  };
 }
 
 const isMainModule =

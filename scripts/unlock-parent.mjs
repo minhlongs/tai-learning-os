@@ -35,24 +35,25 @@ export function parseUnlockCliArgs(argv) {
  * audit row attributed to `parent:<id>` (when a parent account exists) or `"system"`.
  */
 export function unlockParentAuthThrottles(rawDb, now = Date.now()) {
-  const countRow = rawDb.prepare("SELECT COUNT(*) AS total FROM auth_throttles").get();
-  const clearedCount = Number(countRow?.total ?? 0);
-
-  const parentRow = rawDb
-    .prepare(
-      `SELECT p.id
-       FROM parents p
-       LEFT JOIN learners l ON l.parent_id = p.id AND l.archived_at IS NULL
-       ORDER BY (l.id IS NOT NULL) DESC, p.created_at ASC
-       LIMIT 1`,
-    )
-    .get();
-
-  const actor = parentRow?.id ? `parent:${String(parentRow.id)}` : "system";
-  const auditEventId = `aud-unlock-${now}-${randomUUID().slice(0, 8)}`;
-
+  rawDb.exec("PRAGMA busy_timeout = 5000;");
   rawDb.exec("BEGIN IMMEDIATE;");
   try {
+    const countRow = rawDb.prepare("SELECT COUNT(*) AS total FROM auth_throttles").get();
+    const clearedCount = Number(countRow?.total ?? 0);
+
+    const parentRow = rawDb
+      .prepare(
+        `SELECT p.id
+         FROM parents p
+         LEFT JOIN learners l ON l.parent_id = p.id AND l.archived_at IS NULL
+         ORDER BY (l.id IS NOT NULL) DESC, p.created_at ASC
+         LIMIT 1`,
+      )
+      .get();
+
+    const actor = parentRow?.id ? `parent:${String(parentRow.id)}` : "system";
+    const auditEventId = `aud-unlock-${now}-${randomUUID().slice(0, 8)}`;
+
     rawDb.prepare("DELETE FROM auth_throttles").run();
     rawDb
       .prepare(
@@ -67,6 +68,12 @@ export function unlockParentAuthThrottles(rawDb, now = Date.now()) {
         now,
       );
     rawDb.exec("COMMIT;");
+
+    return {
+      clearedCount,
+      actor,
+      auditEventId,
+    };
   } catch (error) {
     try {
       rawDb.exec("ROLLBACK;");
@@ -75,12 +82,6 @@ export function unlockParentAuthThrottles(rawDb, now = Date.now()) {
     }
     throw error;
   }
-
-  return {
-    clearedCount,
-    actor,
-    auditEventId,
-  };
 }
 
 const isMainModule =
