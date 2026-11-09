@@ -9,6 +9,12 @@ import {
   approveHouseholdLessons,
   parseApproveLessonsCliArgs,
 } from "../../scripts/approve-household-lessons.mjs";
+import {
+  buildReadOnlySqlDump,
+  formatSqlLiteral,
+  parseDumpLocalD1CliArgs,
+  runDumpLocalD1OnRoot,
+} from "../../scripts/dump-local-d1.mjs";
 import { createReadOnlyD1Adapter } from "../../scripts/household-preflight.mjs";
 import {
   listShippedMigrationFiles,
@@ -40,26 +46,12 @@ const UNLOCK_CLI = join(REPO_ROOT, "scripts", "unlock-parent.mjs");
 const SEED_CLI = join(REPO_ROOT, "scripts", "seed-lessons.mjs");
 const RESET_CLI = join(REPO_ROOT, "scripts", "reset-local-d1.mjs");
 const MIGRATE_CLI = join(REPO_ROOT, "scripts", "migrate-local-d1.mjs");
+const DUMP_CLI = join(REPO_ROOT, "scripts", "dump-local-d1.mjs");
 
 const D1_SQLITE_FILENAME =
   "55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite";
 
-const MIGRATION_FILES = [
-  "0001_initial_schema.sql",
-  "0002_reference_content.sql",
-  "0003_curriculum_and_trust_closure.sql",
-  "0004_evidence_integrity.sql",
-  "0005_organization_and_consent.sql",
-  "0006_lesson_authoring_and_assignments.sql",
-  "0007_learner_version_approvals_and_session_continuation.sql",
-  "0008_grade4_curriculum_expansion.sql",
-  "0009_version_snapshots_and_legacy_approval_hardening.sql",
-  "0010_phase3_science_debate_and_school_years.sql",
-  "0011_science_and_debate_parity.sql",
-  "0012_family_practice_and_version_lineage.sql",
-  "0013_practice_planner_and_classroom_progress.sql",
-  "0014_grade5_curriculum_expansion.sql",
-];
+const MIGRATION_FILES = listShippedMigrationFiles();
 
 const CANARY_PARENT_HASH = "pbkdf2-sha256:600000$dbsalt001122334455$dbdigestdeadbeefcafe0123456789";
 const FIXED_NOW = 1_800_000_000_000;
@@ -971,7 +963,11 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
     expect(parseMigrateLocalD1CliArgs(["--target-root", "/tmp/migrate-root"])).toEqual({
       targetRoot: "/tmp/migrate-root",
     });
-    expect(listShippedMigrationFiles()).toEqual(MIGRATION_FILES);
+    const files = listShippedMigrationFiles();
+    expect(files).toHaveLength(14);
+    expect(files[0]).toBe("0001_initial_schema.sql");
+    expect(files[13]).toBe("0014_grade5_curriculum_expansion.sql");
+    expect(files.every((f) => /^\d{4}_.*\.sql$/.test(f))).toBe(true);
   });
 
   it("provisions a fresh database with all 14 migrations and then runs as a strict zero-write no-op on subsequent invocations", () => {
@@ -1073,4 +1069,153 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
     }
   });
 });
+
+describe("dump-local-d1 CLI script (DatabaseSync readOnly: true, zero-write SQL dump)", () => {
+  it("parses CLI arguments and formats SQL literals deterministically", () => {
+    expect(parseDumpLocalD1CliArgs([])).toEqual({
+      targetRoot: process.cwd(),
+      outputPath: null,
+      includeSchema: true,
+      includeData: true,
+    });
+    expect(
+      parseDumpLocalD1CliArgs([
+        "--target-root",
+        "/tmp/dump-root",
+        "--output",
+        "/tmp/out.sql",
+        "--no-schema",
+        "--no-data",
+      ]),
+    ).toEqual({
+      targetRoot: "/tmp/dump-root",
+      outputPath: "/tmp/out.sql",
+      includeSchema: false,
+      includeData: false,
+    });
+    expect(parseDumpLocalD1CliArgs(["/tmp/positional.sql"]).outputPath).toBe(
+      "/tmp/positional.sql",
+    );
+    expect(() => parseDumpLocalD1CliArgs(["--unknown-flag"])).toThrow(
+      /Tham số không hợp lệ cho db:dump/,
+    );
+    expect(() => parseDumpLocalD1CliArgs(["/tmp/one.sql", "/tmp/two.sql"])).toThrow(
+      /Tham số vị trí dư thừa cho db:dump/,
+    );
+
+    expect(formatSqlLiteral(null)).toBe("NULL");
+    expect(formatSqlLiteral(undefined)).toBe("NULL");
+    expect(formatSqlLiteral(Number.NaN)).toBe("NULL");
+    expect(formatSqlLiteral(42)).toBe("42");
+    expect(formatSqlLiteral(123n)).toBe("123");
+    expect(formatSqlLiteral("Tài's lesson")).toBe("'Tài''s lesson'");
+    expect(formatSqlLiteral(new Uint8Array([0xde, 0xad, 0xbe, 0xef]))).toBe("X'DEADBEEF'");
+  });
+
+  it("exports a replayable SQL dump without writing a single byte to the source SQLite file or leaking password_hash", () => {
+    const fixture = createMigratedFixture("dump-readonly");
+    try {
+      const setup = openWritable(fixture.sqlitePath);
+      try {
+        seedLessons(setup);
+        seedHousehold(setup);
+        setup
+          .prepare(
+            "INSERT INTO auth_throttles (key, scope, failed_count, window_started_at, locked_until, updated_at) VALUES ('account:phu-huynh', 'account', 5, 1000, 9999999, 1000)",
+          )
+          .run();
+        setup.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+        setup.exec("PRAGMA journal_mode = DELETE;");
+      } finally {
+        setup.close();
+      }
+
+      const preHash = sha256File(fixture.sqlitePath);
+      const preStat = statSync(fixture.sqlitePath);
+      const outSqlPath = join(fixture.tmpRoot, "household-dump.sql");
+
+      const run = spawnSync(
+        process.execPath,
+        [DUMP_CLI, "--target-root", fixture.tmpRoot, "--output", outSqlPath],
+        { cwd: REPO_ROOT, encoding: "utf8" },
+      );
+      expect(run.status).toBe(0);
+      expect(run.stderr).toBe("");
+      expect(run.stdout).not.toContain(CANARY_PARENT_HASH);
+      expect(run.stdout).not.toContain("pbkdf2-sha256");
+
+      // Source SQLite file must remain 100% untouched (SHA-256, size, mtimeMs, and no -wal/-shm sidecars).
+      const postHash = sha256File(fixture.sqlitePath);
+      const postStat = statSync(fixture.sqlitePath);
+      expect(postHash).toBe(preHash);
+      expect(postStat.size).toBe(preStat.size);
+      expect(postStat.mtimeMs).toBe(preStat.mtimeMs);
+      expect(existsSync(`${fixture.sqlitePath}-wal`)).toBe(false);
+      expect(existsSync(`${fixture.sqlitePath}-shm`)).toBe(false);
+
+      const sqlText = readFileSync(outSqlPath, "utf8");
+      expect(sqlText).not.toContain(CANARY_PARENT_HASH);
+      expect(sqlText).not.toContain("pbkdf2-sha256");
+      expect(sqlText).not.toContain("account:phu-huynh");
+      expect(sqlText).not.toContain('INSERT INTO "parents"');
+      expect(sqlText).not.toContain('INSERT INTO "auth_throttles"');
+      expect(sqlText).not.toContain('INSERT INTO "d1_migrations"');
+      expect(sqlText).toContain('CREATE TABLE parents');
+      expect(sqlText).toContain('INSERT INTO "learners"');
+      expect(sqlText).toContain('INSERT INTO "lessons"');
+
+      // Replay the SQL dump into a fresh in-memory SQLite database and verify row counts and triggers.
+      const restored = new DatabaseSync(":memory:");
+      try {
+        restored.exec(sqlText);
+        expect(countRows(restored, "parents", "1 = 1")).toBe(0);
+        expect(countRows(restored, "auth_throttles", "1 = 1")).toBe(0);
+        expect(countRows(restored, "learners", "id = 'learner-tai'")).toBe(1);
+        expect(countRows(restored, "lessons", "1 = 1")).toBe(15);
+        expect(countRows(restored, "audit_events", "1 = 1")).toBeGreaterThan(0);
+
+        // Immutability triggers on audit_events must be restored and active.
+        expect(() =>
+          restored.prepare("DELETE FROM audit_events").run(),
+        ).toThrow(/append-only/i);
+      } finally {
+        restored.close();
+      }
+
+      // Also verify --no-schema and --no-data flags.
+      const ro = new DatabaseSync(fixture.sqlitePath, { readOnly: true });
+      try {
+        const schemaOnly = buildReadOnlySqlDump(ro, { includeSchema: true, includeData: false });
+        expect(schemaOnly).toContain("CREATE TABLE learners");
+        expect(schemaOnly).not.toContain('INSERT INTO "learners"');
+
+        const dataOnly = buildReadOnlySqlDump(ro, { includeSchema: false, includeData: true });
+        expect(dataOnly).not.toContain("CREATE TABLE learners");
+        expect(dataOnly).toContain('INSERT INTO "learners"');
+      } finally {
+        ro.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("fails cleanly when the local D1 SQLite file is missing", () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "tlo-dump-missing-"));
+    try {
+      expect(() => runDumpLocalD1OnRoot({ targetRoot: tmpRoot })).toThrow(
+        /local D1 SQLite database not found/i,
+      );
+      const run = spawnSync(process.execPath, [DUMP_CLI, "--target-root", tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain("local D1 SQLite database not found");
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 

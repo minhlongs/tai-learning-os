@@ -93,6 +93,30 @@
   margin: var(--tlo-space-3) 0;
 }
 
+@media (max-width: 767px) {
+  .org-studio__table,
+  .org-studio__table tbody,
+  .org-studio__table tr,
+  .org-studio__table td {
+    display: block;
+    width: 100%;
+  }
+
+  .org-studio__table thead {
+    display: none;
+  }
+
+  .org-studio__table tr {
+    padding: var(--tlo-space-2) 0;
+    border-bottom: 1px solid var(--tlo-border);
+  }
+
+  .org-studio__table td {
+    border-bottom: none;
+    padding: var(--tlo-space-1) 0;
+  }
+}
+
 .org-studio__table th,
 .org-studio__table td {
   text-align: left;

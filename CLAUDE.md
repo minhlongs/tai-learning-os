@@ -42,6 +42,7 @@ npm install
 
 # Apply local D1 migrations (0001_initial_schema.sql through 0014_grade5_curriculum_expansion.sql)
 npm run db:migrate
+npm run db:dump -- --output ./dump.sql # Read-only SQLite SQL dump (excludes parents/auth_throttles data)
 
 # Seed curriculum (50 lessons for Grades 4–5 across 5 active subjects)
 npm run seed:demo
@@ -52,7 +53,7 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (16 files, 256 tests)
+npm run test               # Vitest unit tests (16 files, 259 tests)
 npm run test:integration   # Vitest Worker + D1 integration tests (15 files, 148 tests)
 npm run test:e2e           # Playwright E2E browser tests (54 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + validate:lessons + build

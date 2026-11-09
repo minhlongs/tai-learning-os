@@ -1378,52 +1378,54 @@ function LessonStudioSection({
                       {REVIEW_STATUS_LABELS[l.reviewStatus]}
                     </span>
                   </td>
-                  <td className="org-studio__actions">
-                    {canEdit ? (
-                      <button
-                        type="button"
-                        className="btn btn--small btn--secondary"
-                        data-testid={`org-lesson-edit-btn-${l.lessonId}`}
-                        onClick={() => startEditOrgLesson(l.lessonId)}
-                        disabled={busy}
-                      >
-                        Chỉnh sửa
-                      </button>
-                    ) : null}
-                    {canEdit &&
-                    (l.reviewStatus === "draft" || l.reviewStatus === "org_rejected") ? (
-                      <button
-                        type="button"
-                        className="btn btn--small"
-                        data-testid="org-lesson-submit-btn"
-                        onClick={() => submitForReview(l.lessonId)}
-                      >
-                        Gửi duyệt
-                      </button>
-                    ) : null}
-                    {canManage && l.reviewStatus === "submitted" ? (
-                      <>
-                        <button
-                          type="button"
-                          className="btn btn--small"
-                          data-testid="org-lesson-approve-btn"
-                          onClick={() => review(l.lessonId, "org_approved")}
-                        >
-                          Duyệt
-                        </button>
+                  <td>
+                    <div className="org-studio__actions">
+                      {canEdit ? (
                         <button
                           type="button"
                           className="btn btn--small btn--secondary"
-                          data-testid="org-lesson-reject-btn"
-                          onClick={() => review(l.lessonId, "org_rejected")}
+                          data-testid={`org-lesson-edit-btn-${l.lessonId}`}
+                          onClick={() => startEditOrgLesson(l.lessonId)}
+                          disabled={busy}
                         >
-                          Từ chối
+                          Chỉnh sửa
                         </button>
-                      </>
-                    ) : null}
-                    {l.reviewStatus === "org_approved" ? (
-                      <span className="org-studio__hint">Đã duyệt — sẵn sàng giao cho lớp</span>
-                    ) : null}
+                      ) : null}
+                      {canEdit &&
+                      (l.reviewStatus === "draft" || l.reviewStatus === "org_rejected") ? (
+                        <button
+                          type="button"
+                          className="btn btn--small"
+                          data-testid="org-lesson-submit-btn"
+                          onClick={() => submitForReview(l.lessonId)}
+                        >
+                          Gửi duyệt
+                        </button>
+                      ) : null}
+                      {canManage && l.reviewStatus === "submitted" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn--small"
+                            data-testid="org-lesson-approve-btn"
+                            onClick={() => review(l.lessonId, "org_approved")}
+                          >
+                            Duyệt
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--small btn--secondary"
+                            data-testid="org-lesson-reject-btn"
+                            onClick={() => review(l.lessonId, "org_rejected")}
+                          >
+                            Từ chối
+                          </button>
+                        </>
+                      ) : null}
+                      {l.reviewStatus === "org_approved" ? (
+                        <span className="org-studio__hint">Đã duyệt — sẵn sàng giao cho lớp</span>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );

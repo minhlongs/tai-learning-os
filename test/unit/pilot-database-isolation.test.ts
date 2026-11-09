@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -11,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { listShippedMigrationFiles } from "../../scripts/migrate-local-d1.mjs";
 
 /**
  * Static guard for pilot-fixture database isolation.
@@ -32,12 +32,9 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..");
-const MIGRATIONS_DIR_FOR_VERSION_CHECK = join(REPO_ROOT, "migrations");
 
 /** Migration filenames, read from disk so a newly added migration is covered. */
-const MIGRATION_NAMES_FOR_VERSION_CHECK: string[] = readdirSync(MIGRATIONS_DIR_FOR_VERSION_CHECK)
-  .filter((name) => /^\d{4}_.*\.sql$/.test(name))
-  .sort();
+const MIGRATION_NAMES_FOR_VERSION_CHECK: string[] = listShippedMigrationFiles();
 
 interface IsolationInternals {
   getPilotPersistDir(): string;

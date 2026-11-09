@@ -12,9 +12,9 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify, Integration, Backup Drill & Pilot Seed
+    name: Verify, Integration, Backup Drill, Pilot Seed & Playwright E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       NODE_OPTIONS: "--no-warnings=ExperimentalWarning"
     steps:
@@ -30,8 +30,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium browser
+        run: npx playwright install --with-deps chromium
+
       - name: Verify local D1 migration runner
         run: npm run db:migrate
+
+      - name: Verify read-only local D1 SQL dump runner
+        run: npm run db:dump -- --output /tmp/ci-d1-dump.sql
 
       - name: Run full verification gate (typecheck, lint, unit tests, validate:lessons, build)
         run: npm run verify
@@ -44,3 +50,6 @@ jobs:
 
       - name: Run isolated multi-learner pilot seed verification
         run: npm run seed:pilot
+
+      - name: Run isolated Playwright E2E browser suite (Desktop, Tablet, Mobile)
+        run: npm run test:e2e
