@@ -13,7 +13,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { unstable_splitSqlQuery } from "wrangler";
 import type { ExportResponse } from "../../src/shared/api-contract";
 import {
   decryptBackupEnvelope,
@@ -66,10 +65,7 @@ function createDiskMigratedSqliteFixture(): {
     raw.exec("PRAGMA journal_mode = WAL;");
     for (const file of MIGRATION_FILES) {
       const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-      for (const part of unstable_splitSqlQuery(sqlText)) {
-        const cleaned = part.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
-        if (cleaned) raw.exec(cleaned);
-      }
+      raw.exec(sqlText);
     }
     raw
       .prepare(

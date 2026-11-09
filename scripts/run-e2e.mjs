@@ -15,11 +15,13 @@
  *      Playwright failure artifacts (`test-results/`, `playwright-report/`) outside
  *      the temporary DB directory.
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
+import { createSqliteD1Adapter, miniflareD1SqliteFilename } from "./seed-lessons.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -50,10 +52,6 @@ const TEST_PARENT_NAME = process.env.TLO_PARENT_NAME ?? "Phụ huynh";
 const TEST_PARENT_PASSWORD = process.env.TLO_PARENT_PASSWORD ?? "MatKhauBiMat2026";
 const TEST_SESSION_SECRET = "e2e-isolated-test-only-session-secret-not-for-prod-2026";
 
-function stripLeadingComments(statement) {
-  return statement.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
-}
-
 const tempRoot = mkdtempSync(join(tmpdir(), "tai-learning-os-e2e-"));
 const persistPath = join(tempRoot, "d1-state");
 const configPath = join(tempRoot, "wrangler.e2e.jsonc");
@@ -80,6 +78,7 @@ process.on("SIGTERM", () => {
 });
 
 async function provisionIsolatedDatabase() {
+  const E2E_DATABASE_ID = "e2e-isolated-local-db";
   writeFileSync(
     configPath,
     JSON.stringify(
@@ -95,8 +94,8 @@ async function provisionIsolatedDatabase() {
           {
             binding: "DB",
             database_name: "tai-learning-os-e2e",
-            database_id: "e2e-isolated-local-db",
-            preview_database_id: "e2e-isolated-local-db",
+            database_id: E2E_DATABASE_ID,
+            preview_database_id: E2E_DATABASE_ID,
           },
         ],
         ratelimits: [
@@ -127,27 +126,23 @@ async function provisionIsolatedDatabase() {
     ),
   );
 
-  const { getPlatformProxy, unstable_splitSqlQuery } = await import("wrangler");
   const { seedLessons } = await import("../test/integration/lesson-seed.ts");
   const { hashPassword } = await import("../src/shared/crypto/password.ts");
 
-  const proxy = await getPlatformProxy({
-    configPath,
-    persist: { path: join(persistPath, "v3") },
-  });
+  const d1Dir = join(persistPath, "v3", "d1", "miniflare-D1DatabaseObject");
+  mkdirSync(d1Dir, { recursive: true });
+  const sqlitePath = join(d1Dir, miniflareD1SqliteFilename(E2E_DATABASE_ID));
+  const rawDb = new DatabaseSync(sqlitePath);
 
   try {
-    const db = proxy.env.DB;
+    rawDb.exec("PRAGMA foreign_keys = ON;");
+    rawDb.exec("PRAGMA busy_timeout = 5000;");
     for (const file of MIGRATION_FILES) {
       const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-      for (const raw of unstable_splitSqlQuery(sql)) {
-        const stmt = stripLeadingComments(raw);
-        if (stmt) {
-          await db.prepare(stmt).run();
-        }
-      }
+      rawDb.exec(sql);
     }
 
+    const db = createSqliteD1Adapter(rawDb);
     await seedLessons(db);
 
     const now = Date.now();
@@ -164,7 +159,7 @@ async function provisionIsolatedDatabase() {
       .bind("e2e-parent-1", TEST_PARENT_NAME, passwordHash, now)
       .run();
   } finally {
-    await proxy.dispose();
+    rawDb.close();
   }
 }
 

@@ -19,8 +19,10 @@ import {
   runResetLocalD1OnRoot,
 } from "../../scripts/reset-local-d1.mjs";
 import {
+  miniflareD1SqliteFilename,
   parseSeedLessonsCliArgs,
   runSeedLessonsOnRoot,
+  splitSqlStatements,
 } from "../../scripts/seed-lessons.mjs";
 import { parseUnlockCliArgs, unlockParentAuthThrottles } from "../../scripts/unlock-parent.mjs";
 import { inspectHouseholdPreflight } from "../../src/worker/db/household-preflight";
@@ -706,7 +708,7 @@ describe("unlockParentAuthThrottles", () => {
   });
 });
 
-describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero getPlatformProxy)", () => {
+describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero platform proxy)", () => {
   it("parses --target-root and seeds all 50 shipped catalogue lessons idempotently", async () => {
     expect(parseSeedLessonsCliArgs([])).toEqual({ targetRoot: process.cwd() });
     expect(parseSeedLessonsCliArgs(["--target-root", "/tmp/seed-root"])).toEqual({
@@ -924,5 +926,35 @@ describe("household CLI discovery helpers", () => {
     } finally {
       fixture.cleanup();
     }
+  });
+
+  it("computes the exact Miniflare D1 SQLite filename and splits trigger-bearing SQL migrations deterministically", () => {
+    expect(miniflareD1SqliteFilename("local-preview")).toBe(D1_SQLITE_FILENAME);
+    expect(miniflareD1SqliteFilename("e2e-isolated-local-db")).toBe(
+      "84891d8ddec1c08a873cfabd146a49086b29b87fb3c4ad8290151c4915fa180e.sqlite",
+    );
+
+    const v4Sql = readFileSync(join(MIGRATIONS_DIR, "0004_evidence_integrity.sql"), "utf8");
+    const v4Stmts = splitSqlStatements(v4Sql);
+    expect(v4Stmts.length).toBe(4);
+    expect(v4Stmts[0]).toContain("CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_learner_step_attempt");
+    expect(v4Stmts[1]).toContain("INSERT INTO schema_versions");
+    expect(v4Stmts[2]).toContain("CREATE TRIGGER IF NOT EXISTS audit_events_no_update");
+    expect(v4Stmts[2]).toContain("RAISE(ABORT, 'audit_events is append-only: UPDATE is not permitted');");
+    expect(v4Stmts[3]).toContain("CREATE TRIGGER IF NOT EXISTS audit_events_no_delete");
+
+    const dropAndCaseTriggerSql = `
+      DROP TRIGGER IF EXISTS old_trigger;
+      CREATE TRIGGER tr_case BEFORE INSERT ON audit_events
+      BEGIN
+        SELECT CASE WHEN NEW.id IS NULL THEN RAISE(ABORT, 'missing;id') ELSE 1 END;
+      END;
+      SELECT 1;
+    `;
+    const edgeStmts = splitSqlStatements(dropAndCaseTriggerSql);
+    expect(edgeStmts).toHaveLength(3);
+    expect(edgeStmts[0]).toBe("DROP TRIGGER IF EXISTS old_trigger;");
+    expect(edgeStmts[1]).toContain("SELECT CASE WHEN NEW.id IS NULL");
+    expect(edgeStmts[2]).toBe("SELECT 1;");
   });
 });

@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { unstable_splitSqlQuery } from "wrangler";
 import { matchRoute } from "../../src/client/routing";
 import {
   inspectDevVarsText,
@@ -41,10 +40,7 @@ function createInMemoryMigratedD1(): { db: D1Database; raw: DatabaseSync } {
 
   for (const file of MIGRATION_FILES) {
     const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    for (const part of unstable_splitSqlQuery(sqlText)) {
-      const cleaned = part.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
-      if (cleaned) raw.exec(cleaned);
-    }
+    raw.exec(sqlText);
   }
 
   function makeStatement(sql: string, boundValues: unknown[] = []): D1PreparedStatement {
@@ -520,10 +516,7 @@ function createDiskMigratedSqliteFixture(): {
     raw.exec("PRAGMA journal_mode = WAL;");
     for (const file of MIGRATION_FILES) {
       const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-      for (const part of unstable_splitSqlQuery(sqlText)) {
-        const cleaned = part.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
-        if (cleaned) raw.exec(cleaned);
-      }
+      raw.exec(sqlText);
     }
     seed50CatalogueLessons(raw);
   } finally {

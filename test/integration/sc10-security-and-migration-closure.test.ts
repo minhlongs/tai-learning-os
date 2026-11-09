@@ -16,9 +16,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { unstable_splitSqlQuery } from "wrangler";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { openTestDatabase, recreateSchema, type TestProxy } from "./test-db";
+import { openTestDatabase, recreateSchema, splitSqlStatements, type TestProxy } from "./test-db";
 import { resetData } from "./reset-data";
 import { createSessionToken, csrfTokenFor, verifySessionToken } from "../../src/shared/crypto/session";
 import { hashPassword } from "../../src/shared/crypto/password";
@@ -104,18 +103,9 @@ async function createAuthenticatedJar(
   };
 }
 
-function stripLeadingComments(statement: string): string {
-  return statement.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
-}
-
 function splitMigrationFile(filename: string): string[] {
   const rawSql = readFileSync(join(MIGRATIONS_DIR, filename), "utf8");
-  const statements: string[] = [];
-  for (const raw of unstable_splitSqlQuery(rawSql)) {
-    const stmt = stripLeadingComments(raw);
-    if (stmt) statements.push(stmt);
-  }
-  return statements;
+  return splitSqlStatements(rawSql);
 }
 
 describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publication & Fail-Closed Import/Migration", () => {

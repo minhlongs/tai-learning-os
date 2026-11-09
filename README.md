@@ -23,7 +23,7 @@
 - **Database**: Cloudflare D1 (SQLite) với 22 bảng quan hệ, ràng buộc khóa ngoại `PRAGMA foreign_keys = ON`, bảng bóp nghẹt đăng nhập thất bại `auth_throttles`, bản chụp phiên bản bất biến `lesson_versions`, siêu dữ liệu chương trình GDPT 2018 và kế hoạch học tập 4 tuần.
 - **Testing & Verification**:
   - `Vitest` (Unit test cho engine sư phạm, planner, crypto, schema).
-  - `@cloudflare/vitest-pool-workers` (Integration test chạy trực tiếp trên workerd và D1 cục bộ).
+  - `Vitest` + `node:sqlite` (`DatabaseSync` D1 adapter cho Integration test kiểm thử trực tiếp Worker routes và SQLite D1).
   - `Playwright` (End-to-End E2E test mô phỏng toàn bộ hành trình người học trên cả Desktop, Tablet và Mobile).
 
 ---
@@ -72,10 +72,10 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (252 tests across 16 files)
+# Chạy toàn bộ Unit Tests (253 tests across 16 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với workerd D1 (148 tests across 15 files)
+# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (148 tests across 15 files)
 npm run test:integration
 
 # Chạy Playwright End-to-End Tests (54 tests, Desktop + Tablet + Mobile)
