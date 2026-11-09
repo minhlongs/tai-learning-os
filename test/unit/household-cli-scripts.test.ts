@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -10,6 +10,11 @@ import {
   parseApproveLessonsCliArgs,
 } from "../../scripts/approve-household-lessons.mjs";
 import { createReadOnlyD1Adapter } from "../../scripts/household-preflight.mjs";
+import {
+  listShippedMigrationFiles,
+  parseMigrateLocalD1CliArgs,
+  runMigrateLocalD1OnRoot,
+} from "../../scripts/migrate-local-d1.mjs";
 import {
   parseReprovisionCliArgs,
   reprovisionHouseholdDatabase,
@@ -34,6 +39,7 @@ const APPROVE_CLI = join(REPO_ROOT, "scripts", "approve-household-lessons.mjs");
 const UNLOCK_CLI = join(REPO_ROOT, "scripts", "unlock-parent.mjs");
 const SEED_CLI = join(REPO_ROOT, "scripts", "seed-lessons.mjs");
 const RESET_CLI = join(REPO_ROOT, "scripts", "reset-local-d1.mjs");
+const MIGRATE_CLI = join(REPO_ROOT, "scripts", "migrate-local-d1.mjs");
 
 const D1_SQLITE_FILENAME =
   "55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite";
@@ -958,3 +964,113 @@ describe("household CLI discovery helpers", () => {
     expect(edgeStmts[2]).toBe("SELECT 1;");
   });
 });
+
+describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast path)", () => {
+  it("parses --target-root and lists all 14 shipped migration files in order", () => {
+    expect(parseMigrateLocalD1CliArgs([])).toEqual({ targetRoot: process.cwd() });
+    expect(parseMigrateLocalD1CliArgs(["--target-root", "/tmp/migrate-root"])).toEqual({
+      targetRoot: "/tmp/migrate-root",
+    });
+    expect(listShippedMigrationFiles()).toEqual(MIGRATION_FILES);
+  });
+
+  it("provisions a fresh database with all 14 migrations and then runs as a strict zero-write no-op on subsequent invocations", () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "tlo-migrate-local-d1-"));
+    try {
+      const first = runMigrateLocalD1OnRoot(tmpRoot);
+      expect(first.ok).toBe(true);
+      expect(first.applied).toEqual(MIGRATION_FILES);
+      expect(first.skippedCount).toBe(0);
+      expect(first.schemaVersion).toBe(14);
+      expect(existsSync(first.sqlitePath)).toBe(true);
+
+      // Checkpoint WAL and switch to DELETE journal mode so the file on disk is a single quiescent SQLite file.
+      const db = new DatabaseSync(first.sqlitePath);
+      try {
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+        db.exec("PRAGMA journal_mode = DELETE;");
+      } finally {
+        db.close();
+      }
+
+      const preHash = sha256File(first.sqlitePath);
+      const preStat = statSync(first.sqlitePath);
+
+      const second = runMigrateLocalD1OnRoot(tmpRoot);
+      expect(second.ok).toBe(true);
+      expect(second.applied).toEqual([]);
+      expect(second.skippedCount).toBe(14);
+      expect(second.schemaVersion).toBe(14);
+
+      const postHash = sha256File(first.sqlitePath);
+      const postStat = statSync(first.sqlitePath);
+      expect(postHash).toBe(preHash);
+      expect(postStat.size).toBe(preStat.size);
+      expect(postStat.mtimeMs).toBe(preStat.mtimeMs);
+
+      // Also verify CLI execution via spawnSync preserves SHA-256 and mtimeMs.
+      const cliRun = spawnSync(process.execPath, [MIGRATE_CLI, "--target-root", tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(cliRun.status).toBe(0);
+      expect(cliRun.stderr).toBe("");
+      const parsedCli = JSON.parse(cliRun.stdout.trim()) as {
+        ok: boolean;
+        applied: string[];
+        skippedCount: number;
+        schemaVersion: number;
+      };
+      expect(parsedCli.ok).toBe(true);
+      expect(parsedCli.applied).toEqual([]);
+      expect(parsedCli.skippedCount).toBe(14);
+      expect(parsedCli.schemaVersion).toBe(14);
+      expect(sha256File(first.sqlitePath)).toBe(preHash);
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("applies only pending migrations when a database has a subset of migrations recorded in d1_migrations", () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "tlo-migrate-partial-"));
+    try {
+      const d1StateDir = join(
+        tmpRoot,
+        ".wrangler",
+        "state",
+        "v3",
+        "d1",
+        "miniflare-D1DatabaseObject",
+      );
+      mkdirSync(d1StateDir, { recursive: true });
+      const sqlitePath = join(d1StateDir, D1_SQLITE_FILENAME);
+      const raw = new DatabaseSync(sqlitePath);
+      try {
+        raw.exec("PRAGMA foreign_keys = ON;");
+        raw.exec(
+          `CREATE TABLE d1_migrations (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             name TEXT UNIQUE,
+             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+           );`,
+        );
+        const insertStmt = raw.prepare("INSERT INTO d1_migrations (name) VALUES (?)");
+        for (const file of MIGRATION_FILES.slice(0, 10)) {
+          raw.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+          insertStmt.run(file);
+        }
+      } finally {
+        raw.close();
+      }
+
+      const result = runMigrateLocalD1OnRoot(tmpRoot);
+      expect(result.ok).toBe(true);
+      expect(result.skippedCount).toBe(10);
+      expect(result.applied).toEqual(MIGRATION_FILES.slice(10));
+      expect(result.schemaVersion).toBe(14);
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});
+
