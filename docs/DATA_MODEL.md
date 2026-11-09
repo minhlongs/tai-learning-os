@@ -261,15 +261,16 @@ never read as one learner's approval.
   600,000 iterations after a successful login.
 - `verifyPassword` **fails closed** on a malformed record.
 
-**⚠ Two stale comments.** `migrations/0001_initial_schema.sql` lines 24 and 27
-say *scrypt*, and `wrangler.jsonc` line 49 repeats it. The code is PBKDF2-SHA256,
-and the code comment records the verified reason: **workerd's Web Crypto does not
-implement scrypt — attempting it throws.** PBKDF2-SHA256 was chosen because it is
-a NIST-approved platform primitive rather than bespoke cryptography.
+**⚠ Stale SQL comment in migration 0001.** `migrations/0001_initial_schema.sql`
+lines 24 and 27 say *scrypt* (`wrangler.jsonc` has been updated to state PBKDF2-SHA256).
+The code is PBKDF2-SHA256, and the code comment records the verified reason:
+**workerd's Web Crypto does not implement scrypt — attempting it throws.**
+PBKDF2-SHA256 was chosen because it is a NIST-approved platform primitive rather
+than bespoke cryptography.
 
-The SQL comments are stale and should be corrected in a new migration's
-documentation. **The code is authoritative.** Do not rely on the SQL comment when
-reviewing this design.
+The SQL comment in `0001_initial_schema.sql` is kept untouched because historical
+migrations are never hand-edited. **The code is authoritative.** Do not rely on
+the SQL comment when reviewing this design.
 
 ---
 

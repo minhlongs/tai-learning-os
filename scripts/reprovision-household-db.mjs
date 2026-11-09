@@ -66,11 +66,19 @@ export function parseReprovisionCliArgs(argv) {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--target-root" && i + 1 < argv.length) {
-      targetRoot = resolve(argv[i + 1]);
+    if (arg === "--target-root") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --target-root");
+      }
+      targetRoot = resolve(next);
       i += 1;
     } else if (arg === "--approve-grade-lessons") {
       approveGradeLessons = true;
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown flag for db:reprovision-household: ${arg}`);
+    } else {
+      throw new Error(`Unexpected positional argument for db:reprovision-household: ${arg}`);
     }
   }
 
@@ -196,8 +204,8 @@ const isMainModule =
   realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isMainModule) {
-  const parsedArgs = parseReprovisionCliArgs(process.argv.slice(2));
   try {
+    const parsedArgs = parseReprovisionCliArgs(process.argv.slice(2));
     const result = await reprovisionHouseholdDatabase(parsedArgs);
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {

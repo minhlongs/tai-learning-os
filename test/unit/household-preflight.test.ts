@@ -832,5 +832,28 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
       fixture.cleanup();
     }
   });
+
+  it("parses --target-root and fails closed on missing values, unknown flags, or positional arguments", async () => {
+    const { parsePreflightCliArgs } = (await import("../../scripts/household-preflight.mjs")) as {
+      parsePreflightCliArgs: (argv: string[]) => { targetRoot: string };
+    };
+
+    expect(parsePreflightCliArgs([])).toEqual({ targetRoot: process.cwd() });
+    expect(parsePreflightCliArgs(["--target-root", "/tmp/preflight-root"])).toEqual({
+      targetRoot: "/tmp/preflight-root",
+    });
+    expect(() => parsePreflightCliArgs(["--target-root"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parsePreflightCliArgs(["--target-root", "--other"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parsePreflightCliArgs(["--unknown-flag"])).toThrow(
+      /Unknown flag for household:preflight: --unknown-flag/,
+    );
+    expect(() => parsePreflightCliArgs(["positional-arg"])).toThrow(
+      /Unexpected positional argument for household:preflight: positional-arg/,
+    );
+  });
 });
 

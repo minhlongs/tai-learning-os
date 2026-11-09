@@ -73,11 +73,22 @@ export function parseDumpLocalD1CliArgs(argv) {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--target-root" && i + 1 < argv.length) {
-      targetRoot = resolve(argv[i + 1]);
+    if (arg === "--target-root") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --target-root");
+      }
+      targetRoot = resolve(next);
       i += 1;
-    } else if (arg === "--output" && i + 1 < argv.length) {
-      outputPath = resolve(argv[i + 1]);
+    } else if (arg === "--output") {
+      if (outputPath) {
+        throw new Error(`Tham số vị trí dư thừa cho db:dump: ${arg}`);
+      }
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --output");
+      }
+      outputPath = resolve(next);
       i += 1;
     } else if (arg === "--no-schema") {
       includeSchema = false;
@@ -242,8 +253,8 @@ const isMainModule =
   realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isMainModule) {
-  const args = parseDumpLocalD1CliArgs(process.argv.slice(2));
   try {
+    const args = parseDumpLocalD1CliArgs(process.argv.slice(2));
     const result = runDumpLocalD1OnRoot(args);
     if (result.outputPath) {
       console.log(

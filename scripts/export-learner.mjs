@@ -38,14 +38,26 @@ export function parseExportCliArgs(argv) {
   let targetRoot = process.cwd();
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--passphrase" && i + 1 < argv.length) {
-      passphrase = argv[i + 1];
+    if (arg === "--passphrase") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --passphrase");
+      }
+      passphrase = next;
       i += 1;
-    } else if (arg === "--target-root" && i + 1 < argv.length) {
-      targetRoot = resolve(argv[i + 1]);
+    } else if (arg === "--target-root") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --target-root");
+      }
+      targetRoot = resolve(next);
       i += 1;
-    } else if (!arg.startsWith("--") && !targetPath) {
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown flag for export:learner: ${arg}`);
+    } else if (!targetPath) {
       targetPath = arg;
+    } else {
+      throw new Error(`Unexpected positional argument for export:learner: ${arg}`);
     }
   }
   return { targetPath, passphrase, targetRoot };
@@ -57,7 +69,14 @@ const isMainModule =
   realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isMainModule) {
-  const { targetPath, passphrase, targetRoot } = parseExportCliArgs(process.argv.slice(2));
+  let parsedArgs;
+  try {
+    parsedArgs = parseExportCliArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(`export refused: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+  const { targetPath, passphrase, targetRoot } = parsedArgs;
   const d1StateDir = join(
     targetRoot,
     ".wrangler",
