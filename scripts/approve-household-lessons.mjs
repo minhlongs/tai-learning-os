@@ -36,30 +36,62 @@ export function parseApproveLessonsCliArgs(argv) {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--target-root" && i + 1 < argv.length) {
-      targetRoot = resolve(argv[i + 1]);
+    if (arg === "--target-root") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --target-root");
+      }
+      targetRoot = resolve(next);
       i += 1;
-    } else if (arg === "--grade" && i + 1 < argv.length) {
-      const parsed = Number.parseInt(argv[i + 1], 10);
-      if (!Number.isInteger(parsed) || parsed < 1) {
-        throw new Error(`Invalid --grade value: ${argv[i + 1]}`);
+    } else if (arg === "--grade") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --grade");
+      }
+      const trimmedGrade = next.trim();
+      const parsed = Number.parseInt(trimmedGrade, 10);
+      if (!/^\d+$/.test(trimmedGrade) || !Number.isInteger(parsed) || parsed < 1) {
+        throw new Error(`Invalid --grade value: ${next}`);
       }
       grade = parsed;
       i += 1;
-    } else if (arg === "--subject" && i + 1 < argv.length) {
-      subject = argv[i + 1].trim();
+    } else if (arg === "--subject") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --subject");
+      }
+      subject = next.trim();
       i += 1;
-    } else if (arg === "--lesson" && i + 1 < argv.length) {
-      for (const part of argv[i + 1].split(",")) {
+    } else if (arg === "--lesson") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --lesson");
+      }
+      const added = [];
+      for (const part of next.split(",")) {
         const trimmed = part.trim();
-        if (trimmed) lessonIds.push(trimmed);
+        if (trimmed) {
+          lessonIds.push(trimmed);
+          added.push(trimmed);
+        }
+      }
+      if (added.length === 0) {
+        throw new Error("Missing or invalid value for --lesson");
       }
       i += 1;
     } else if (arg === "--all") {
       all = true;
-    } else if (arg === "--note" && i + 1 < argv.length) {
-      note = argv[i + 1];
+    } else if (arg === "--note") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --note");
+      }
+      note = next;
       i += 1;
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown flag for household:approve-lessons: ${arg}`);
+    } else {
+      throw new Error(`Unexpected positional argument for household:approve-lessons: ${arg}`);
     }
   }
 

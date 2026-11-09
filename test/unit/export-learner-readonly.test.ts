@@ -357,9 +357,21 @@ describe("read-only learner export helper and CLI (scripts/export-learner.mjs)",
     expect(
       parseExportCliArgs(["--target-root", "/tmp/other-root", "./backup.json"]),
     ).toMatchObject({ targetPath: "./backup.json", targetRoot: "/tmp/other-root" });
-    // A flag followed by an unknown flag is ignored, and a second positional is dropped.
-    expect(parseExportCliArgs(["./a.json", "--unknown", "./b.json"])).toMatchObject({
-      targetPath: "./a.json",
-    });
+    // Unknown flags, missing flag values, and extra positional arguments fail closed.
+    expect(() => parseExportCliArgs(["./a.json", "--unknown"])).toThrow(
+      /Unknown flag for export:learner: --unknown/,
+    );
+    expect(() => parseExportCliArgs(["./a.json", "./b.json"])).toThrow(
+      /Unexpected positional argument for export:learner: \.\/b\.json/,
+    );
+    expect(() => parseExportCliArgs(["--passphrase"])).toThrow(
+      /Missing or invalid value for --passphrase/,
+    );
+    expect(() => parseExportCliArgs(["--passphrase", "--target-root"])).toThrow(
+      /Missing or invalid value for --passphrase/,
+    );
+    expect(() => parseExportCliArgs(["--target-root"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
   });
 });

@@ -243,9 +243,18 @@ export function createSqliteD1Adapter(rawDb) {
 export function parseSeedLessonsCliArgs(argv) {
   let targetRoot = process.cwd();
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === "--target-root" && i + 1 < argv.length) {
-      targetRoot = resolve(argv[i + 1]);
+    const arg = argv[i];
+    if (arg === "--target-root") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --target-root");
+      }
+      targetRoot = resolve(next);
       i += 1;
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown flag for seed:demo: ${arg}`);
+    } else {
+      throw new Error(`Unexpected positional argument for seed:demo: ${arg}`);
     }
   }
   return { targetRoot };
@@ -287,8 +296,8 @@ const isMainModule =
   realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isMainModule) {
-  const { targetRoot } = parseSeedLessonsCliArgs(process.argv.slice(2));
   try {
+    const { targetRoot } = parseSeedLessonsCliArgs(process.argv.slice(2));
     const result = await runSeedLessonsOnRoot(targetRoot);
     console.log(
       `seeded: ${result.inserted} inserted, ${result.rewritten} content-changed, ${result.unchanged} unchanged`,

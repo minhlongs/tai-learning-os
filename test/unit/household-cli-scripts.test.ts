@@ -191,14 +191,37 @@ describe("approve-household-lessons CLI argument parsing", () => {
     });
 
     expect(parseApproveLessonsCliArgs(["--all"])).toMatchObject({ all: true });
-    // Trailing value-bearing flag at the end of argv is ignored safely.
-    expect(parseApproveLessonsCliArgs(["--grade"])).toMatchObject({ grade: null });
+    // Trailing or malformed flags and positional arguments fail closed.
+    expect(() => parseApproveLessonsCliArgs(["--grade"])).toThrow(
+      /Missing or invalid value for --grade/,
+    );
+    expect(() => parseApproveLessonsCliArgs(["--target-root"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseApproveLessonsCliArgs(["--subject", "--all"])).toThrow(
+      /Missing or invalid value for --subject/,
+    );
+    expect(() => parseApproveLessonsCliArgs(["--lesson", ""])).toThrow(
+      /Missing or invalid value for --lesson/,
+    );
+    expect(() => parseApproveLessonsCliArgs(["--note", "--all"])).toThrow(
+      /Missing or invalid value for --note/,
+    );
+    expect(() => parseApproveLessonsCliArgs(["--unknown-flag"])).toThrow(
+      /Unknown flag for household:approve-lessons: --unknown-flag/,
+    );
+    expect(() => parseApproveLessonsCliArgs(["extra-positional"])).toThrow(
+      /Unexpected positional argument for household:approve-lessons: extra-positional/,
+    );
   });
 
   it("refuses an invalid grade value", () => {
     expect(() => parseApproveLessonsCliArgs(["--grade", "abc"])).toThrow(/Invalid --grade value/);
+    expect(() => parseApproveLessonsCliArgs(["--grade", "4abc"])).toThrow(/Invalid --grade value/);
     expect(() => parseApproveLessonsCliArgs(["--grade", "0"])).toThrow(/Invalid --grade value/);
-    expect(() => parseApproveLessonsCliArgs(["--grade", "--all"])).toThrow(/Invalid --grade value/);
+    expect(() => parseApproveLessonsCliArgs(["--grade", "--all"])).toThrow(
+      /Missing or invalid value for --grade/,
+    );
   });
 });
 
@@ -568,6 +591,16 @@ describe("unlockParentAuthThrottles", () => {
     expect(parseUnlockCliArgs(["--target-root", "/tmp/other-root"])).toEqual({
       targetRoot: "/tmp/other-root",
     });
+    expect(() => parseUnlockCliArgs(["--target-root"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseUnlockCliArgs(["--target-root", "--bad"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseUnlockCliArgs(["--unknown"])).toThrow(/Unknown flag for unlock:parent/);
+    expect(() => parseUnlockCliArgs(["extra-pos"])).toThrow(
+      /Unexpected positional argument for unlock:parent/,
+    );
 
     const fixture = createMigratedFixture("unlock-cli");
     try {
@@ -712,6 +745,13 @@ describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero platfo
     expect(parseSeedLessonsCliArgs(["--target-root", "/tmp/seed-root"])).toEqual({
       targetRoot: "/tmp/seed-root",
     });
+    expect(() => parseSeedLessonsCliArgs(["--target-root"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseSeedLessonsCliArgs(["--bad-flag"])).toThrow(/Unknown flag for seed:demo/);
+    expect(() => parseSeedLessonsCliArgs(["pos-arg"])).toThrow(
+      /Unexpected positional argument for seed:demo/,
+    );
 
     const fixture = createMigratedFixture("seed-lessons-cli");
     try {
@@ -735,6 +775,13 @@ describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero platfo
     expect(parseResetLocalD1CliArgs(["--target-root", "/tmp/reset-root"])).toEqual({
       targetRoot: "/tmp/reset-root",
     });
+    expect(() => parseResetLocalD1CliArgs(["--target-root", "--other"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseResetLocalD1CliArgs(["--bad-flag"])).toThrow(/Unknown flag for db:reset/);
+    expect(() => parseResetLocalD1CliArgs(["pos-arg"])).toThrow(
+      /Unexpected positional argument for db:reset/,
+    );
 
     const fixture = createMigratedFixture("reset-local-d1-cli");
     try {
@@ -819,6 +866,15 @@ describe("reprovision-household-db CLI script (byte-for-byte archive + clean rep
       targetRoot: "/tmp/reprov-root",
       approveGradeLessons: true,
     });
+    expect(() => parseReprovisionCliArgs(["--target-root"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseReprovisionCliArgs(["--unknown"])).toThrow(
+      /Unknown flag for db:reprovision-household/,
+    );
+    expect(() => parseReprovisionCliArgs(["pos-arg"])).toThrow(
+      /Unexpected positional argument for db:reprovision-household/,
+    );
   });
 
   it("archives the existing SQLite file with 100% identical SHA-256 and reprovisions a clean household DB with grade approvals", async () => {
@@ -963,6 +1019,16 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
     expect(parseMigrateLocalD1CliArgs(["--target-root", "/tmp/migrate-root"])).toEqual({
       targetRoot: "/tmp/migrate-root",
     });
+    expect(() => parseMigrateLocalD1CliArgs(["--target-root"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseMigrateLocalD1CliArgs(["--target-root", "--bad"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseMigrateLocalD1CliArgs(["--unknown"])).toThrow(/Unknown flag for db:migrate/);
+    expect(() => parseMigrateLocalD1CliArgs(["pos-arg"])).toThrow(
+      /Unexpected positional argument for db:migrate/,
+    );
     const files = listShippedMigrationFiles();
     expect(files).toHaveLength(14);
     expect(files[0]).toBe("0001_initial_schema.sql");
@@ -1101,6 +1167,15 @@ describe("dump-local-d1 CLI script (DatabaseSync readOnly: true, zero-write SQL 
     );
     expect(() => parseDumpLocalD1CliArgs(["/tmp/one.sql", "/tmp/two.sql"])).toThrow(
       /Tham số vị trí dư thừa cho db:dump/,
+    );
+    expect(() => parseDumpLocalD1CliArgs(["/tmp/one.sql", "--output", "/tmp/two.sql"])).toThrow(
+      /Tham số vị trí dư thừa cho db:dump/,
+    );
+    expect(() => parseDumpLocalD1CliArgs(["--target-root"])).toThrow(
+      /Missing or invalid value for --target-root/,
+    );
+    expect(() => parseDumpLocalD1CliArgs(["--output", "--no-data"])).toThrow(
+      /Missing or invalid value for --output/,
     );
 
     expect(formatSqlLiteral(null)).toBe("NULL");

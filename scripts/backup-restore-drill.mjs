@@ -14,7 +14,11 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { listShippedMigrationFiles } from "./migrate-local-d1.mjs";
 import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
-import { createSqliteD1Adapter, miniflareD1SqliteFilename } from "./seed-lessons.mjs";
+import {
+  createSqliteD1Adapter,
+  miniflareD1SqliteFilename,
+  splitSqlStatements,
+} from "./seed-lessons.mjs";
 
 registerTsSpecifiers();
 
@@ -32,7 +36,6 @@ const MIGRATIONS_DIR = join(REPO_ROOT, "migrations");
 
 const DRILL_RUNTIME_DIR = mkdtempSync(join(tmpdir(), "tai-learning-os-backup-drill-"));
 const DRILL_PERSIST_DIR = join(DRILL_RUNTIME_DIR, "d1-state");
-const DRILL_CONFIG_PATH = join(DRILL_RUNTIME_DIR, "wrangler.drill.jsonc");
 const DRILL_BACKUP_FILE = join(DRILL_RUNTIME_DIR, "learner-backup.enc.json");
 
 const MIGRATION_FILES = listShippedMigrationFiles();
@@ -46,26 +49,6 @@ function assert(condition, message) {
 const DRILL_DB_ID = "tai-learning-os-backup-drill-id";
 const drillD1Dir = join(DRILL_PERSIST_DIR, "d1", "miniflare-D1DatabaseObject");
 mkdirSync(drillD1Dir, { recursive: true });
-
-writeFileSync(
-  DRILL_CONFIG_PATH,
-  JSON.stringify({
-    name: "tai-learning-os-backup-drill",
-    keep_vars: false,
-    compatibility_date: "2026-10-24",
-    d1_databases: [
-      {
-        binding: "DB",
-        database_name: "tai-learning-os-backup-drill",
-        database_id: DRILL_DB_ID,
-        preview_database_id: DRILL_DB_ID,
-      },
-    ],
-    vars: {
-      ENVIRONMENT: "development",
-    },
-  }),
-);
 
 const rawDb = new DatabaseSync(join(drillD1Dir, miniflareD1SqliteFilename(DRILL_DB_ID)));
 rawDb.exec("PRAGMA foreign_keys = ON;");
@@ -82,7 +65,9 @@ try {
   // 1. Apply all shipped migrations in order
   for (const file of MIGRATION_FILES) {
     const rawSql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    rawDb.exec(rawSql);
+    for (const stmt of splitSqlStatements(rawSql)) {
+      rawDb.exec(stmt);
+    }
   }
 
   // 2. Seed all 50 catalogue lessons and steps + parent + learner + real learning records

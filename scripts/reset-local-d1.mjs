@@ -28,9 +28,18 @@ const { resetUserData } = await import("../src/worker/db/reset-user-data.ts");
 export function parseResetLocalD1CliArgs(argv) {
   let targetRoot = process.cwd();
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === "--target-root" && i + 1 < argv.length) {
-      targetRoot = resolve(argv[i + 1]);
+    const arg = argv[i];
+    if (arg === "--target-root") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --target-root");
+      }
+      targetRoot = resolve(next);
       i += 1;
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown flag for db:reset-data: ${arg}`);
+    } else {
+      throw new Error(`Unexpected positional argument for db:reset-data: ${arg}`);
     }
   }
   return { targetRoot };
@@ -72,8 +81,8 @@ const isMainModule =
   realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isMainModule) {
-  const { targetRoot } = parseResetLocalD1CliArgs(process.argv.slice(2));
   try {
+    const { targetRoot } = parseResetLocalD1CliArgs(process.argv.slice(2));
     await runResetLocalD1OnRoot(targetRoot);
     console.log("reset local D1 user data (curriculum catalogue preserved).");
   } catch (error) {

@@ -91,13 +91,24 @@ export function createReadOnlyD1Adapter(rawDb) {
   };
 }
 
-function parseTargetDir(argv) {
+export function parsePreflightCliArgs(argv) {
+  let targetRoot = process.cwd();
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === "--target-root" && argv[i + 1]) {
-      return resolve(argv[i + 1]);
+    const arg = argv[i];
+    if (arg === "--target-root") {
+      const next = argv[i + 1];
+      if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
+        throw new Error("Missing or invalid value for --target-root");
+      }
+      targetRoot = resolve(next);
+      i += 1;
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown flag for household:preflight: ${arg}`);
+    } else {
+      throw new Error(`Unexpected positional argument for household:preflight: ${arg}`);
     }
   }
-  return process.cwd();
+  return { targetRoot };
 }
 
 const isMainModule =
@@ -106,7 +117,13 @@ const isMainModule =
   realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isMainModule) {
-  const targetRoot = parseTargetDir(process.argv.slice(2));
+  let targetRoot;
+  try {
+    ({ targetRoot } = parsePreflightCliArgs(process.argv.slice(2)));
+  } catch (error) {
+    console.error(`preflight refused: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
   const persistPath = join(targetRoot, ".wrangler", "state", "v3");
   const d1StateDir = join(persistPath, "d1", "miniflare-D1DatabaseObject");
   const devVarsPath = join(targetRoot, ".dev.vars");

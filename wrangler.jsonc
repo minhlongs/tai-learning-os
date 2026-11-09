@@ -46,7 +46,7 @@
   // Fail closed: no secrets in source. Secrets are supplied at deploy time via
   // `wrangler secret put`; locally via .dev.vars (gitignored).
   //
-  // PARENT_PASSWORD_HASH  — scrypt hash of the parent's password (see docs)
+  // PARENT_PASSWORD_HASH  — PBKDF2-SHA256 hash of the parent's password (600,000 iterations; see docs/DATA_MODEL.md §6)
   // SESSION_SECRET        — high-entropy secret used to sign session tokens
   "vars": {
     "ENVIRONMENT": "development"
