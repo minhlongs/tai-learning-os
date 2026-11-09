@@ -83,8 +83,12 @@ export function parseDumpLocalD1CliArgs(argv) {
       includeSchema = false;
     } else if (arg === "--no-data") {
       includeData = false;
-    } else if (!arg.startsWith("--") && !outputPath) {
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Tham số không hợp lệ cho db:dump: ${arg}`);
+    } else if (!outputPath) {
       outputPath = resolve(arg);
+    } else {
+      throw new Error(`Tham số vị trí dư thừa cho db:dump: ${arg}`);
     }
   }
 

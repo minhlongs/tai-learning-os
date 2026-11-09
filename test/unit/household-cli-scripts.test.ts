@@ -1096,6 +1096,12 @@ describe("dump-local-d1 CLI script (DatabaseSync readOnly: true, zero-write SQL 
     expect(parseDumpLocalD1CliArgs(["/tmp/positional.sql"]).outputPath).toBe(
       "/tmp/positional.sql",
     );
+    expect(() => parseDumpLocalD1CliArgs(["--unknown-flag"])).toThrow(
+      /Tham số không hợp lệ cho db:dump/,
+    );
+    expect(() => parseDumpLocalD1CliArgs(["/tmp/one.sql", "/tmp/two.sql"])).toThrow(
+      /Tham số vị trí dư thừa cho db:dump/,
+    );
 
     expect(formatSqlLiteral(null)).toBe("NULL");
     expect(formatSqlLiteral(undefined)).toBe("NULL");
