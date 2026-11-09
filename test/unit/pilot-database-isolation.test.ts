@@ -24,8 +24,7 @@ import { fileURLToPath } from "node:url";
  * This suite checks the invariant without opening a database: it asserts the
  * isolation paths really sit outside the repository, and that the seed script
  * actually routes through that module rather than opening the household
- * database with a bare `getPlatformProxy()` — the exact shape that caused the
- * leak.
+ * database directly — the exact shape that caused the leak.
  *
  * Paths resolve from `import.meta.url`, not `process.cwd()`, so the test reads
  * the same files however it is invoked.
@@ -108,9 +107,8 @@ describe("pilot database isolation", () => {
     expect(existsSync(scriptPath)).toBe(true);
     const script = readFileSync(scriptPath, "utf-8");
     expect(script).toContain("openPilotDatabase");
-    // A bare getPlatformProxy() call with no config/persist falls back to
-    // wrangler.jsonc and therefore the household database.
-    expect(script).not.toContain("await getPlatformProxy()");
+    expect(script).not.toContain(".wrangler/state");
+    expect(script).not.toContain("wrangler.jsonc");
   });
 
   it("applies the full shipped schema to the isolated pilot database", () => {

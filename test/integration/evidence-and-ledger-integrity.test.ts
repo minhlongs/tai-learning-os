@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { unstable_splitSqlQuery } from "wrangler";
 import type {
   RequestHintResponse,
   StartSessionResponse,
@@ -21,6 +20,7 @@ import {
   isBrandedTestDatabase,
   openTestDatabase,
   recreateSchema,
+  splitSqlStatements,
   type TestProxy,
 } from "./test-db";
 
@@ -1315,9 +1315,7 @@ describe("database-enforced append-only audit_events triggers and strict test/us
 describe("schema v3 to v4 migration upgrade compatibility", () => {
   function statementsFor(file: string): string[] {
     const rawSql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    return unstable_splitSqlQuery(rawSql)
-      .map((s) => s.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim())
-      .filter(Boolean);
+    return splitSqlStatements(rawSql);
   }
 
   async function rebuildAtSchemaV3(db: D1Database): Promise<void> {

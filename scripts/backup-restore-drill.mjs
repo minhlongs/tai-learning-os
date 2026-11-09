@@ -7,12 +7,13 @@
  *
  * Safety invariant: NEVER opens or touches `.wrangler/state` or `.dev.vars`.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
+import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
+import { createSqliteD1Adapter, miniflareD1SqliteFilename } from "./seed-lessons.mjs";
 
 registerTsSpecifiers();
 
@@ -50,15 +51,15 @@ const MIGRATION_FILES = [
   "0014_grade5_curriculum_expansion.sql",
 ];
 
-function stripLeadingComments(statement) {
-  return statement.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
-}
-
 function assert(condition, message) {
   if (!condition) {
     throw new Error(`Backup drill assertion failed: ${message}`);
   }
 }
+
+const DRILL_DB_ID = "tai-learning-os-backup-drill-id";
+const drillD1Dir = join(DRILL_PERSIST_DIR, "d1", "miniflare-D1DatabaseObject");
+mkdirSync(drillD1Dir, { recursive: true });
 
 writeFileSync(
   DRILL_CONFIG_PATH,
@@ -70,8 +71,8 @@ writeFileSync(
       {
         binding: "DB",
         database_name: "tai-learning-os-backup-drill",
-        database_id: "tai-learning-os-backup-drill-id",
-        preview_database_id: "tai-learning-os-backup-drill-id",
+        database_id: DRILL_DB_ID,
+        preview_database_id: DRILL_DB_ID,
       },
     ],
     vars: {
@@ -80,23 +81,22 @@ writeFileSync(
   }),
 );
 
-const proxy = await getPlatformProxy({
-  configPath: DRILL_CONFIG_PATH,
-  persist: { path: DRILL_PERSIST_DIR },
-});
+const rawDb = new DatabaseSync(join(drillD1Dir, miniflareD1SqliteFilename(DRILL_DB_ID)));
+rawDb.exec("PRAGMA foreign_keys = ON;");
+rawDb.exec("PRAGMA busy_timeout = 5000;");
+const db = createSqliteD1Adapter(rawDb);
+const proxy = {
+  env: { DB: db, ENVIRONMENT: "development" },
+  async dispose() {
+    rawDb.close();
+  },
+};
 
 try {
-  const db = proxy.env.DB;
-
   // 1. Apply all shipped migrations in order
   for (const file of MIGRATION_FILES) {
     const rawSql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    for (const part of unstable_splitSqlQuery(rawSql)) {
-      const stmt = stripLeadingComments(part);
-      if (stmt) {
-        await db.prepare(stmt).run();
-      }
-    }
+    rawDb.exec(rawSql);
   }
 
   // 2. Seed all 50 catalogue lessons and steps + parent + learner + real learning records

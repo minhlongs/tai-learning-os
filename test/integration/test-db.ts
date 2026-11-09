@@ -1,8 +1,15 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
+import {
+  createSqliteD1Adapter,
+  miniflareD1SqliteFilename,
+  splitSqlStatements,
+} from "../../scripts/seed-lessons.mjs";
+
+export { splitSqlStatements };
 
 /**
  * Isolated local D1 database for integration test suites, plus the controlled
@@ -36,7 +43,12 @@ const TEST_CONFIG_PATH = join(TEST_RUNTIME_DIR, "wrangler.test.jsonc");
 /** Test-only signing secret. Never read from disk, never deployed. */
 export const TEST_SESSION_SECRET = "integration-only-not-a-real-secret-value";
 
-export type TestProxy = Awaited<ReturnType<typeof getPlatformProxy>>;
+export interface TestProxy {
+  configPath: string;
+  persistPath: string;
+  env: { DB: D1Database; ENVIRONMENT: string };
+  dispose(): Promise<void>;
+}
 
 /**
  * Internal brand registry of D1Database handles created by this test harness.
@@ -79,11 +91,6 @@ function writeTestConfig(): void {
   );
 }
 
-/** Strip the leading comment block a splitter attaches to each statement. */
-function stripLeadingComments(statement: string): string {
-  return statement.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
-}
-
 /** Every shipped migration, split into executable statements in file order. */
 function migrationStatements(): string[] {
   const names = [
@@ -104,8 +111,7 @@ function migrationStatements(): string[] {
   ];
   const statements: string[] = [];
   for (const name of names) {
-    for (const raw of unstable_splitSqlQuery(readFileSync(join(MIGRATIONS_DIR, name), "utf8"))) {
-      const statement = stripLeadingComments(raw);
+    for (const statement of splitSqlStatements(readFileSync(join(MIGRATIONS_DIR, name), "utf8"))) {
       if (statement) statements.push(statement);
     }
   }
@@ -213,20 +219,34 @@ export async function recreateSchema(db: D1Database): Promise<void> {
   await assertSchemaProtectionPresent(db);
 }
 
+function openIsolatedSqliteProxy(): TestProxy {
+  writeTestConfig();
+  const d1Dir = join(TEST_PERSIST_DIR, "d1", "miniflare-D1DatabaseObject");
+  mkdirSync(d1Dir, { recursive: true });
+  const sqlitePath = join(d1Dir, miniflareD1SqliteFilename(TEST_DATABASE_ID));
+  const rawDb = new DatabaseSync(sqlitePath);
+  rawDb.exec("PRAGMA foreign_keys = ON;");
+  rawDb.exec("PRAGMA busy_timeout = 5000;");
+  const db = createSqliteD1Adapter(rawDb) as D1Database;
+  BRANDED_TEST_DBS.add(db);
+  return {
+    configPath: TEST_CONFIG_PATH,
+    persistPath: TEST_PERSIST_DIR,
+    env: { DB: db, ENVIRONMENT: "development" },
+    async dispose() {
+      rawDb.close();
+    },
+  };
+}
+
 /**
  * Open the dedicated test database in an isolated temp directory with all
  * shipped migrations applied and verified.
  */
 export async function openTestDatabase(): Promise<TestProxy> {
-  writeTestConfig();
-  const proxy = await getPlatformProxy({
-    configPath: TEST_CONFIG_PATH,
-    persist: { path: TEST_PERSIST_DIR },
-  });
-  const db = proxy.env.DB as D1Database;
-  BRANDED_TEST_DBS.add(db);
+  const proxy = openIsolatedSqliteProxy();
   try {
-    await recreateSchema(db);
+    await recreateSchema(proxy.env.DB);
   } catch (err) {
     await proxy.dispose();
     throw err;
@@ -240,14 +260,7 @@ export async function openTestDatabase(): Promise<TestProxy> {
  * process/handle restarts.
  */
 export async function reopenTestDatabase(): Promise<TestProxy> {
-  writeTestConfig();
-  const proxy = await getPlatformProxy({
-    configPath: TEST_CONFIG_PATH,
-    persist: { path: TEST_PERSIST_DIR },
-  });
-  const db = proxy.env.DB as D1Database;
-  BRANDED_TEST_DBS.add(db);
-  return proxy;
+  return openIsolatedSqliteProxy();
 }
 
 /** Ensure the isolated test runtime directory exists. */

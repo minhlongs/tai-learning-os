@@ -1,8 +1,13 @@
 import { lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
+import {
+  createSqliteD1Adapter,
+  miniflareD1SqliteFilename,
+  splitSqlStatements,
+} from "../../scripts/seed-lessons.mjs";
 
 /**
  * Isolated local D1 database for the multi-learner pilot fixture, kept strictly
@@ -92,7 +97,12 @@ const PILOT_RUNTIME_DIR = join(tmpdir(), "tai-learning-os-pilot-runtime");
 const PILOT_PERSIST_DIR = join(PILOT_RUNTIME_DIR, "d1-state");
 const PILOT_CONFIG_PATH = join(PILOT_RUNTIME_DIR, "wrangler.pilot.jsonc");
 
-export type PilotProxy = Awaited<ReturnType<typeof getPlatformProxy>>;
+export interface PilotProxy {
+  configPath: string;
+  persistPath: string;
+  env: { DB: D1Database; ENVIRONMENT: string };
+  dispose(): Promise<void>;
+}
 
 export function getPilotPersistDir(): string {
   return PILOT_PERSIST_DIR;
@@ -249,8 +259,7 @@ const FIXTURE_TABLES = [
 function migrationStatements(): string[] {
   const statements: string[] = [];
   for (const name of MIGRATION_NAMES) {
-    for (const raw of unstable_splitSqlQuery(readFileSync(join(MIGRATIONS_DIR, name), "utf8"))) {
-      const statement = raw.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
+    for (const statement of splitSqlStatements(readFileSync(join(MIGRATIONS_DIR, name), "utf8"))) {
       if (statement) statements.push(statement);
     }
   }
@@ -343,11 +352,26 @@ async function applySchema(db: D1Database): Promise<void> {
 export async function openPilotDatabase(): Promise<PilotProxy> {
   assertPilotIsolation();
   writePilotConfig();
-  const proxy = await getPlatformProxy({
+  const d1Dir = join(PILOT_PERSIST_DIR, "d1", "miniflare-D1DatabaseObject");
+  mkdirSync(d1Dir, { recursive: true });
+  const sqlitePath = join(d1Dir, miniflareD1SqliteFilename(PILOT_DATABASE_ID));
+  const rawDb = new DatabaseSync(sqlitePath);
+  rawDb.exec("PRAGMA foreign_keys = ON;");
+  rawDb.exec("PRAGMA busy_timeout = 5000;");
+  const db = createSqliteD1Adapter(rawDb) as D1Database;
+  const proxy: PilotProxy = {
     configPath: PILOT_CONFIG_PATH,
-    persist: { path: PILOT_PERSIST_DIR },
-  });
-  const db = proxy.env.DB as D1Database;
-  await applySchema(db);
+    persistPath: PILOT_PERSIST_DIR,
+    env: { DB: db, ENVIRONMENT: "development" },
+    async dispose() {
+      rawDb.close();
+    },
+  };
+  try {
+    await applySchema(db);
+  } catch (error) {
+    await proxy.dispose();
+    throw error;
+  }
   return proxy;
 }

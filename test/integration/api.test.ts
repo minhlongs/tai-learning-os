@@ -10,9 +10,9 @@ import { openTestDatabase, type TestProxy } from "./test-db";
  * repository function directly, because the question these tests answer is
  * whether the app works, not whether a helper works in isolation.
  *
- * `getPlatformProxy` reads the shipped `wrangler.jsonc`, provisions the local
- * bindings it declares and applies the shipped `migrations/` to the D1 database
- * — exactly the configuration `npm run dev` runs against. That is why this
+ * `openTestDatabase` provisions an isolated local SQLite D1 database and
+ * applies the shipped `migrations/` to the D1 database
+ * — the same schema `npm run dev` runs against. That is why this
  * suite can assert on the schema that actually ships rather than a copy of it.
  *
  * The signing secret is a test-only value supplied per request. The Worker
