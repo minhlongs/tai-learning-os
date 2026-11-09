@@ -18,17 +18,41 @@ Mở trình duyệt web tại địa chỉ: `http://localhost:8791`
 - Nhập thông tin đăng nhập đã cấu hình cục bộ (mặc định môi trường dev: Tên hiển thị `Phụ huynh`, mật khẩu: `MatKhauBiMat2026`).
 - Phiên đăng nhập có thời hạn **8 tiếng**, tự động bảo vệ khi tắt trình duyệt.
 
+### 1.1 Kiểm tra sẵn sàng trước buổi học (`npm run household:preflight`)
+Trước khi cho bé bắt đầu phiên học, phụ huynh có thể kiểm tra nhanh (chỉ-đọc 100%, không làm thay đổi một byte nào trong cơ sở dữ liệu) xem máy gia đình đã sẵn sàng hay chưa:
+```bash
+npm run household:preflight
+```
+Lệnh sẽ trả về báo cáo JSON xác nhận:
+- Tệp cấu hình `.dev.vars` đã có đầy đủ khóa bảo mật phiên và mật khẩu phụ huynh.
+- Cơ sở dữ liệu D1 cục bộ nguyên vẹn (`integrityCheck: "ok"`), đúng phiên bản lược đồ mới nhất (`schemaVersion: 14`) và đủ 50 bài học trong danh mục.
+- Hồ sơ hộ gia đình sạch tuyệt đối (chỉ có 1 phụ huynh, 1 học sinh `"Tài"`, 0 trung tâm/lớp học mô phỏng).
+- Trạng thái `readyForLearnerSession: true` (đã có bài học được phụ huynh duyệt cho bé).
+
 ---
 
 ## 2. Quản Trị Bài Học & Phê Duyệt Nội Dung (Lesson Approval)
 
 Mặc định, khi bài học mới được đưa vào hệ thống, bài học ở trạng thái **Bản nháp (Draft)** hoặc **Chưa duyệt**. Bé Tài sẽ **không nhìn thấy** bài học này trong danh sách môn học cho đến khi phụ huynh duyệt.
 
-### Các bước phê duyệt:
+### Các bước phê duyệt trên giao diện web:
 1. Đăng nhập vào hệ thống và nhấn vào menu **"Quản lý bài học"** (`/parent/lessons`).
 2. Danh sách bài học theo 5 môn học đang mở (Toán học, Tiếng Anh, Tiếng Việt, Khoa học, Tư duy phản biện) sẽ hiển thị chi tiết tên bài và mục tiêu học tập.
 3. Nhấn nút **"Chưa duyệt"** để chuyển sang **"Đã duyệt"**.
 4. Khi đã duyệt, bài học sẽ lập tức xuất hiện trên giao diện học tập của bé. Phụ huynh có thể thu hồi phê duyệt bất kỳ lúc nào nếu muốn điều chỉnh lộ trình học.
+
+### Phê duyệt nhanh hàng loạt từ Terminal (`npm run household:approve-lessons`):
+Nếu phụ huynh muốn duyệt nhanh toàn bộ các bài học theo khối lớp của bé (mặc định là **Lớp 4** với 25 bài học thuộc 5 môn học) mà không cần bấm từng bài trên giao diện web:
+```bash
+# Duyệt toàn bộ bài học thuộc khối lớp của bé Tài (mặc định Lớp 4)
+npm run household:approve-lessons
+
+# Hoặc duyệt theo bộ lọc cụ thể (theo khối lớp, môn học, mã bài học, hoặc toàn bộ 50 bài Lớp 4–5)
+npm run household:approve-lessons -- --grade 4 --subject math
+npm run household:approve-lessons -- --lesson math-g4-fractions-equivalent
+npm run household:approve-lessons -- --all
+```
+Lệnh này chạy nguyên tử (atomic) và an toàn khi chạy lại nhiều lần (idempotent): những bài đã duyệt ở phiên bản hiện tại sẽ được giữ nguyên, và mỗi bài mới duyệt đều được ghi nhận đầy đủ vào bảng `review_approvals` cùng nhật ký kiểm toán `audit_events` (`lesson.approval.approved` gắn với tài khoản phụ huynh).
 
 **Phạm vi của bản duyệt:** Phê duyệt gắn với **từng bé** và **từng phiên bản nội dung** của bài học:
 
@@ -83,6 +107,18 @@ Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
   - Nhập chính xác chuỗi xác nhận: `XOA Tài`
   - Nhấn **"Xác nhận xóa vĩnh viễn"**.
   - Toàn bộ dữ liệu phiên học, câu trả lời và năng lực sẽ được dọn dẹp sạch sẽ khỏi máy.
+
+### 4. Lưu trữ & Cấp phát lại Cơ sở dữ liệu Hộ gia đình Sạch (`npm run db:reprovision-household`)
+- Do bảng nhật ký kiểm toán `audit_events` được bảo vệ chỉ-ghi-thêm (append-only) bởi trigger SQLite, lệnh xóa dữ liệu thông thường (`npm run db:reset-data`) sẽ chủ động từ chối chạy khi đã có dòng nhật ký trong cơ sở dữ liệu.
+- Nếu cơ sở dữ liệu cục bộ vô tình bị lẫn dữ liệu thử nghiệm hoặc phụ huynh muốn làm mới hoàn toàn môi trường học tập mà vẫn giữ lại hồ sơ định danh của gia đình:
+  ```bash
+  # Lưu trữ nguyên vẹn tệp SQLite hiện tại vào thư mục backups/ và cấp phát lại DB sạch (giữ lại Phụ huynh, bé Tài, Năm học và 50 bài học)
+  npm run db:reprovision-household
+
+  # Hoặc cấp phát lại DB sạch kèm duyệt sẵn toàn bộ bài học theo khối lớp của bé Tài
+  npm run db:reprovision-household -- --approve-grade-lessons
+  ```
+- **Cam kết bảo toàn bằng chứng:** Bước 1 của lệnh này mở tệp SQLite cũ ở chế độ **chỉ-đọc tuyệt đối (`readOnly: true`)** để trích xuất thông tin định danh trước khi di chuyển toàn bộ tệp sang `backups/household-db-archive-<timestamp>/`, đảm bảo mã băm SHA-256 của bản lưu trữ không thay đổi một byte nào.
 
 ---
 
