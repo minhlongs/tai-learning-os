@@ -1,15 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { unstable_splitSqlQuery } from "wrangler";
 import {
   approveHouseholdLessons,
   parseApproveLessonsCliArgs,
 } from "../../scripts/approve-household-lessons.mjs";
 import { createReadOnlyD1Adapter } from "../../scripts/household-preflight.mjs";
+import {
+  parseReprovisionCliArgs,
+  reprovisionHouseholdDatabase,
+} from "../../scripts/reprovision-household-db.mjs";
+import {
+  parseResetLocalD1CliArgs,
+  runResetLocalD1OnRoot,
+} from "../../scripts/reset-local-d1.mjs";
+import {
+  parseSeedLessonsCliArgs,
+  runSeedLessonsOnRoot,
+} from "../../scripts/seed-lessons.mjs";
 import { parseUnlockCliArgs, unlockParentAuthThrottles } from "../../scripts/unlock-parent.mjs";
 import { inspectHouseholdPreflight } from "../../src/worker/db/household-preflight";
 
@@ -18,6 +30,11 @@ const REPO_ROOT = join(HERE, "..", "..");
 const MIGRATIONS_DIR = join(REPO_ROOT, "migrations");
 const APPROVE_CLI = join(REPO_ROOT, "scripts", "approve-household-lessons.mjs");
 const UNLOCK_CLI = join(REPO_ROOT, "scripts", "unlock-parent.mjs");
+const SEED_CLI = join(REPO_ROOT, "scripts", "seed-lessons.mjs");
+const RESET_CLI = join(REPO_ROOT, "scripts", "reset-local-d1.mjs");
+
+const D1_SQLITE_FILENAME =
+  "55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite";
 
 const MIGRATION_FILES = [
   "0001_initial_schema.sql",
@@ -39,6 +56,10 @@ const MIGRATION_FILES = [
 const CANARY_PARENT_HASH = "pbkdf2-sha256:600000$dbsalt001122334455$dbdigestdeadbeefcafe0123456789";
 const FIXED_NOW = 1_800_000_000_000;
 
+function sha256File(filePath: string): string {
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+}
+
 function createMigratedFixture(tag: string): {
   tmpRoot: string;
   sqlitePath: string;
@@ -47,10 +68,7 @@ function createMigratedFixture(tag: string): {
   const tmpRoot = mkdtempSync(join(tmpdir(), `tlo-${tag}-`));
   const d1StateDir = join(tmpRoot, ".wrangler", "state", "v3", "d1", "miniflare-D1DatabaseObject");
   mkdirSync(d1StateDir, { recursive: true });
-  const sqlitePath = join(
-    d1StateDir,
-    "55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite",
-  );
+  const sqlitePath = join(d1StateDir, D1_SQLITE_FILENAME);
 
   const raw = new DatabaseSync(sqlitePath);
   try {
@@ -58,10 +76,7 @@ function createMigratedFixture(tag: string): {
     raw.exec("PRAGMA journal_mode = WAL;");
     for (const file of MIGRATION_FILES) {
       const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-      for (const part of unstable_splitSqlQuery(sqlText)) {
-        const cleaned = part.replace(/^(\s*--[^\n]*\n)+\s*/, "").trim();
-        if (cleaned) raw.exec(cleaned);
-      }
+      raw.exec(sqlText);
     }
   } finally {
     raw.close();
@@ -691,6 +706,206 @@ describe("unlockParentAuthThrottles", () => {
   });
 });
 
+describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero getPlatformProxy)", () => {
+  it("parses --target-root and seeds all 50 shipped catalogue lessons idempotently", async () => {
+    expect(parseSeedLessonsCliArgs([])).toEqual({ targetRoot: process.cwd() });
+    expect(parseSeedLessonsCliArgs(["--target-root", "/tmp/seed-root"])).toEqual({
+      targetRoot: "/tmp/seed-root",
+    });
+
+    const fixture = createMigratedFixture("seed-lessons-cli");
+    try {
+      const first = await runSeedLessonsOnRoot(fixture.tmpRoot);
+      expect(first).toEqual({ inserted: 50, rewritten: 0, unchanged: 0 });
+
+      const run = spawnSync(process.execPath, [SEED_CLI, "--target-root", fixture.tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(run.status).toBe(0);
+      expect(run.stderr).toBe("");
+      expect(run.stdout).toContain("seeded: 0 inserted, 0 content-changed, 50 unchanged");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("resets local user data when audit_events is empty and refuses when audit_events has rows", async () => {
+    expect(parseResetLocalD1CliArgs([])).toEqual({ targetRoot: process.cwd() });
+    expect(parseResetLocalD1CliArgs(["--target-root", "/tmp/reset-root"])).toEqual({
+      targetRoot: "/tmp/reset-root",
+    });
+
+    const fixture = createMigratedFixture("reset-local-d1-cli");
+    try {
+      await runSeedLessonsOnRoot(fixture.tmpRoot);
+
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        raw
+          .prepare(
+            "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-1', 'Phụ huynh', ?, 1000, 1000)",
+          )
+          .run(CANARY_PARENT_HASH);
+        raw
+          .prepare(
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+          )
+          .run();
+      } finally {
+        raw.close();
+      }
+
+      // With 0 audit_events, resetUserData succeeds and preserves the curriculum catalogue tables.
+      await runResetLocalD1OnRoot(fixture.tmpRoot);
+
+      const checkAfterReset = openWritable(fixture.sqlitePath);
+      try {
+        expect(countRows(checkAfterReset, "parents", "1 = 1")).toBe(0);
+        expect(countRows(checkAfterReset, "learners", "1 = 1")).toBe(0);
+        expect(countRows(checkAfterReset, "lessons", "1 = 1")).toBe(0);
+        expect(countRows(checkAfterReset, "subjects", "1 = 1")).toBeGreaterThan(0);
+        expect(countRows(checkAfterReset, "skills", "1 = 1")).toBeGreaterThan(0);
+        expect(countRows(checkAfterReset, "schema_versions", "1 = 1")).toBeGreaterThanOrEqual(13);
+
+        // Now add an immutable audit_event row and verify reset-local-d1 refuses.
+        seedHousehold(checkAfterReset);
+      } finally {
+        checkAfterReset.close();
+      }
+
+      const refused = spawnSync(process.execPath, [RESET_CLI, "--target-root", fixture.tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain("db:reprovision-household");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("fails cleanly when the local D1 SQLite file is missing for seed-lessons or reset-local-d1", () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "tlo-seed-reset-missing-"));
+    try {
+      const seedRun = spawnSync(process.execPath, [SEED_CLI, "--target-root", tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(seedRun.status).toBe(1);
+      expect(seedRun.stderr).toContain("local D1 SQLite database not found");
+
+      const resetRun = spawnSync(process.execPath, [RESET_CLI, "--target-root", tmpRoot], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      });
+      expect(resetRun.status).toBe(1);
+      expect(resetRun.stderr).toContain("local D1 SQLite database not found");
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("reprovision-household-db CLI script (byte-for-byte archive + clean reprovision)", () => {
+  it("parses --target-root and --approve-grade-lessons", () => {
+    expect(parseReprovisionCliArgs([])).toEqual({
+      targetRoot: process.cwd(),
+      approveGradeLessons: false,
+    });
+    expect(
+      parseReprovisionCliArgs(["--target-root", "/tmp/reprov-root", "--approve-grade-lessons"]),
+    ).toEqual({
+      targetRoot: "/tmp/reprov-root",
+      approveGradeLessons: true,
+    });
+  });
+
+  it("archives the existing SQLite file with 100% identical SHA-256 and reprovisions a clean household DB with grade approvals", async () => {
+    const fixture = createMigratedFixture("reprovision-sha256");
+    try {
+      const raw = openWritable(fixture.sqlitePath);
+      try {
+        seedHousehold(raw);
+        // Simulate historical E2E pollution (extra learner + organization + audit events).
+        raw
+          .prepare(
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-polluted', 'parent-1', 'Minh', 2016, 4, 'Asia/Ho_Chi_Minh', 2000, 2000)",
+          )
+          .run();
+        raw
+          .prepare(
+            "INSERT INTO organizations (id, slug, name, created_at, updated_at) VALUES ('org-1', 'pilot-school', 'Trường Pilot', 2000, 2000)",
+          )
+          .run();
+        raw
+          .prepare(
+            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-polluted', 'parent:other', 'org.created', 'org-1', NULL, 2000)",
+          )
+          .run();
+        // Checkpoint WAL into main database file and switch to DELETE journal mode so we have a single deterministic file hash before reprovisioning.
+        raw.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+      } finally {
+        raw.close();
+      }
+
+      // Also create a leftover .wrangler/probe-iso-test directory to verify it gets archived.
+      const probeIsoDir = join(fixture.tmpRoot, ".wrangler", "probe-iso-test");
+      mkdirSync(probeIsoDir, { recursive: true });
+      writeFileSync(join(probeIsoDir, "marker.txt"), "probe");
+
+      const preArchiveSha256 = sha256File(fixture.sqlitePath);
+
+      const result = await reprovisionHouseholdDatabase({
+        targetRoot: fixture.tmpRoot,
+        approveGradeLessons: true,
+        now: FIXED_NOW,
+      });
+
+      expect(result.status).toBe("ok");
+      expect(result.preservedParentDisplayName).toBe("Phụ huynh");
+      expect(result.preservedLearnerNickname).toBe("Tài");
+      expect(result.preservedSchoolYearLabel).toBe("2026-2027");
+      expect(result.lessonsInserted).toBe(50);
+      expect(result.verification.schemaVersion).toBe(14);
+      expect(result.verification.lessonsCount).toBe(50);
+      expect(result.verification.organizationsCount).toBe(0);
+      expect(result.lessonApprovals?.ok).toBe(true);
+      expect(result.lessonApprovals?.newlyApprovedCount).toBe(25);
+      expect(result.lessonApprovals?.readyForLearnerSession).toBe(true);
+
+      // Verify the archived SQLite file in backups/ has the exact same SHA-256 byte-for-byte.
+      expect(result.archiveDir).toBeTruthy();
+      const archivedSqlitePath = join(
+        String(result.archiveDir),
+        "miniflare-D1DatabaseObject",
+        D1_SQLITE_FILENAME,
+      );
+      expect(existsSync(archivedSqlitePath)).toBe(true);
+      expect(sha256File(archivedSqlitePath)).toBe(preArchiveSha256);
+      expect(existsSync(join(String(result.archiveDir), "probe-iso-test", "marker.txt"))).toBe(true);
+      expect(existsSync(probeIsoDir)).toBe(false);
+
+      // Verify household:preflight passes with readyForLearnerSession: true on the reprovisioned DB.
+      const ro = new DatabaseSync(fixture.sqlitePath, { readOnly: true });
+      try {
+        const preflight = await inspectHouseholdPreflight(
+          createReadOnlyD1Adapter(ro),
+          { devVarsPresent: true, hasSessionSecret: true, hasParentPasswordHash: true },
+          "ok",
+        );
+        expect(preflight.ok).toBe(true);
+        expect(preflight.approvedLessonsCount).toBe(25);
+        expect(preflight.readyForLearnerSession).toBe(true);
+      } finally {
+        ro.close();
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+});
+
 describe("household CLI discovery helpers", () => {
   it("finds the hashed D1 SQLite file next to wrangler metadata and nothing else", () => {
     const fixture = createMigratedFixture("cli-discovery");
@@ -704,7 +919,7 @@ describe("household CLI discovery helpers", () => {
         "miniflare-D1DatabaseObject",
       );
       const entries = readdirSync(d1StateDir).sort();
-      expect(entries).toContain("55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite");
+      expect(entries).toContain(D1_SQLITE_FILENAME);
       expect(entries.some((name) => name.endsWith(".json"))).toBe(false);
     } finally {
       fixture.cleanup();

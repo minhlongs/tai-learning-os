@@ -27,9 +27,13 @@
 - Cùng con thực hiện bài kiểm tra chẩn đoán các môn (Toán học, Tiếng Việt, Tiếng Anh, Khoa học, Tư duy phản biện) hoặc nhấn **Tổng hợp đánh giá đầu vào**.
 - Đọc bảng tóm tắt kết quả: nhận biết những kỹ năng con đã vững và những phần con cần củng cố thêm.
 
-#### Bước 3: Phê duyệt bài học (`/parent/lessons`)
+#### Bước 3: Phê duyệt bài học (`/parent/lessons` hoặc từ Terminal)
 - Vào mục **Quản lý bài học**.
 - Xem danh sách bài học và nhấn **Duyệt bài học** cho những bài con sẽ học (phê duyệt được tách riêng cho từng bé và từng phiên bản bài học).
+- **Mẹo nhanh trên Terminal:** Ba mẹ có thể duyệt một lần toàn bộ 25 bài học Lớp 4 cho bé Tài bằng lệnh:
+  ```bash
+  npm run household:approve-lessons
+  ```
 - *Lưu ý:* Con chỉ nhìn thấy và làm bài đối với những bài học đã được ba mẹ bấm duyệt cho đúng hồ sơ của con.
 
 #### Bước 4: Tạo kế hoạch học tập 4 tuần (`/parent/planner`) & Đặt mục tiêu học tập (`/parent`)
@@ -48,7 +52,18 @@
      npm run unlock:parent
      ```
 2. **Sao lưu dữ liệu định kỳ:**
-   - Để lưu giữ toàn bộ nhật ký học tập của con ra file an toàn:
+   - Để lưu giữ toàn bộ nhật ký học tập của con ra file an toàn (hoặc mã hóa AES-256-GCM với `--passphrase`):
      ```bash
      npm run export:learner -- ./backup-tai-2026.json
+     npm run export:learner -- ./backup-tai-2026.enc.json --passphrase "mat-khau-sao-luu"
+     ```
+3. **Kiểm tra trạng thái sẵn sàng trước buổi học (`household:preflight`):**
+   - Để kiểm tra nhanh (chỉ-đọc 100%, không ghi đĩa) xem cơ sở dữ liệu gia đình và danh sách bài học đã duyệt cho bé Tài đã sẵn sàng chưa:
+     ```bash
+     npm run household:preflight
+     ```
+4. **Làm mới cơ sở dữ liệu hộ gia đình sạch (`db:reprovision-household`):**
+   - Khi cần lưu trữ nguyên vẹn cơ sở dữ liệu hiện tại vào `backups/` và khởi tạo lại cơ sở dữ liệu gia đình sạch 100% (giữ nguyên tài khoản Phụ huynh, hồ sơ bé Tài, năm học và 50 bài học mẫu, kèm duyệt sẵn bài học theo khối lớp của con):
+     ```bash
+     npm run db:reprovision-household -- --approve-grade-lessons
      ```
