@@ -159,10 +159,12 @@ TAI LEARNING OS operates under a strict **Local Only / Production Blocked** poli
 |---|---|---|
 | TypeScript Typecheck (Worker & App) | 0 errors | **Pass** |
 | ESLint Code Quality | 0 errors | **Pass** |
-| Vitest Unit Test Suite | 16 files, 256 tests | **Pass** |
+| Vitest Unit Test Suite | 16 files, 259 tests | **Pass** |
 | Vitest Integration Test Suite (Worker + SQLite D1) | 15 files, 148 tests | **Pass** |
 | Playwright E2E Suite (Desktop, Tablet & Mobile) | 3 viewports, 54 tests | **Pass** |
 | Production Build (Vite & Worker bundle) | Clean build | **Pass** |
+| Local D1 Schema Migration (`npm run db:migrate`) | `DatabaseSync` read-only fast path (`{ readOnly: true }`), atomic transactions | **Pass** |
+| Local D1 SQL Dump (`npm run db:dump`) | `DatabaseSync` read-only (`{ readOnly: true }`), excludes `parents`/`auth_throttles` data | **Pass** |
 | Local D1 Data Export (`npm run export:learner`) | Valid JSON envelope, strictly read-only | **Pass** |
 | Household Preflight (`npm run household:preflight`) | Read-only `DatabaseSync` (`{ readOnly: true }`), zero disk writes | **Pass** |
 | Household Lesson Approval (`npm run household:approve-lessons`) | Atomic, idempotent approval + `audit_events` | **Pass** |

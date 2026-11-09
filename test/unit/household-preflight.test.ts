@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { listShippedMigrationFiles } from "../../scripts/migrate-local-d1.mjs";
 import { matchRoute } from "../../src/client/routing";
 import {
   inspectDevVarsText,
@@ -17,22 +18,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..");
 const MIGRATIONS_DIR = join(REPO_ROOT, "migrations");
 
-const MIGRATION_FILES = [
-  "0001_initial_schema.sql",
-  "0002_reference_content.sql",
-  "0003_curriculum_and_trust_closure.sql",
-  "0004_evidence_integrity.sql",
-  "0005_organization_and_consent.sql",
-  "0006_lesson_authoring_and_assignments.sql",
-  "0007_learner_version_approvals_and_session_continuation.sql",
-  "0008_grade4_curriculum_expansion.sql",
-  "0009_version_snapshots_and_legacy_approval_hardening.sql",
-  "0010_phase3_science_debate_and_school_years.sql",
-  "0011_science_and_debate_parity.sql",
-  "0012_family_practice_and_version_lineage.sql",
-  "0013_practice_planner_and_classroom_progress.sql",
-  "0014_grade5_curriculum_expansion.sql",
-];
+const MIGRATION_FILES = listShippedMigrationFiles();
 
 function createInMemoryMigratedD1(): { db: D1Database; raw: DatabaseSync } {
   const raw = new DatabaseSync(":memory:");
