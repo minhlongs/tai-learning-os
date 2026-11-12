@@ -51,6 +51,6 @@
   - Trạng thái `RETAINED` (Ghi nhớ bền vững) chỉ đạt được khi học sinh vượt qua bài ôn tập định kỳ (`isReview`) một cách độc lập.
   - Nếu học sinh thất bại trong lần ôn tập (`isReview` và `outcome === 'incorrect'`), trạng thái năng lực lập tức bị hạ về `INDEPENDENT`.
 - **Lập lịch lặp lại ngắt quãng (`scheduleReview`):**
-  - Thang dãn cách tiêu chuẩn: `[1, 3, 7, 14]` ngày.
+  - Thang dãn cách tiêu chuẩn: `[1, 3, 7, 14]` ngày. **[ĐÃ THAY THẾ]** Khoảng cách ôn tập nay do FSRS-6 (`ts-fsrs` 6.0.0) tính toán — xem `docs/adr/ADR-002-fsrs-spaced-review.md`. Ghi chép này giữ nguyên trạng thái tại thời điểm kiểm toán Gate 02.
   - Khi trượt bài ôn tập, khoảng thời gian ôn tập lập tức bị reset về `1` ngày (`failureRetryDays`), đồng thời ghi nhận `failureStreak = 1` để phụ huynh theo dõi.
   - Nếu chuỗi thất bại liên tiếp $\ge 3$, cờ `needsParentAttention` sẽ được bật để yêu cầu phụ huynh vào can thiệp hỗ trợ.

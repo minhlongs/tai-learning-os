@@ -74,6 +74,8 @@ export async function buildLearnerExportEnvelope(
     sessions,
     attempts,
     evidence,
+    evidenceObservations,
+    skillEstimates,
     reviewRows,
     goals,
     auditEvents,
@@ -115,6 +117,8 @@ export async function buildLearnerExportEnvelope(
         .all<Record<string, unknown>>(),
       repo.listAttemptsForLearner(db, learner.id),
       repo.listSkillEvidenceForLearner(db, learner.id),
+      repo.listEvidenceObservationsForLearner(db, learner.id),
+      repo.listSkillEstimatesForLearner(db, learner.id),
       repo.listReviewScheduleForLearner(db, learner.id),
       repo.listGoalsForLearner(db, learner.id),
       db
@@ -410,6 +414,36 @@ export async function buildLearnerExportEnvelope(
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     })),
+    skillEvidenceObservations: evidenceObservations.map((o) => ({
+      id: o.id,
+      learnerId: o.learner_id,
+      skillId: o.skill_id,
+      attemptId: o.attempt_id,
+      observedKind: o.observed_kind,
+      helpLevel: o.help_level,
+      attemptNo: o.attempt_no,
+      observedAt: o.observed_at,
+      createdAt: o.created_at,
+    })),
+    skillEstimates: skillEstimates.map((s) => ({
+      id: s.id,
+      learnerId: s.learner_id,
+      skillId: s.skill_id,
+      stability: s.stability,
+      difficulty: s.difficulty,
+      retrievabilityAt: s.retrievability_at,
+      reps: s.reps,
+      lapses: s.lapses,
+      fsrsState: s.fsrs_state,
+      scheduledDays: s.scheduled_days,
+      lastReviewAt: s.last_review_at,
+      modelVersion: s.model_version,
+      computedAt: s.computed_at,
+      attemptWatermark: s.attempt_watermark,
+      attemptCount: s.attempt_count,
+      createdAt: s.created_at,
+      updatedAt: s.updated_at,
+    })),
     learningGoals: goals.map((g) => ({
       id: g.id,
       learnerId: g.learner_id,
@@ -650,6 +684,14 @@ export const importRecord: Handler = async (context) => {
           learnerId: retarget(learnerIds, row.learnerId),
         })),
         skillEvidence: data.skillEvidence.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
+        skillEvidenceObservations: (data.skillEvidenceObservations ?? []).map((row) => ({
+          ...row,
+          learnerId: retarget(learnerIds, row.learnerId),
+        })),
+        skillEstimates: (data.skillEstimates ?? []).map((row) => ({
+          ...row,
+          learnerId: retarget(learnerIds, row.learnerId),
+        })),
         reviewSchedule: data.reviewSchedule.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
         baselineAssessments: (data.baselineAssessments ?? []).map((row) => ({
           ...row,
@@ -1218,6 +1260,13 @@ async function importCollections(
       .run();
   }
 
+  // Attempts, derived evidence, and review schedules are one logical unit: the
+  // evidence counts and due dates are a function of the attempt history, so a
+  // commit that lands some attempts without their matching evidence would leave
+  // the restored record describing a learner who never did what the rows say.
+  // They therefore accumulate into a single statement list and commit together.
+  const evidenceStatements: D1PreparedStatement[] = [];
+
   const sessionsById = new Map(data.learningSessions.map((s) => [s.id, s]));
   for (const attempt of data.learningAttempts) {
     const parentSession = sessionsById.get(attempt.sessionId);
@@ -1226,55 +1275,113 @@ async function importCollections(
       (parentSession ? isPracticeLesson(parentSession.lessonId) || parentSession.purpose === "practice" : false)
         ? "practice"
         : (attempt.purpose ?? "official");
-    await repo.recordAttempt(db, {
-      id: attempt.id,
-      sessionId: attempt.sessionId,
-      learnerId: attempt.learnerId,
-      lessonId: attempt.lessonId,
-      stepId: attempt.stepId,
-      stepVersion: attempt.stepVersion,
-      skillId: attempt.skillId,
-      submitted: JSON.stringify(attempt.submitted),
-      outcome: attempt.outcome,
-      helpLevel: attempt.helpLevel,
-      evidenceKind: attemptPurpose === "practice" ? "assisted" : attempt.evidenceKind,
-      attemptNo: attempt.attemptNo,
-      purpose: attemptPurpose,
-      now: attempt.createdAt,
-    });
+    evidenceStatements.push(
+      repo.attemptInsert(db, {
+        id: attempt.id,
+        sessionId: attempt.sessionId,
+        learnerId: attempt.learnerId,
+        lessonId: attempt.lessonId,
+        stepId: attempt.stepId,
+        stepVersion: attempt.stepVersion,
+        skillId: attempt.skillId,
+        submitted: JSON.stringify(attempt.submitted),
+        outcome: attempt.outcome,
+        helpLevel: attempt.helpLevel,
+        evidenceKind: attemptPurpose === "practice" ? "assisted" : attempt.evidenceKind,
+        attemptNo: attempt.attemptNo,
+        purpose: attemptPurpose,
+        now: attempt.createdAt,
+      }),
+    );
   }
 
   // Evidence is restored verbatim, INCLUDING a parent correction: the import
   // must not silently re-derive and thereby overwrite a recorded decision.
   for (const row of data.skillEvidence) {
-    await repo.upsertSkillEvidence(db, {
-      id: row.id,
-      learnerId: row.learnerId,
-      skillId: row.skillId,
-      state: row.state,
-      independentCount: row.independentCount,
-      assistedCount: row.assistedCount,
-      correctCount: row.correctCount,
-      lastIndependentAt: row.lastIndependentAt,
-      lastObservedAt: row.lastObservedAt,
-      source: row.source,
-      correctionNote: row.correctionNote,
-      now: row.updatedAt,
-    });
+    evidenceStatements.push(
+      repo.skillEvidenceUpsert(db, {
+        id: row.id,
+        learnerId: row.learnerId,
+        skillId: row.skillId,
+        state: row.state,
+        independentCount: row.independentCount,
+        assistedCount: row.assistedCount,
+        correctCount: row.correctCount,
+        lastIndependentAt: row.lastIndependentAt,
+        lastObservedAt: row.lastObservedAt,
+        source: row.source,
+        correctionNote: row.correctionNote,
+        now: row.updatedAt,
+      }),
+    );
   }
 
   for (const row of data.reviewSchedule) {
-    await repo.upsertReviewSchedule(db, {
-      id: row.id,
-      learnerId: row.learnerId,
-      skillId: row.skillId,
-      dueAt: row.dueAt,
-      intervalDays: row.intervalDays,
-      lastResult: row.lastResult ?? "failed",
-      lastAttemptAt: row.lastAttemptAt ?? row.createdAt,
-      failureStreak: row.failureStreak,
-      now: row.updatedAt,
-    });
+    evidenceStatements.push(
+      repo.reviewScheduleUpsert(db, {
+        id: row.id,
+        learnerId: row.learnerId,
+        skillId: row.skillId,
+        dueAt: row.dueAt,
+        intervalDays: row.intervalDays,
+        lastResult: row.lastResult ?? "failed",
+        lastAttemptAt: row.lastAttemptAt ?? row.createdAt,
+        failureStreak: row.failureStreak,
+        now: row.updatedAt,
+      }),
+    );
+  }
+
+  // Layers 2 and 3 (ADR-005). Both are derived from `learningAttempts`, so they
+  // ride in the same batch as the attempts for the same reason the evidence
+  // counters do: an observation that names an attempt this commit did not write
+  // would be a dangling reference, and an estimate certifying a ledger prefix
+  // that is not there would be a claim the file cannot back.
+  for (const row of data.skillEvidenceObservations ?? []) {
+    evidenceStatements.push(
+      repo.evidenceObservationInsert(db, {
+        id: row.id,
+        learnerId: row.learnerId,
+        skillId: row.skillId,
+        attemptId: row.attemptId,
+        observedKind: row.observedKind,
+        helpLevel: row.helpLevel,
+        attemptNo: row.attemptNo,
+        observedAt: row.observedAt,
+        now: row.observedAt,
+      }),
+    );
+  }
+
+  for (const row of data.skillEstimates ?? []) {
+    evidenceStatements.push(
+      repo.skillEstimateUpsert(db, {
+        id: row.id,
+        learnerId: row.learnerId,
+        skillId: row.skillId,
+        stability: row.stability,
+        difficulty: row.difficulty,
+        retrievabilityAt: row.retrievabilityAt,
+        reps: row.reps,
+        lapses: row.lapses,
+        fsrsState: row.fsrsState,
+        scheduledDays: row.scheduledDays,
+        lastReviewAt: row.lastReviewAt,
+        modelVersion: row.modelVersion,
+        attemptWatermark: row.attemptWatermark,
+        attemptCount: row.attemptCount,
+        // `computedAt` keeps the instant the model produced these numbers; the
+        // upsert's `now` stamps created/updated the way the review-schedule
+        // restore does, because the export's `updatedAt` is the last time this
+        // estimate changed, which is what a restored row should report.
+        computedAt: row.computedAt,
+        now: row.updatedAt,
+      }),
+    );
+  }
+
+  if (evidenceStatements.length > 0) {
+    await db.batch(evidenceStatements);
   }
 
   // Goals are written directly rather than through `createGoal`, which would

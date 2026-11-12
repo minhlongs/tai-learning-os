@@ -42,6 +42,8 @@ export type ExportBody = {
   learningSessions: LearningSessionExport[];
   learningAttempts: LearningAttemptExport[];
   skillEvidence: SkillEvidenceExport[];
+  skillEvidenceObservations?: SkillEvidenceObservationExport[];
+  skillEstimates?: SkillEstimateExport[];
   reviewSchedule: ReviewScheduleExport[];
   baselineAssessments?: BaselineAssessmentExport[];
   learningPlanItems?: LearningPlanItemExport[];
@@ -195,6 +197,48 @@ export type ReviewScheduleExport = WithId & {
   updatedAt: number;
 };
 
+/**
+ * Layer 2 of the four-layer learner model (ADR-005): what one attempt may be
+ * counted as. Carries `attemptId` so the row can be tied back to the raw
+ * observation it classifies.
+ */
+export type SkillEvidenceObservationExport = WithId & {
+  learnerId: string;
+  skillId: string;
+  attemptId: string;
+  observedKind: "independent" | "assisted" | "correction";
+  helpLevel: number;
+  attemptNo: number;
+  observedAt: number;
+  createdAt: number;
+};
+
+/**
+ * Layer 3 of the four-layer learner model (ADR-005): the FSRS-6 memory state
+ * as computed at `computedAt` from the ledger prefix ending at
+ * `attemptWatermark`. `modelVersion` travels with the numbers so an import
+ * across an FSRS upgrade keeps old estimates distinguishable rather than
+ * silently reinterpreting them under the new model.
+ */
+export type SkillEstimateExport = WithId & {
+  learnerId: string;
+  skillId: string;
+  stability: number;
+  difficulty: number;
+  retrievabilityAt: number;
+  reps: number;
+  lapses: number;
+  fsrsState: number;
+  scheduledDays: number;
+  lastReviewAt: number | null;
+  modelVersion: string;
+  computedAt: number;
+  attemptWatermark: string | null;
+  attemptCount: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type LearningGoalExport = WithId & {
   learnerId: string;
   subjectId: string | null;
@@ -336,6 +380,8 @@ export const EXPORT_COLLECTIONS = [
   "learningSessions",
   "learningAttempts",
   "skillEvidence",
+  "skillEvidenceObservations",
+  "skillEstimates",
   "reviewSchedule",
   "baselineAssessments",
   "learningPlanItems",
@@ -412,6 +458,11 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     "baselineAssessments",
     "learningPlanItems",
     "sessionReflections",
+    // Layers 2 and 3 postdate the first export format, so a file written before
+    // them must still import. Absent means "this backup has no such layer",
+    // which is recoverable from `learningAttempts`; absent is not "empty".
+    "skillEvidenceObservations",
+    "skillEstimates",
   ]);
 
   for (const key of EXPORT_COLLECTIONS) {
@@ -946,6 +997,74 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     }
     if (observedCount > 1) {
       errors.push("Một bước học không thể có nhiều hơn một lượt làm bài độc lập (observed).");
+    }
+  }
+
+  // Layers 2 and 3 (ADR-005). Both are derived from `learningAttempts`, so an
+  // import must refuse an observation that names an attempt the file does not
+  // contain, or an estimate whose watermark points at nothing: either would
+  // reintroduce exactly the drift the watermark exists to catch.
+  const exportedAttemptIds = new Set(data.learningAttempts.map((a) => a.id));
+  const OBSERVED_KINDS = ["independent", "assisted", "correction"] as const;
+  for (const row of data.skillEvidenceObservations ?? []) {
+    if (!exportedLearnerIds.has(row.learnerId)) {
+      errors.push(`Quan sát bằng chứng ${row.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+    if (!OBSERVED_KINDS.includes(row.observedKind)) {
+      errors.push(`Loại quan sát bằng chứng không hợp lệ: ${String(row.observedKind)}`);
+    }
+    if (!Number.isInteger(row.helpLevel) || row.helpLevel < 0 || row.helpLevel > 4) {
+      errors.push(`Quan sát bằng chứng ${row.id} có mức gợi ý ngoài khoảng 0..4.`);
+    }
+    if (exportedAttemptIds.size > 0 && !exportedAttemptIds.has(row.attemptId)) {
+      errors.push(
+        `Quan sát bằng chứng ${row.id} tham chiếu đến lượt làm bài không có trong tệp (${row.attemptId}).`,
+      );
+    }
+    if (typeof row.observedAt !== "number" || !Number.isFinite(row.observedAt)) {
+      errors.push(`Quan sát bằng chứng ${row.id} thiếu thời điểm quan sát hợp lệ.`);
+    }
+  }
+  for (const row of data.skillEstimates ?? []) {
+    if (!exportedLearnerIds.has(row.learnerId)) {
+      errors.push(`Ước lượng ghi nhớ ${row.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+    if (
+      typeof row.retrievabilityAt !== "number" ||
+      !Number.isFinite(row.retrievabilityAt) ||
+      row.retrievabilityAt < 0 ||
+      row.retrievabilityAt > 1
+    ) {
+      errors.push(`Ước lượng ghi nhớ ${row.id} có retrievabilityAt ngoài khoảng 0..1.`);
+    }
+    const nonNegativeIntegers: [string, number][] = [
+      ["reps", row.reps],
+      ["lapses", row.lapses],
+      ["scheduledDays", row.scheduledDays],
+      ["attemptCount", row.attemptCount],
+    ];
+    for (const [field, value] of nonNegativeIntegers) {
+      if (!Number.isInteger(value) || value < 0) {
+        errors.push(`Ước lượng ghi nhớ ${row.id} có ${field} không phải số nguyên không âm.`);
+      }
+    }
+    if (!Number.isInteger(row.fsrsState) || row.fsrsState < 0 || row.fsrsState > 3) {
+      errors.push(`Ước lượng ghi nhớ ${row.id} có fsrsState ngoài khoảng 0..3.`);
+    }
+    if (typeof row.modelVersion !== "string" || row.modelVersion.trim().length === 0) {
+      errors.push(`Ước lượng ghi nhớ ${row.id} thiếu modelVersion.`);
+    }
+    // The watermark is the drift proof. When it names an attempt, that attempt
+    // must be in the file; a watermark pointing nowhere would certify an
+    // estimate against history the importer cannot see.
+    if (
+      row.attemptWatermark !== null &&
+      exportedAttemptIds.size > 0 &&
+      !exportedAttemptIds.has(row.attemptWatermark)
+    ) {
+      errors.push(
+        `Ước lượng ghi nhớ ${row.id} có attemptWatermark không nằm trong tệp (${row.attemptWatermark}).`,
+      );
     }
   }
 

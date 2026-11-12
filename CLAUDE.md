@@ -21,7 +21,7 @@
    - No generative AI / LLM chat in learner mode.
    - Evidence (`learning_attempts`) is append-only and separated from interpretation (`skill_evidence`).
    - Any hint usage (`helpLevel >= 1`) or retry (`attemptNo > 1`) designates an attempt as `assisted` (`SUPPORTED`), never `observed` (`INDEPENDENT`).
-   - Spaced review uses a deterministic `[1, 3, 7, 14]` day ladder (`src/shared/engine/review.ts`).
+   - Spaced review intervals are computed by FSRS-6 (`ts-fsrs` 6.0.0) in `src/shared/engine/review.ts`, with fuzzing disabled so the same attempt history always yields the same interval. Failure retry (1 day), the assisted-solve retry (1 day), the 30-day ceiling and the 3-failure parent escalation are policy rules of this project, not FSRS defaults. See `docs/adr/ADR-002-fsrs-spaced-review.md`.
 4. **Parent Governance & Security**:
    - Stateless HMAC-SHA256 session cookie (`tlo_session`, `HttpOnly`, `SameSite=Strict`, 8h TTL) with explicit `mode` claim (`parent` vs `learner`) + double-submit CSRF header (`x-tlo-csrf`).
    - Passwords hashed with PBKDF2-SHA256 (600,000 iterations, 16-byte random salt, transparent `needsRehash` migration from 100,000 iterations).
@@ -40,7 +40,7 @@
 # Install dependencies
 npm install
 
-# Apply local D1 migrations (0001_initial_schema.sql through 0014_grade5_curriculum_expansion.sql)
+# Apply local D1 migrations (0001_initial_schema.sql through 0015_four_layer_learner_model.sql)
 npm run db:migrate
 npm run db:dump -- --output ./dump.sql # Read-only SQLite SQL dump (excludes parents/auth_throttles data)
 
@@ -53,8 +53,8 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (16 files, 260 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (15 files, 148 tests)
+npm run test               # Vitest unit tests (21 files, 349 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (19 files, 200 tests)
 npm run test:e2e           # Playwright E2E browser tests (54 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + validate:lessons + build
 
@@ -75,10 +75,11 @@ npm run household:approve-lessons # Idempotently approve catalogue/family lesson
 
 - [`README.md`](README.md) — Quick-start and bilingual project overview
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Component map, authority boundaries, and data flows
-- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — 22 D1 tables, evidence/provenance split, and absent PII matrix
+- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — 35 D1 tables, evidence/provenance split, and absent PII matrix
 - [`docs/LEARNING_ENGINE.md`](docs/LEARNING_ENGINE.md) — Teaching sequence, hint policy, mastery states, and review ladder
 - [`docs/CURRICULUM_ARCHITECTURE.md`](docs/CURRICULUM_ARCHITECTURE.md) — GDPT 2018 objective registry, content versioning, and competency derivation
 - [`docs/BASELINE_ASSESSMENT.md`](docs/BASELINE_ASSESSMENT.md) — Parent-supervised diagnostic baseline architecture
+- [`docs/BASELINE_PROTOCOL.md`](docs/BASELINE_PROTOCOL.md) — Bilingual baseline + 14/30-day delayed-retention measurement protocol, report states, and how to read `correctRate: null`
 - [`docs/FOUR_WEEK_LEARNING_PLAN.md`](docs/FOUR_WEEK_LEARNING_PLAN.md) — Priority-based 4-week planner and schedule states
 - [`docs/PARENT_PILOT_GUIDE.md`](docs/PARENT_PILOT_GUIDE.md) — Step-by-step parent pilot and operational guide
 - [`docs/SECURITY.md`](docs/SECURITY.md) — Threat model, PBKDF2-SHA256 (600,000 iterations), D1 auth throttling, CSRF, and owner-scoped SQL
@@ -92,3 +93,6 @@ npm run household:approve-lessons # Idempotently approve catalogue/family lesson
 - [`docs/audits/GATE_02_RELEASE_DECISION.md`](docs/audits/GATE_02_RELEASE_DECISION.md) — Gate 02 verification verdict & local-only policy enforcement
 - [`docs/audits/GATE_03_REPORT.md`](docs/audits/GATE_03_REPORT.md) — Comprehensive Gate 03 execution and verification report
 - [`docs/audits/GATE_03_SECURITY_CLOSURE.md`](docs/audits/GATE_03_SECURITY_CLOSURE.md) — Gate 03 security closure, PBKDF2 600k upgrade, and D1 throttling audit
+- [`docs/audits/G0_G16_AUDIT_MATRIX.md`](docs/audits/G0_G16_AUDIT_MATRIX.md) — Every gate G0–G16 with its command, measured output, and verdict, plus the Mission B firewall evidence
+- [`docs/audits/MISSION_B_PUBLIC_REPO_RISK.md`](docs/audits/MISSION_B_PUBLIC_REPO_RISK.md) — What the public repository exposes, what it does not, and the residual child-identifier risk
+- [`wrangler.mission-b.jsonc`](wrangler.mission-b.jsonc) — Mission B (commercial) firewall config, deliberately not deployable and not wired to any run path

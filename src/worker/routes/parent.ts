@@ -1637,6 +1637,7 @@ export const evaluateBaselineAssessment: Handler = async (context) => {
       helpLevel: a.help_level,
       attemptNo: a.attempt_no,
       skillId: a.skill_id,
+      evidenceKind: a.evidence_kind,
     }));
 
   const evalResult = evaluateBaselineDiagnostic({

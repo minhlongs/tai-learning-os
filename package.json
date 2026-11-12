@@ -31,11 +31,15 @@
     "export:learner": "node scripts/export-learner.mjs",
     "backup:drill": "node scripts/backup-restore-drill.mjs",
     "validate:lessons": "node scripts/validate-lessons.mjs",
+    "curriculum:coverage": "node scripts/curriculum-coverage.mjs",
+    "retention:report": "node scripts/retention-report.mjs",
+    "retention:drill": "node scripts/retention-drill.mjs",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run validate:lessons && npm run build"
   },
   "dependencies": {
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "ts-fsrs": "6.0.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.65.0",

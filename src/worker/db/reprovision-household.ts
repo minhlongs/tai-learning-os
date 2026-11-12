@@ -10,7 +10,7 @@
  *      current school-year record via `extractHouseholdIdentity(db)`.
  *   2. Disposes the D1 proxy and archives the `.wrangler/state` SQLite files into
  *      `backups/household-db-archive-<timestamp>/`.
- *   3. Opens a brand-new local D1 database, applies all shipped migrations (`0001`–`0014`),
+ *   3. Opens a brand-new local D1 database, applies all shipped migrations (`0001`–`0015`),
  *      seeds the 50 shipped catalogue lessons, restores the household identity via
  *      `restoreHouseholdIdentity(db, snapshot, now)`, and verifies the resulting
  *      clean state via `verifyCleanHouseholdState(db)`.
@@ -63,6 +63,14 @@ export interface CleanHouseholdVerificationReport {
   learningSessionsCount: number;
   learningAttemptsCount: number;
   skillEvidenceCount: number;
+  /**
+   * Layers 2 and 3 (ADR-005). Counted separately from `skillEvidenceCount`
+   * because a database can hold zero competency rows and still carry a stale
+   * estimate derived from attempts that were deleted — exactly the drift these
+   * layers exist to make visible.
+   */
+  skillEvidenceObservationCount: number;
+  skillEstimateCount: number;
   auditEventsCount: number;
   auditActions: string[];
 }
@@ -298,7 +306,7 @@ export async function restoreHouseholdIdentity(
 }
 
 /**
- * Verifies that a reprovisioned household D1 database has all schema v14 protections,
+ * Verifies that a reprovisioned household D1 database has all schema v15 protections,
  * all 50 shipped catalogue lessons, zero simulated B2B2C or E2E rows, and only
  * legitimate household identity provenance in `audit_events`.
  */
@@ -348,6 +356,8 @@ export async function verifyCleanHouseholdState(
          (SELECT COUNT(*) FROM learning_sessions) AS learning_sessions_count,
          (SELECT COUNT(*) FROM learning_attempts) AS learning_attempts_count,
          (SELECT COUNT(*) FROM skill_evidence) AS skill_evidence_count,
+         (SELECT COUNT(*) FROM skill_evidence_observation) AS skill_evidence_observation_count,
+         (SELECT COUNT(*) FROM skill_estimate) AS skill_estimate_count,
          (SELECT COUNT(*) FROM audit_events) AS audit_events_count`,
     )
     .first<{
@@ -362,6 +372,8 @@ export async function verifyCleanHouseholdState(
       learning_sessions_count: number;
       learning_attempts_count: number;
       skill_evidence_count: number;
+      skill_evidence_observation_count: number;
+      skill_estimate_count: number;
       audit_events_count: number;
     }>();
 
@@ -385,13 +397,15 @@ export async function verifyCleanHouseholdState(
     learningSessionsCount: Number(counts?.learning_sessions_count ?? 0),
     learningAttemptsCount: Number(counts?.learning_attempts_count ?? 0),
     skillEvidenceCount: Number(counts?.skill_evidence_count ?? 0),
+    skillEvidenceObservationCount: Number(counts?.skill_evidence_observation_count ?? 0),
+    skillEstimateCount: Number(counts?.skill_estimate_count ?? 0),
     auditEventsCount: Number(counts?.audit_events_count ?? 0),
     auditActions,
   };
 
-  if (report.schemaVersion < 14) {
+  if (report.schemaVersion < 15) {
     throw new Error(
-      `Household DB verification failed: expected schemaVersion >= 14, found ${report.schemaVersion}`,
+      `Household DB verification failed: expected schemaVersion >= 15, found ${report.schemaVersion}`,
     );
   }
   if (report.lessonsCount !== 50 || report.lessonVersionsCount !== 50) {
@@ -408,7 +422,9 @@ export async function verifyCleanHouseholdState(
     report.classroomsCount !== 0 ||
     report.learningSessionsCount !== 0 ||
     report.learningAttemptsCount !== 0 ||
-    report.skillEvidenceCount !== 0
+    report.skillEvidenceCount !== 0 ||
+    report.skillEvidenceObservationCount !== 0 ||
+    report.skillEstimateCount !== 0
   ) {
     throw new Error(
       `Household DB verification failed: simulated or stale rows remain ` +
@@ -416,7 +432,9 @@ export async function verifyCleanHouseholdState(
         `schoolYearsCount=${report.schoolYearsCount}, auditEventsCount=${report.auditEventsCount}, ` +
         `organizationsCount=${report.organizationsCount}, classroomsCount=${report.classroomsCount}, ` +
         `learningSessionsCount=${report.learningSessionsCount}, learningAttemptsCount=${report.learningAttemptsCount}, ` +
-        `skillEvidenceCount=${report.skillEvidenceCount})`,
+        `skillEvidenceCount=${report.skillEvidenceCount}, ` +
+        `skillEvidenceObservationCount=${report.skillEvidenceObservationCount}, ` +
+        `skillEstimateCount=${report.skillEstimateCount})`,
     );
   }
 

@@ -86,9 +86,10 @@ async function login(): Promise<void> {
 
 beforeAll(async () => {
   proxy = await openTestDatabase();
-  // `ENVIRONMENT: "development"` is what the shipped wrangler.jsonc sets, and it
-  // is what lets first-run bootstrap work without a pre-seeded password hash.
-  // The test env mirrors the shipped one so the gate under test is the real one.
+  // `ENVIRONMENT: "development"` is what a local `.dev.vars` sets, and it is
+  // what lets first-run bootstrap work without a pre-seeded password hash.
+  // It is deliberately absent from `wrangler.jsonc`, so a deploy inherits the
+  // strict config guard instead of this bypass.
   env = {
     DB: proxy.env.DB as unknown as D1Database,
     SESSION_SECRET: TEST_SECRET,

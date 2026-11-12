@@ -24,7 +24,7 @@ Supreme Command #03 mở rộng TAI LEARNING OS từ nền tảng khung MVP sang
 3. **Phase C (Curriculum Engine - Động cơ chương trình):**
    - Bảng cơ sở dữ liệu `curriculum_objectives`, `skill_prerequisites`, `lesson_metadata`.
    - Cơ chế bảo toàn phiên bản: khi bài học cập nhật nội dung, tăng `version` và `step_version`, đánh dấu bài học cần phụ huynh duyệt lại (`pendingReapproval`), bảo toàn 100% các bản ghi lịch sử `learning_attempts` với `step_version` gốc mà không xóa hay diễn giải sai lịch sử.
-   - Động cơ suy diễn năng lực 5 bậc (`NOT_OBSERVED` → `EMERGING` → `SUPPORTED` → `INDEPENDENT` → `TRANSFERRED` / `RETAINED`) phản ánh trung thực bài tập độc lập vs có trợ giúp, và tự động hạ bậc về `INDEPENDENT` khi thất bại trong các phiên ôn tập định kỳ sau đó.
+   - Động cơ suy diễn năng lực 5 bậc (`NOT_OBSERVED` → `SUPPORTED` → `INDEPENDENT` → `RETAINED` → `TRANSFERRED`, đúng bộ `COMPETENCY_STATES` tại `src/shared/schemas/attempt.ts:25`) phản ánh trung thực bài tập độc lập vs có trợ giúp, và tự động hạ bậc về `INDEPENDENT` khi thất bại trong các phiên ôn tập định kỳ sau đó.
 4. **Phase D (Baseline Assessment - Đánh giá đầu vào):**
    - Màn hình chẩn đoán đầu vào phụ huynh `/parent/baseline` (`BaselineAssessmentScreen.tsx`) và API `GET/POST /api/parent/baseline`.
    - Đánh giá có phụ huynh giám sát cho 3 môn Toán, Đọc hiểu Tiếng Việt và Tiếng Anh lớp 4 dựa trên bộ bài tập chẩn đoán chuẩn mực, tách bạch: cái đã quan sát được, cái được bằng chứng hỗ trợ, kỹ năng cần thêm quan sát, bài học đề xuất bắt đầu và cảnh báo mục phụ huynh cần duyệt.

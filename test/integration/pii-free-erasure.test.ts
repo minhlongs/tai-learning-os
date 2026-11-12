@@ -240,6 +240,8 @@ describe("PII-free audit ledger and complete learner erasure", () => {
       "learning_plan_items",
       "baseline_assessments",
       "curriculum_intakes",
+      "skill_evidence_observation",
+      "skill_estimate",
       "learning_attempts",
       "learning_sessions",
       "skill_evidence",

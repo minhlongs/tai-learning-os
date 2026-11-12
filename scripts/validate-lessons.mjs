@@ -1,90 +1,89 @@
 /**
  * CLI Lesson Authoring Validator (`npm run validate:lessons`).
  *
- * Validates every lesson in `src/shared/content/index.ts` offline (no D1 needed):
- *   1. Exercise schema & answerKey consistency via `validateRegistry()`.
- *   2. Required pedagogy sequence (`concept` first, `independent` present, `transfer` last).
- *   3. Progressive hints (`hint1_vi`, `hint2_vi`, `hint3_vi` non-empty and distinct).
- *   4. Explanations must not cite a choice by letter: the learner's payload
- *      renders options without letters, so a "Câu a" reference both contradicts
- *      the answer key after a relabel and discloses answer position.
- *   5. Zero answer-key leakage after `toLearnerExercise()`.
+ * Nine stages, in this order, over every lesson in `src/shared/content/index.ts`.
+ * The rules themselves live in `test/integration/lesson-seed.ts` — the same
+ * module `seedLessons()` runs — so a lesson this CLI accepts is a lesson the
+ * seed also accepts, and the authoring CLI cannot drift away from the write
+ * path. This script owns only how the result is reported.
+ *
+ *   1. identity       — lesson id unique, step positions run 1..n with no gap
+ *   2. curriculum     — an objectiveId, correctly shaped and present in the graph
+ *   3. rights         — an explicit provenance and a non-empty sourceRef
+ *   4. schema         — every step's content passes `validateExercise()`
+ *   5. answer-key     — the stored answerKey matches the exercise's correct answer
+ *   6. pedagogy       — concept first, independent present, transfer last
+ *   7. hints          — hint1_vi / hint2_vi / hint3_vi non-empty and distinct
+ *   8. explanation    — never cites a choice by letter ("Câu a"), because the
+ *                       learner's payload renders options without letters
+ *   9. answer-leak    — zero answer-bearing fields survive `toLearnerExercise()`
+ *
+ * Stage 3 exists because rights are not derivable. `lesson_metadata` defaults
+ * `provenance` to 'original_supplemental' and allows `source_ref` to be NULL,
+ * so a lesson that omits both is stored as a rights claim nobody made. The gate
+ * refuses that here rather than letting the default answer for the family.
+ *
+ * Exit 0 and one summary line when the registry is sound; exit 1 listing every
+ * problem, grouped by stage, when it is not.
  */
 import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 
 registerTsSpecifiers();
 
 const { LESSONS } = await import("../src/shared/content/index.ts");
-const { validateRegistry } = await import("../test/integration/lesson-seed.ts");
-const { toLearnerExercise, leaksAnswer } = await import("../src/shared/schemas/exercise.ts");
+const { validateRegistry, validateAuthoringStages, VALIDATION_STAGES } = await import(
+  "../test/integration/lesson-seed.ts"
+);
 
-const problems = [...validateRegistry()];
+const problems = [...validateRegistry(), ...validateAuthoringStages()];
+const blocking = problems.filter((problem) => problem.severity === "blocking");
+const advisory = problems.filter((problem) => problem.severity === "advisory");
 
-for (const lesson of LESSONS) {
-  const firstKind = lesson.steps[0]?.kind;
-  const lastKind = lesson.steps[lesson.steps.length - 1]?.kind;
-  const hasIndependent = lesson.steps.some((step) => step.kind === "independent");
-
-  if (firstKind !== "concept") {
-    problems.push({
-      lessonId: lesson.id,
-      message: `first step must be "concept", got "${String(firstKind)}"`,
-    });
-  }
-  if (!hasIndependent) {
-    problems.push({
-      lessonId: lesson.id,
-      message: `must contain at least one "independent" step`,
-    });
-  }
-  if (lastKind !== "transfer") {
-    problems.push({
-      lessonId: lesson.id,
-      message: `last step must be "transfer", got "${String(lastKind)}"`,
-    });
-  }
-
-  for (const step of lesson.steps) {
-    const learnerPayload = toLearnerExercise(step.content);
-    if (leaksAnswer(learnerPayload)) {
-      problems.push({
-        lessonId: lesson.id,
-        message: `step ${step.position}: toLearnerExercise() leaked an answer-bearing field`,
-      });
-    }
-
-    if (step.content.type === "multiple_choice") {
-      const h1 = step.content.hint1_vi.trim();
-      const h2 = step.content.hint2_vi.trim();
-      const h3 = step.content.hint3_vi.trim();
-      if (new Set([h1, h2, h3]).size !== 3) {
-        problems.push({
-          lessonId: lesson.id,
-          message: `step ${step.position}: progressive hints (hint1_vi, hint2_vi, hint3_vi) must be distinct`,
-        });
-      }
-      // The learner's payload renders choices without letters, so an explanation
-      // naming one ("Câu a") cannot be matched to an option and instead
-      // contradicts the answer key whenever the positions are relabeled.
-      if (/Câu [abcd](?!\p{L})/u.test(step.explanationVi)) {
-        problems.push({
-          lessonId: lesson.id,
-          message: `step ${step.position}: explanationVi must describe the option by its text, not cite a choice letter ("Câu a")`,
-        });
-      }
-    }
+/** One block per stage, so a finding says which check produced it. */
+function report(heading, found) {
+  console.error(heading);
+  for (const stage of VALIDATION_STAGES) {
+    const bucket = found.filter((problem) => problem.stage === stage.key);
+    if (bucket.length === 0) continue;
+    console.error("");
+    console.error(`▸ ${stage.key} — ${stage.titleVi} / ${stage.titleEn}`);
+    for (const problem of bucket) console.error(`  - ${problem.lessonId}: ${problem.message}`);
   }
 }
 
-if (problems.length > 0) {
-  console.error(`validate:lessons failed with ${problems.length} problem(s):`);
-  for (const p of problems) {
-    console.error(`  - [${p.lessonId}] ${p.message}`);
+if (blocking.length > 0) {
+  report(`validate:lessons failed with ${blocking.length} blocking problem(s):`, blocking);
+  if (advisory.length > 0) {
+    console.error("");
+    report(`${advisory.length} advisory problem(s) not counted above:`, advisory);
   }
   process.exit(1);
 }
 
-const totalSteps = LESSONS.reduce((sum, l) => sum + l.steps.length, 0);
+const totalSteps = LESSONS.reduce((sum, lesson) => sum + lesson.steps.length, 0);
+
+// One line per stage, so a passing run shows which check produced the pass
+// rather than only that something did.
+for (const stage of VALIDATION_STAGES) {
+  console.log(`  ✓ ${stage.key.padEnd(12)} ${stage.titleVi} / ${stage.titleEn}`);
+}
+
 console.log(
   `validate:lessons OK — ${LESSONS.length} lessons (${totalSteps} steps) verified with 0 schema/answer-leak/pedagogy issues.`,
 );
+
+// Advisory findings do not fail the run — they are quality defects, not
+// integrity ones — but they are never silent. The count is what makes the
+// residue visible: it can shrink as content is fixed and must never grow
+// unnoticed.
+if (advisory.length > 0) {
+  console.error("");
+  report(
+    `validate:lessons advisory — ${advisory.length} learner-facing string(s) cite a choice the child cannot see:`,
+    advisory,
+  );
+  console.error("");
+  console.error(
+    "Advisory only: the run still exits 0. Fix these when the 50 seeded lessons are next edited.",
+  );
+}

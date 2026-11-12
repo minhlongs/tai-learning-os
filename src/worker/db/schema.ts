@@ -171,6 +171,48 @@ export type ReviewScheduleRow = {
   updated_at: number;
 };
 
+/**
+ * Layer 2 of the four-layer learner model (ADR-005): one row per (attempt,
+ * skill), classifying what that single attempt may be counted as. Append-only —
+ * a trigger rejects UPDATE.
+ */
+export type SkillEvidenceObservationRow = {
+  id: string;
+  learner_id: string;
+  skill_id: string;
+  attempt_id: string;
+  observed_kind: "independent" | "assisted" | "correction";
+  help_level: number;
+  attempt_no: number;
+  observed_at: number;
+  created_at: number;
+};
+
+/**
+ * Layer 3 of the four-layer learner model (ADR-005): the FSRS-6 memory state as
+ * computed at a stated instant from a stated ledger prefix. Derived data —
+ * `learning_attempts` remains the authority.
+ */
+export type SkillEstimateRow = {
+  id: string;
+  learner_id: string;
+  skill_id: string;
+  stability: number;
+  difficulty: number;
+  retrievability_at: number;
+  reps: number;
+  lapses: number;
+  fsrs_state: number;
+  scheduled_days: number;
+  last_review_at: number | null;
+  model_version: string;
+  computed_at: number;
+  attempt_watermark: string | null;
+  attempt_count: number;
+  created_at: number;
+  updated_at: number;
+};
+
 export type LearningGoalRow = {
   id: string;
   learner_id: string;

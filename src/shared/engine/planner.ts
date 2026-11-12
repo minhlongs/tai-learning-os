@@ -5,13 +5,14 @@
  *
  * Principles:
  * 1. Prioritize prerequisite gaps discovered in baseline assessments or session attempts.
- * 2. Interleave spaced retrieval practice (review intervals: 1, 3, 7, 14 days).
+ * 2. Interleave spaced retrieval practice (intervals computed by FSRS-6 in `review.ts`).
  * 3. Respect configurable weekly workload (default 3 sessions/week, ~20 mins).
  * 4. Transparent provenance labels (GDPT 2018, parent textbook, original supplemental, unverified assumption).
  * 5. Allow parent full editing/rescheduling/skipping authority.
  */
 
-import type { ApprovalStatus, CompetencyState } from "../schemas/attempt";
+import type { ApprovalStatus, CompetencyState, EvidenceKind } from "../schemas/attempt";
+import { isIndependentAttempt } from "./competency";
 
 export type ProvenanceLabel =
   | "gdpt_2018_objective"
@@ -178,7 +179,29 @@ export interface BaselineDiagnosticInput {
     helpLevel: number;
     attemptNo: number;
     skillId: string | null;
+    /** Stored provenance of the attempt. Defaults to `observed` when omitted. */
+    evidenceKind?: EvidenceKind;
   }[];
+}
+
+/**
+ * Minimal adapter so the baseline diagnostic can defer to the competency
+ * engine's single source of truth without importing the full attempt history.
+ */
+function asEvidence(
+  attempt: BaselineDiagnosticInput["attempts"][number],
+): Parameters<typeof isIndependentAttempt>[0] {
+  return {
+    attemptId: `${attempt.stepId}:${attempt.attemptNo}`,
+    skillId: attempt.skillId ?? "",
+    outcome: attempt.outcome,
+    helpLevel: attempt.helpLevel,
+    evidenceKind: attempt.evidenceKind ?? "observed",
+    attemptNo: attempt.attemptNo,
+    isTransfer: false,
+    isReview: false,
+    createdAt: 0,
+  };
 }
 
 export interface BaselineDiagnosticResult {
@@ -197,13 +220,14 @@ export function evaluateBaselineDiagnostic(
   input: BaselineDiagnosticInput,
 ): BaselineDiagnosticResult {
   const { attempts } = input;
-  const independentCorrect = attempts.filter(
-    (a) => a.outcome === "correct" && a.helpLevel === 0 && a.attemptNo === 1,
-  );
+  // Independent-vs-assisted is decided by `isIndependentAttempt` alone, so the
+  // baseline diagnostic cannot drift from the competency engine. A
+  // `parent_correction` row never counts as an independent solve here either.
+  const independentCorrect = attempts.filter((a) => isIndependentAttempt(asEvidence(a)));
   const assistedOrRetried = attempts.filter(
     (a) =>
-      (a.outcome === "correct" && (a.helpLevel > 0 || a.attemptNo > 1)) ||
-      a.outcome === "partial",
+      (a.outcome === "correct" || a.outcome === "partial") &&
+      !isIndependentAttempt(asEvidence(a)),
   );
   const incorrect = attempts.filter((a) => a.outcome === "incorrect");
 

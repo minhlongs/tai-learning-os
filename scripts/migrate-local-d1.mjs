@@ -10,7 +10,7 @@
  * Key invariants:
  *   1. Read-only fast path: When the local D1 SQLite file already exists, it is
  *      first inspected with `DatabaseSync(..., { readOnly: true })`. If every
- *      shipped migration (`migrations/0001_*.sql` .. `0014_*.sql`) is already
+ *      shipped migration (`migrations/0001_*.sql` .. `0015_*.sql`) is already
  *      recorded in `d1_migrations` and all schema protection triggers/indexes
  *      are present, the read-only handle is closed and the script returns
  *      immediately with zero disk writes (preserving `SHA-256`, `size`, and
@@ -95,9 +95,9 @@ function verifySchemaInvariants(rawDb) {
     .prepare("SELECT MAX(version) AS max_version FROM schema_versions")
     .get();
   const schemaVersion = Number(versionRow?.max_version ?? 0);
-  if (schemaVersion < 14) {
+  if (schemaVersion < 15) {
     throw new Error(
-      `Schema verification failed: expected schema_versions >= 14, found ${String(versionRow?.max_version)}`,
+      `Schema verification failed: expected schema_versions >= 15, found ${String(versionRow?.max_version)}`,
     );
   }
   return schemaVersion;
