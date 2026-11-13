@@ -1,7 +1,7 @@
 # Ma trận kiểm chứng G0–G16
 
-**Ngày đo:** 2026-11-10 (G0–G16); 2026-11-13 (mục MB và số đếm bộ kiểm thử)
-**HEAD:** `c68ca1c1dc3ed8f6ac65942e3f4f78a0ca08557b`
+**Ngày đo:** 2026-11-10 (G0–G16); 2026-11-13 (mục MB, mục OPS, và số đếm bộ kiểm thử); 2026-11-13 (đo lại G0, G4, G7, G8, G11, G15 trên HEAD mới)
+**HEAD:** `535e761755eca925cb9828b3bc4ba07a783dae7a`
 **Nhánh:** `feat/mission-a-2036-foundation`
 **Máy:** macOS, Node v26.7.0, npm 11.x
 
@@ -27,7 +27,7 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 chặn mọi
 
 | Cổng | Tên | Phán quyết | Số đo chính |
 |---|---|---|---|
-| G0 | Baseline & môi trường | **PARTIAL** | HEAD `c68ca1c…`, cây làm việc **49 tệp chưa commit** (37 sửa + 12 chưa theo dõi) |
+| G0 | Baseline & môi trường | **PARTIAL** | HEAD `535e761…`, cây làm việc **21 tệp chưa commit** (20 sửa + 1 chưa theo dõi) |
 | G1 | Nhất quán mô hình năng lực | **PASS** | `src/` + `test/`: **0** `EMERGING`; 5 trạng thái khớp `COMPETENCY_STATES` |
 | G2 | Kiểm thử không phụ thuộc mạng | **HOLD** | **0** test chặn tuyến mạng ra ngoài |
 | G3 | Bí mật & mặc định an toàn | **PASS** | 0 bí mật mặc định; 20 test canh giữ |
@@ -42,7 +42,7 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 chặn mọi
 | G12 | Sao lưu & khôi phục | **PASS** | Drill `ok:true`; **`restoreMs: 92`** < 60 giây; **`recordsLost: 0`** / 548 bản ghi; mutation làm drill exit 1 |
 | G13 | Kiểm chứng nội dung bằng công cụ | **HOLD** | **0** tích hợp `sympy`/`promptfoo` |
 | G14 | Đo lường thực nghiệm | **PARTIAL** | Giao thức đã dựng: `retention:report` → `NO_DATA` trên DB thật (0 lần học); drill → `MEASURED` (`probes 4/3`, rate `0.5` / `0.666…`); **7/7** mutation bị bắt; **0** số đo thật vì chưa có dữ liệu |
-| G15 | Mô hình chi phí | **HOLD** | **0** mô hình TCO trong repo |
+| G15 | Mô hình chi phí | **HOLD** | **0** mô hình TCO; **1** dòng khớp chữ "TCO" và đó là checklist văn xuôi ở `MISSION_B_PUBLIC_REPO_RISK.md`; **0** trong `src/`, **0** trong `scripts/` |
 | G16 | Phê duyệt của chủ sở hữu | **HOLD** | 0 bản ký duyệt; 3 điều kiện tiên quyết còn mở |
 
 **Kết luận:** 7 PASS (G1, G3, G4, G5, G7, G11, G12), 3 PARTIAL (G0, G8, G14), 7 HOLD (G2, G6, G9, G10, G13, G15, G16). Theo quy tắc chặn cứng của Masterplan, repo **không đủ điều kiện triển khai** — và đó là trạng thái đúng, vì chính sách của dự án là `PRODUCTION DEPLOY BLOCKED`.
@@ -60,10 +60,10 @@ git status --porcelain | wc -l
 git merge-base --is-ancestor bff5c9d HEAD; echo "exit=$?"
 ```
 
-**Kết quả nguyên văn (đo lại 2026-11-12):**
+**Kết quả nguyên văn (đo lại 2026-11-13):**
 ```
-c68ca1c1dc3ed8f6ac65942e3f4f78a0ca08557b
-46
+535e761755eca925cb9828b3bc4ba07a783dae7a
+21
 exit=0
 ```
 
@@ -72,13 +72,13 @@ Phân rã cây làm việc:
 git status --porcelain | awk '{print $1}' | sort | uniq -c
 ```
 ```
-  11 ??
-  35 M
+   1 ??
+  20 M
 ```
 
-**Đo được:** HEAD đúng là `c68ca1c1dc3ed8f6ac65942e3f4f78a0ca08557b`; baseline `bff5c9d` là tổ tiên của HEAD (exit 0); cây làm việc có **46 tệp chưa commit** — **35 sửa đổi** và **11 tệp chưa được theo dõi**. Con số 23 ghi ở bản đo 2026-11-10 đã cũ: các đợt bổ sung sau đó (bốn lớp hồ sơ học sinh, ADR-005, kiểm thử đồ thị chương trình) thêm tệp vào cùng cây làm việc. Bản ghi cũ không được giữ lại như thể nó còn đúng.
+**Đo được:** HEAD đúng là `535e761755eca925cb9828b3bc4ba07a783dae7a`; baseline `bff5c9d` là tổ tiên của HEAD (exit 0); cây làm việc có **21 tệp chưa commit** — **20 sửa đổi** và **1 tệp chưa được theo dõi**. Các bản đo trước đã cũ và không được giữ lại như thể chúng còn đúng: bản 2026-11-10 ghi 23 tệp, bản 2026-11-12 ghi 46 tệp, rồi 18 tệp. Con số này đổi mỗi lần có thay đổi được commit hay thêm vào, nên nó phải được đo lại chứ không được chép: sau bản 18, `docs/DATA_MODEL.md` được mở rộng ra toàn bộ 16 migration và `scripts/curriculum-coverage.mjs` được chú thích, nên lên 20 sửa đổi + 1 chưa theo dõi = **21**.
 
-**Phán quyết: PARTIAL.** SHA bị ghim và quan hệ tổ tiên đúng, nhưng cây làm việc **bẩn**. Mọi số đo trong tài liệu này đo trên HEAD + 46 tệp chưa commit đó, không đo trên một commit đã đóng. Điều này có nghĩa: chạy lại các câu lệnh trên máy khác ở đúng HEAD `c68ca1c` sẽ **không** cho cùng kết quả. Đây là lý do G0 không thể PASS trước khi toàn bộ thay đổi được commit.
+**Phán quyết: PARTIAL.** SHA bị ghim và quan hệ tổ tiên đúng, nhưng cây làm việc **bẩn**. Mọi số đo trong tài liệu này đo trên HEAD + 21 tệp chưa commit đó, không đo trên một commit đã đóng. Điều này có nghĩa: chạy lại các câu lệnh trên máy khác ở đúng HEAD `535e761` sẽ **không** cho cùng kết quả. Đây là lý do G0 không thể PASS trước khi toàn bộ thay đổi được commit — và đây cũng là lý do con số 21 phải được đo lại, chứ không được chép từ bản trước.
 
 ---
 
@@ -255,15 +255,15 @@ grep -rn "Asia/Ho_Chi_Minh" src/ --include='*.ts' | wc -l
 grep -n "maximumIntervalDays" src/shared/engine/review.ts
 ```
 
-**Kết quả nguyên văn:**
+**Kết quả nguyên văn (đo lại 2026-11-13):**
 ```
 0
-39:    "ts-fsrs": "6.0.0"
-6
-53:  maximumIntervalDays: 30,
+42:    "ts-fsrs": "6.0.0"
+8
+54:  maximumIntervalDays: 30,
 ```
 
-**Đo được:** bậc cứng `[1,3,7,14]` đã **biến mất hoàn toàn** khỏi `src/` (0 kết quả). `ts-fsrs` ghim chính xác phiên bản **6.0.0**. Múi giờ `Asia/Ho_Chi_Minh` xuất hiện **6** lần. Trần khoảng cách là **30 ngày**, một quy tắc chính sách của dự án (không phải mặc định FSRS), ghi ở ADR-002.
+**Đo được:** bậc cứng `[1,3,7,14]` đã **biến mất hoàn toàn** khỏi `src/` (0 kết quả). `ts-fsrs` ghim chính xác phiên bản **6.0.0**. Múi giờ `Asia/Ho_Chi_Minh` xuất hiện **8** lần, tăng từ 6 sau khi bốn lớp hồ sơ học sinh thêm hai điểm neo ngày lịch. Trần khoảng cách là **30 ngày**, một quy tắc chính sách của dự án (không phải mặc định FSRS), ghi ở ADR-002.
 
 **Phán quyết: PASS** cho phần thay thế bậc thang. Ghi chú: mô phỏng 3.650 ngày mà Masterplan đề nghị chưa được tạo thành artefact; tính xác định được đảm bảo bằng `enable_fuzz: false` chứ chưa bằng một bản ghi mô phỏng dài hạn.
 
@@ -369,9 +369,11 @@ npx vitest run --config vitest.integration.config.ts test/integration/batched-wr
 
 **Đo được:** **16** điểm gọi `.batch(` trong `src/` (9 tệp; `data.ts` là điểm thứ 16 được thêm trong đợt này). Bốn test chứng minh tính nguyên tử trên đúng ba bảng được yêu cầu: (1) audit insert thất bại → attempt + skill_evidence + review_schedule cùng rollback; (2) ghi phái sinh thất bại → attempt + audit cùng rollback; (3) đua UNIQUE thật giữa đọc và commit → phục hồi, tính lại mastery thành assisted; (4) hai lần gửi đồng thời trên hai bước khác nhau của cùng kỹ năng → không ghi đè mastery cũ.
 
-Bổ sung: `attempt_no` được máy chủ tính và **canh ngay trong SQL** — `COALESCE(MAX(attempt_no), 0) + 1` nhúng làm điều kiện WHERE bên trong INSERT (`repositories.ts:1256`), nên một cuộc đua sẽ **abort cả batch**, không ghi được dòng nửa vời. D1 từ chối `BEGIN TRANSACTION` tường minh, nên `batch()` là cách duy nhất đạt nguyên tử trên nền tảng này.
+Bổ sung: `attempt_no` được máy chủ tính và **canh ngay trong SQL** — `COALESCE(MAX(attempt_no), 0) + 1` nhúng làm điều kiện WHERE bên trong INSERT (`repositories.ts:1260`), nên một cuộc đua sẽ **abort cả batch**, không ghi được dòng nửa vời. D1 từ chối `BEGIN TRANSACTION` tường minh, nên `batch()` là cách duy nhất đạt nguyên tử trên nền tảng này.
 
-**Bất biến thực sự, và nó được đo bằng 8 test hình dạng batch.** Bất biến không phải "không có ghi nào ngoài `batch(`" — một `INSERT` đơn lẻ đã nguyên tử rồi, và bọc một câu lệnh trong batch một câu không mua được gì. Bất biến là: **mọi nhóm ghi liên quan chạm ba bảng đó commit như một batch duy nhất, để không người đọc nào thấy nửa nhóm.**
+**Bất biến thực sự, và nó được đo bằng 8 test hình dạng batch.** Bất biến không phải "không có ghi nào ngoài `batch(`" — một `INSERT` đơn lẻ đã nguyên tử rồi, và bọc một câu lệnh trong batch một câu không mua được gì. Bất biến là: **mọi nhóm ghi liên quan chạm năm bảng đó commit như một batch duy nhất, để không người đọc nào thấy nửa nhóm.**
+
+Hai bảng trong số năm đó là `skill_evidence_observation` và `skill_estimate`, do mô hình học sinh bốn lớp thêm vào (migration `0015`). Một `skill_evidence_observation` nêu tên đúng lần làm bài mà nó được phân loại từ đó; một `skill_estimate` chứng nhận một tiền tố của sổ bằng chứng. Cả hai đều trỏ vào thứ mà commit này chưa ghi nếu bị tách khỏi batch. Chúng được ghi bằng những helper trả về câu lệnh "để ghép vào `db.batch`", nên việc đưa chúng vào bộ canh là bắt buộc chứ không phải tuỳ chọn — một bảng được ghi theo đúng hình dạng đó mà không được canh thì là phủ sóng trên danh nghĩa. Hai lần đột biến độc lập đã chứng minh bộ canh này thật sự bắt được lỗi. Lần thứ nhất: gỡ `...postAttemptStatements` khỏi mảng `statements` trong `session-service.ts` thì test gửi bài đỏ ngay tại chính các khẳng định mới (`1 failed | 7 passed`). Lần thứ hai: chuyển lệnh ghi observation ra khỏi batch `evidenceStatements` trong `data.ts` cũng làm lượt chạy đỏ (`1 failed | 7 passed`) — nhưng đỏ ở **tiền đề round-trip**, `batched-write-shape.test.ts:497` (`the export must round-trip before the shape means anything: expected 500 to be 200`), chứ không phải ở khẳng định `batched("skill_evidence_observation")` mới thêm: đột biến đó làm chính handler nhập dữ liệu trả 500, nên test dừng trước khi đo được hình dạng. Bộ canh vẫn bắt đúng thay đổi (đỏ → khôi phục → xanh lại 8/8), chỉ là bắt ở cửa đầu tiên chứ không phải cửa mà ta kỳ vọng. Ghi lại đúng như đo được, không làm tròn thành "khẳng định mới đã bắt được nó".
 
 `test/integration/batched-write-shape.test.ts` chứng minh điều đó bằng cách bọc chính handle D1 mà Worker nhận, ghi lại SQL của từng câu lệnh tại **thời điểm thực thi** (không phải lúc `prepare`, vì `repo.attemptInsertGuarded(db, …)` dựng câu lệnh trước khi `db.batch()` được gọi), và đếm độ sâu batch. Tám test:
 
@@ -502,19 +504,21 @@ Giao thức đầy đủ: [`docs/BASELINE_PROTOCOL.md`](../BASELINE_PROTOCOL.md)
 
 **Câu lệnh:**
 ```bash
-grep -rnw "TCO" docs/ src/ | wc -l
-grep -rni "unit economics\|cost per learner\|total cost of ownership" docs/ | wc -l
+grep -rnw "TCO" docs/ src/ scripts/ --exclude='G0_G16_AUDIT_MATRIX.md' | wc -l
+grep -rni "unit economics\|cost per learner\|total cost of ownership" docs/ src/ scripts/ --exclude='G0_G16_AUDIT_MATRIX.md' | wc -l
 ```
 
 **Kết quả nguyên văn:**
 ```
-0
+1
 0
 ```
 
-**Đo được:** **0** mô hình tổng chi phí sở hữu, chi phí đơn vị, hay chi phí trên mỗi người học trong repo.
+**Đo được:** **0** mô hình tổng chi phí sở hữu, chi phí đơn vị, hay chi phí trên mỗi người học trong repo. Lần chạy này **không** trả về 0 tuyệt đối: nó trả về **1** dòng khớp chữ "TCO", và dòng đó là văn xuôi trong [`docs/audits/MISSION_B_PUBLIC_REPO_RISK.md`](MISSION_B_PUBLIC_REPO_RISK.md) — một mục checklist ghi rằng mô hình TCO chưa tồn tại. Đo riêng từng gốc: **0** trong `src/`, **0** trong `scripts/`. Không có mã nào tính chi phí, không có tệp dữ liệu chi phí, không có bảng đơn giá.
 
-**Phán quyết: HOLD.** Cổng này thuộc Mission B (thương mại hoá), không thuộc Mission A.
+**Câu lệnh đã sửa, và tại sao bản trước sai.** Bản ghi cũ là `grep -rnw "TCO" docs/ src/ | wc -l` và nó **tự vô hiệu chính nó**: nơi duy nhất một mô hình chi phí có thể sống là `scripts/`, mà lệnh đó không quét `scripts/`. Một lệnh trả về 0 vì nó không tìm ở chỗ có thể có thứ nó tìm là một lệnh không chứng minh được gì. Lệnh hiện tại quét cả ba gốc. `--exclude='G0_G16_AUDIT_MATRIX.md'` loại trừ chính tài liệu này, vì ba dòng trong đây nhắc chữ "TCO" để mô tả phép đo — nếu không loại trừ, số đếm sẽ đo lời kể về phép đo thay vì đo mã nguồn, và nó sẽ tự tăng mỗi lần tài liệu này được sửa.
+
+**Phán quyết: HOLD.** Cổng này thuộc Mission B (thương mại hoá), không thuộc Mission A. Kết luận không đổi sau khi sửa lệnh — nhưng bản ghi cũ nói "0" bằng một phép đo không thể tìm ra "1", còn bản ghi này nói "1 dòng văn xuôi, 0 mô hình" bằng một phép đo quét đúng chỗ.
 
 ---
 
@@ -581,6 +585,40 @@ Mỗi phép đột biến được kiểm rằng chuỗi thay thế **thực s�
 
 ---
 
+### OPS — `household:preflight` từ chối DB cũ bằng một câu (bổ sung, không thuộc G0–G16)
+
+Máy chạy kiểm chứng này có một DB hộ gia đình thật đang ở **schema v14** trong khi repo đã ship tới **v16**. Đó là trạng thái vận hành bình thường (ba mẹ chưa chạy `npm run db:migrate`), không phải lỗi. Trước khi sửa, `household:preflight` ném lỗi chưa bắt và câu duy nhất có ích bị chôn dưới bốn khung `at async …`. Mục này ghi lại hành vi sau khi sửa, vì **câu thông báo cho ba mẹ chính là sản phẩm**.
+
+**Câu lệnh:**
+```bash
+npm run household:preflight >/tmp/pf.out 2>/tmp/pf.err; echo "REAL_EXIT=$?"
+cat /tmp/pf.err
+npx vitest run test/unit/household-preflight.test.ts
+```
+
+**Kết quả nguyên văn:**
+```
+REAL_EXIT=1
+preflight refused: Household DB preflight failed: expected schemaVersion >= 15, found 14. Run `npm run db:migrate` to bring this database up to date.
+ ✓ test/unit/household-preflight.test.ts (14 tests) 812ms
+      Tests  14 passed (14)
+```
+
+**Đo được:** đúng **1** dòng stderr, **0** khung `at ` (không stack trace), **0** byte stdout từ script (chỉ banner của npm), `REAL_EXIT=1`, **14** test xanh trong 1 tệp. DB hộ gia đình đo trực tiếp bằng `node:sqlite` read-only: `{"v":14}`; repo có **16** tệp migration, tệp mới nhất `migrations/0016_learning_attempts_append_only_update_guard.sql`.
+
+**Kiểm chứng ngược (đột biến):** thay `failure = error;` bằng `throw error;` (kiểm rằng chuỗi thay thế áp dụng **đúng 1 lần**) → test đỏ với `expected 'file:///Users/macbook/projects/tai-le…' to be 'preflight refused: Household DB prefl…'`; khôi phục nguyên bản → **14/14** xanh. Test không chỉ xanh mà chứng minh được nó bắt được đúng hỏng hóc nó tồn tại để bắt.
+
+**Điều kiện tiên quyết cho ba mẹ (operator docs):** câu lệnh sửa chỉ hữu ích nếu ba mẹ đọc được nó ở nơi ba mẹ tìm. Đã ghi vào ba bề mặt phụ huynh, song ngữ:
+- `docs/PARENT_OPERATIONS.md` §1.2 — mục mới "Nếu lệnh kiểm tra báo `schemaVersion` quá cũ", kèm nguyên văn dòng thông báo, hai lệnh `db:migrate` → `household:preflight`, và một câu tiếng Anh.
+- `docs/PARENT_PILOT_GUIDE.md` bước 3 — dòng bổ sung ngay dưới lệnh preflight.
+- `README.md` khối lệnh — chú thích một dòng ngay trên `npm run household:preflight`.
+
+Đồng thời sửa một con số đã sai trong `PARENT_OPERATIONS.md:28`: tài liệu ghi "đúng phiên bản lược đồ mới nhất (`schemaVersion: 14`)" — chính xác là trạng thái mà preflight **từ chối**. Đã đổi thành `schemaVersion ≥ 15`, khớp `MINIMUM_SUPPORTED_SCHEMA_VERSION` tại `src/worker/db/reprovision-household.ts:316`.
+
+**Phán quyết: PASS.** Hành vi quan sát được đúng như hợp đồng: một câu, đúng câu lệnh sửa, thoát mã 1, không lộ giá trị bí mật.
+
+---
+
 ## Lệnh chạy lại toàn bộ
 
 ```bash
@@ -594,7 +632,7 @@ grep -rn "EMERGING" src/ test/ --include='*.ts' | wc -l
 grep -n "sessionId\|session_id" src/shared/engine/competency.ts | wc -l
 grep -rn "25 \* 60\|SESSION_MAX\|maxSessionMinutes" src/ --include='*.ts' | wc -l
 grep -rni "sympy\|promptfoo" package.json scripts/ src/ | wc -l
-grep -rnw "TCO" docs/ src/ | wc -l
+grep -rnw "TCO" docs/ src/ scripts/ --exclude='G0_G16_AUDIT_MATRIX.md' | wc -l
 
 # G14 (chạy thật)
 npm run retention:report
@@ -618,6 +656,10 @@ npm run backup:drill
 # Bộ kiểm thử đầy đủ
 npx vitest run            # 21 tệp / 349 test
 npm run test:integration  # 19 tệp / 200 test
+
+# OPS
+npm run household:preflight
+npx vitest run test/unit/household-preflight.test.ts
 ```
 
 ---
@@ -628,4 +670,4 @@ npm run test:integration  # 19 tệp / 200 test
 - Không khẳng định nội dung chương trình đã đủ. 50 bài là 3,57% quỹ tiết Grade 4–5; phần còn thiếu là công việc soạn nội dung, nằm ngoài phạm vi đợt này.
 - Không khẳng định G6 đã đóng. Điều kiện "khác phiên" chưa được cài đặt, và việc cài đặt nó cần thay đổi `AttemptEvidence` cùng schema.
 - Không khẳng định G12 đã sẵn sàng cho dữ liệu thật. Drill đo `restoreMs: 92` trên **548 bản ghi** trong một D1 tạm; đó là bằng chứng cho ngân sách 60 giây ở quy mô hiện tại, **không** phải phép đo trên cơ sở dữ liệu nhiều năm của gia đình, nơi `learning_attempts` sẽ lớn hơn nhiều lần.
-- Không khẳng định các số đo trên tái lập được từ HEAD `c68ca1c` một mình — cây làm việc còn 49 tệp chưa commit (G0).
+- Không khẳng định các số đo trên tái lập được từ HEAD `535e761` một mình — cây làm việc còn 21 tệp chưa commit (G0).

@@ -50,7 +50,9 @@ Ba quyết định trong ba dòng đó:
 - **`observed_kind` do đúng `isIndependentAttempt()` tính** — nguồn chân lý duy nhất theo ADR-001, không phải một bản sao thứ tư của quy tắc đó.
 - **`help_level` được chép vào, không đọc lại.** Mức gợi ý có hiệu lực lúc chấm nằm ngay trong dòng bằng chứng, nên việc phân loại có thể được kiểm toán đối chiếu với đúng vệt gợi ý mà nó đã được chấm dưới.
 
-Bảng này **append-only**: trigger `skill_evidence_observation_no_update` chặn `UPDATE`. Lý do giống hệt `audit_events` ở migration 0004: lớp bằng chứng tồn tại để được chỉ vào khi ba mẹ hỏi "vì sao trạng thái này là INDEPENDENT?", và một dòng bằng chứng sửa được thì có thể bị sửa để biện minh cho bất kỳ trạng thái nào.
+Bảng này **append-only**: trigger `skill_evidence_observation_no_update` chặn `UPDATE`. Lý do gần với `audit_events` ở migration 0004: lớp bằng chứng tồn tại để được chỉ vào khi ba mẹ hỏi "vì sao trạng thái này là INDEPENDENT?", và một dòng bằng chứng sửa được thì có thể bị sửa để biện minh cho bất kỳ trạng thái nào.
+
+Phạm vi hẹp hơn 0004, nói rõ để không ai đọc quá mức: `audit_events` chặn cả `UPDATE` lẫn `DELETE`, còn migration 0015 chỉ thêm chặn `UPDATE`. `DELETE` vẫn được phép trên các lớp bằng chứng vì quyền xoá dữ liệu của ba mẹ là quyền thật, đường xoá đó được ghi vào `audit_events` **trước khi** chạy, và bản sao lưu có thể phục hồi một lần xoá nhầm. Migration 0016 mở rộng đúng kiểu chặn `UPDATE` đó xuống `learning_attempts` — lớp gốc mà các dòng này được suy ra từ đó, và trước 0016 lớp ấy **không có trigger nào cả**.
 
 ### Lớp 3 — ƯỚC LƯỢNG: `skill_estimate` (mới)
 

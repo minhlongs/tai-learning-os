@@ -10,7 +10,7 @@
  *      current school-year record via `extractHouseholdIdentity(db)`.
  *   2. Disposes the D1 proxy and archives the `.wrangler/state` SQLite files into
  *      `backups/household-db-archive-<timestamp>/`.
- *   3. Opens a brand-new local D1 database, applies all shipped migrations (`0001`–`0015`),
+ *   3. Opens a brand-new local D1 database, applies all shipped migrations (`0001`–`0016`),
  *      seeds the 50 shipped catalogue lessons, restores the household identity via
  *      `restoreHouseholdIdentity(db, snapshot, now)`, and verifies the resulting
  *      clean state via `verifyCleanHouseholdState(db)`.
@@ -306,6 +306,38 @@ export async function restoreHouseholdIdentity(
 }
 
 /**
+ * The oldest schema this verifier knows how to read.
+ *
+ * Enforced in its own query, before any query touches a table a later migration
+ * introduced. On a v14 database the combined COUNT below would otherwise die on
+ * `no such table: skill_evidence_observation` and hand the operator a raw SQL
+ * error instead of the one instruction that fixes it.
+ */
+const MINIMUM_SUPPORTED_SCHEMA_VERSION = 15;
+
+/**
+ * Fails closed when the database predates the schema this verifier reads.
+ *
+ * `failurePrefix` carries the caller's operator-facing wording ("preflight
+ * failed" / "verification failed") so both entry points report themselves.
+ */
+export async function assertMinimumSchemaVersion(
+  db: D1Database,
+  failurePrefix: string,
+): Promise<number> {
+  const row = await db
+    .prepare("SELECT MAX(version) AS schema_version FROM schema_versions")
+    .first<{ schema_version: number | null }>();
+  const schemaVersion = Number(row?.schema_version ?? 0);
+  if (schemaVersion < MINIMUM_SUPPORTED_SCHEMA_VERSION) {
+    throw new Error(
+      `${failurePrefix}: expected schemaVersion >= ${MINIMUM_SUPPORTED_SCHEMA_VERSION}, found ${schemaVersion}. Run \`npm run db:migrate\` to bring this database up to date.`,
+    );
+  }
+  return schemaVersion;
+}
+
+/**
  * Verifies that a reprovisioned household D1 database has all schema v15 protections,
  * all 50 shipped catalogue lessons, zero simulated B2B2C or E2E rows, and only
  * legitimate household identity provenance in `audit_events`.
@@ -313,6 +345,8 @@ export async function restoreHouseholdIdentity(
 export async function verifyCleanHouseholdState(
   db: D1Database,
 ): Promise<CleanHouseholdVerificationReport> {
+  await assertMinimumSchemaVersion(db, "Household DB verification failed");
+
   const triggers =
     (
       await db
@@ -403,11 +437,6 @@ export async function verifyCleanHouseholdState(
     auditActions,
   };
 
-  if (report.schemaVersion < 15) {
-    throw new Error(
-      `Household DB verification failed: expected schemaVersion >= 15, found ${report.schemaVersion}`,
-    );
-  }
   if (report.lessonsCount !== 50 || report.lessonVersionsCount !== 50) {
     throw new Error(
       `Household DB verification failed: expected 50 catalogue lessons and 50 lesson_versions, found lessons=${report.lessonsCount}, lessonVersions=${report.lessonVersionsCount}`,

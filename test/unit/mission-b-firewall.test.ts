@@ -29,9 +29,59 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..");
 
-/** Removes `/* … *\/` and `// …` so a commented-out value cannot satisfy a check. */
+/**
+ * Removes `/* … *\/` and `// …` so a commented-out value cannot satisfy a check.
+ *
+ * The scan is string-aware on purpose. A line-based regex is wrong in both
+ * directions wherever a URL appears before a comment on the same line:
+ * `const u = "https://x"; const c = "wrangler.mission-b.jsonc";` loses
+ * everything from the `//` in `https://` onward, so code that really does name
+ * the firewall reads as absent. That is a guard reporting "nothing here" about
+ * the exact thing it exists to find. Tracking quote state — including escapes
+ * and template literals — makes the removed text exactly the comments.
+ */
 function stripJsoncComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  let out = "";
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    const next = source[i + 1];
+
+    if (ch === '"' || ch === "'" || ch === "`") {
+      // Copy the whole string literal verbatim, honouring backslash escapes.
+      let j = i + 1;
+      while (j < source.length) {
+        if (source[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source[j] === ch) {
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      out += source.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    if (ch === "/" && next === "/") {
+      const lineEnd = source.indexOf("\n", i);
+      i = lineEnd === -1 ? source.length : lineEnd;
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      const blockEnd = source.indexOf("*/", i + 2);
+      i = blockEnd === -1 ? source.length : blockEnd + 2;
+      continue;
+    }
+
+    out += ch;
+    i += 1;
+  }
+  return out;
 }
 
 /** Removes `/* … *\/`, `// …` and (for TS) whole-line `* …` doc bodies from code. */
@@ -195,5 +245,38 @@ describe("Mission B activation stays a documented, signed decision", () => {
     const riskPath = join(REPO_ROOT, "docs/audits/MISSION_B_PUBLIC_REPO_RISK.md");
     expect(existsSync(riskPath)).toBe(true);
     expect(readFileSync(riskPath, "utf8")).toContain("MISSION-B");
+  });
+});
+
+describe("the comment stripper cannot hide the firewall behind a URL", () => {
+  // The guard's "does not contain" checks are only as good as this function.
+  // A line-based `//` strip truncates a line at the `//` inside `https://`,
+  // which turns real wiring into apparent absence — the guard would report the
+  // firewall untouched while a run path pointed straight at it.
+  it("keeps code that follows a URL on the same line", () => {
+    const source = `const u = "https://example.com"; const c = "wrangler.mission-b.jsonc";`;
+    expect(stripJsoncComments(source)).toContain("wrangler.mission-b.jsonc");
+  });
+
+  it("still removes real line comments, including ones mentioning the firewall", () => {
+    const source = `// see wrangler.mission-b.jsonc\nconst keep = 1;`;
+    expect(stripJsoncComments(source)).not.toContain("mission-b");
+    expect(stripJsoncComments(source)).toContain("const keep = 1;");
+  });
+
+  it("still removes block comments spanning lines", () => {
+    const source = `/*\n * wrangler.mission-b.jsonc\n */\nconst keep = 1;`;
+    expect(stripJsoncComments(source)).not.toContain("mission-b");
+    expect(stripJsoncComments(source)).toContain("const keep = 1;");
+  });
+
+  it("does not treat an escaped quote as the end of a string literal", () => {
+    const source = `const s = "a \\" // b"; const c = "wrangler.mission-b.jsonc";`;
+    expect(stripJsoncComments(source)).toContain("wrangler.mission-b.jsonc");
+  });
+
+  it("keeps a `//` inside a template literal", () => {
+    const source = "const t = `https://x`; const c = \"wrangler.mission-b.jsonc\";";
+    expect(stripJsoncComments(source)).toContain("wrangler.mission-b.jsonc");
   });
 });

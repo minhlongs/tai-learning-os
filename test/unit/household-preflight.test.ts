@@ -20,15 +20,30 @@ const MIGRATIONS_DIR = join(REPO_ROOT, "migrations");
 
 const MIGRATION_FILES = listShippedMigrationFiles();
 
-function createInMemoryMigratedD1(): { db: D1Database; raw: DatabaseSync } {
+function createInMemoryMigratedD1(
+  throughSchemaVersion: number = Number.MAX_SAFE_INTEGER,
+): { db: D1Database; raw: DatabaseSync } {
   const raw = new DatabaseSync(":memory:");
   raw.exec("PRAGMA foreign_keys = ON;");
 
+  // `throughSchemaVersion` exists so a test can build the schema a household
+  // database actually has before `npm run db:migrate` — not the schema the repo
+  // ships. Applying every migration and then asserting about an "old" database
+  // would test a fixture no operator can produce.
   for (const file of MIGRATION_FILES) {
+    if (Number(file.slice(0, 4)) > throughSchemaVersion) break;
     const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
     raw.exec(sqlText);
   }
 
+  return { db: createD1AdapterOver(raw), raw };
+}
+
+/**
+ * Wraps a `node:sqlite` handle in the slice of the D1 API this code reads, so a
+ * test can point it at a database built to any schema version.
+ */
+function createD1AdapterOver(raw: DatabaseSync): D1Database {
   function makeStatement(sql: string, boundValues: unknown[] = []): D1PreparedStatement {
     return {
       bind(...values: unknown[]) {
@@ -111,7 +126,7 @@ function createInMemoryMigratedD1(): { db: D1Database; raw: DatabaseSync } {
     },
   };
 
-  return { db, raw };
+  return db;
 }
 
 function seed50CatalogueLessons(raw: DatabaseSync): void {
@@ -398,6 +413,33 @@ describe("read-only household preflight check", () => {
     ).rejects.toThrow(/foreign actor values in audit_events/i);
   });
 
+  it("tells an operator on a v14 database to run db:migrate instead of surfacing a raw SQL error", async () => {
+    const { raw } = createInMemoryMigratedD1(14);
+    const db = createD1AdapterOver(raw);
+
+    // A household database that predates the four-layer migration is the exact
+    // state `npm run db:migrate` is meant to fix, and it is the state a live
+    // household machine is most likely to be in. The preflight must fail closed
+    // with the one instruction that resolves it — not with
+    // `no such table: skill_evidence_observation`, which names a table the
+    // operator has never heard of and suggests no next step.
+    const error = await inspectHouseholdPreflight(db, {
+      devVarsPresent: true,
+      hasSessionSecret: true,
+      hasParentPasswordHash: true,
+    }).then(
+      () => null,
+      (err: unknown) => err as Error,
+    );
+
+    expect(error).not.toBeNull();
+    expect(error?.message).toBe(
+      "Household DB preflight failed: expected schemaVersion >= 15, found 14. " +
+        "Run `npm run db:migrate` to bring this database up to date.",
+    );
+    expect(error?.message).not.toMatch(/no such table/);
+  });
+
   it("marks integrity as skipped rather than failing when D1 refuses PRAGMA integrity_check", async () => {
     const { db, raw } = createInMemoryMigratedD1();
     seed50CatalogueLessons(raw);
@@ -480,7 +522,9 @@ describe("read-only household preflight check", () => {
   });
 });
 
-function createDiskMigratedSqliteFixture(): {
+function createDiskMigratedSqliteFixture(
+  throughSchemaVersion: number = Number.MAX_SAFE_INTEGER,
+): {
   tmpRoot: string;
   d1StateDir: string;
   sqlitePath: string;
@@ -500,7 +544,10 @@ function createDiskMigratedSqliteFixture(): {
     // Match Miniflare's real D1 persistence shape: a WAL-mode database whose
     // `-wal`/`-shm` sidecars are present alongside the main file.
     raw.exec("PRAGMA journal_mode = WAL;");
+    // Same reason as `createInMemoryMigratedD1`: a disk fixture built to the
+    // schema a household database really has before `npm run db:migrate`.
     for (const file of MIGRATION_FILES) {
+      if (Number(file.slice(0, 4)) > throughSchemaVersion) break;
       const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
       raw.exec(sqlText);
     }
@@ -738,6 +785,39 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
 
       const afterFailure = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
       expectSqliteFileUnchanged(beforeFailure, afterFailure);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("refuses a household database older than the shipped schema with one actionable stderr line, a non-zero exit, and no stack trace", () => {
+    // The live household database on this machine is at schema v14 until the
+    // parent runs `npm run db:migrate`. Before this guard the CLI surfaced that
+    // state as an uncaught throw, so the one sentence that fixes it was buried
+    // under four `at async ...` frames. The operator message is the product
+    // here, so the test pins it.
+    const fixture = createDiskMigratedSqliteFixture(14);
+    try {
+      writeFileSync(
+        join(fixture.tmpRoot, ".dev.vars"),
+        `SESSION_SECRET=${CANARY_SESSION_SECRET}\nPARENT_PASSWORD_HASH=${CANARY_ENV_HASH}\n`,
+      );
+
+      const oldSchemaRun = spawnSync(
+        process.execPath,
+        [CLI_SCRIPT, "--target-root", fixture.tmpRoot],
+        { cwd: REPO_ROOT, encoding: "utf8" },
+      );
+
+      expect(oldSchemaRun.status).toBe(1);
+      expect(oldSchemaRun.stdout).toBe("");
+      expect(oldSchemaRun.stderr.trimEnd()).toBe(
+        "preflight refused: Household DB preflight failed: expected schemaVersion >= 15, found 14. " +
+          "Run `npm run db:migrate` to bring this database up to date.",
+      );
+      expect(oldSchemaRun.stderr).not.toMatch(/^\s+at /m);
+      expect(oldSchemaRun.stderr).not.toContain("Node.js v");
+      expect(oldSchemaRun.stderr).not.toContain(CANARY_SESSION_SECRET);
     } finally {
       fixture.cleanup();
     }

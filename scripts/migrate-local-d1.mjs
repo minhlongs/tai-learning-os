@@ -10,7 +10,7 @@
  * Key invariants:
  *   1. Read-only fast path: When the local D1 SQLite file already exists, it is
  *      first inspected with `DatabaseSync(..., { readOnly: true })`. If every
- *      shipped migration (`migrations/0001_*.sql` .. `0015_*.sql`) is already
+ *      shipped migration (`migrations/0001_*.sql` .. `0016_*.sql`) is already
  *      recorded in `d1_migrations` and all schema protection triggers/indexes
  *      are present, the read-only handle is closed and the script returns
  *      immediately with zero disk writes (preserving `SHA-256`, `size`, and
@@ -20,8 +20,9 @@
  *      `splitSqlStatements` and applied inside an explicit `BEGIN IMMEDIATE` /
  *      `COMMIT` transaction alongside its `d1_migrations` record.
  *   3. Fail-closed verification: Verifies `audit_events_no_delete`,
- *      `audit_events_no_update`, `idx_attempts_learner_step_attempt`, and
- *      `MAX(version)` in `schema_versions` before returning.
+ *      `audit_events_no_update`, `learning_attempts_no_update`,
+ *      `idx_attempts_learner_step_attempt`, and `MAX(version)` in
+ *      `schema_versions` before returning.
  *
  * Usage:
  *   npm run db:migrate
@@ -64,7 +65,7 @@ export function parseMigrateLocalD1CliArgs(argv) {
   return { targetRoot };
 }
 
-function verifySchemaInvariants(rawDb) {
+function verifySchemaInvariants(rawDb, expectedSchemaVersion) {
   const triggerRows = rawDb
     .prepare(
       "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'audit_events' ORDER BY name ASC",
@@ -77,6 +78,20 @@ function verifySchemaInvariants(rawDb) {
   ) {
     throw new Error(
       `Schema verification failed: missing audit_events immutability triggers (found: [${triggers.join(", ")}])`,
+    );
+  }
+
+  // The observation layer's own guard (migration 0016). Checked here rather
+  // than scoped into the query above so a missing trigger names itself instead
+  // of hiding inside a combined list.
+  const attemptGuard = rawDb
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'learning_attempts' AND name = 'learning_attempts_no_update'",
+    )
+    .get();
+  if (!attemptGuard) {
+    throw new Error(
+      "Schema verification failed: missing learning_attempts_no_update trigger on learning_attempts",
     );
   }
 
@@ -95,15 +110,15 @@ function verifySchemaInvariants(rawDb) {
     .prepare("SELECT MAX(version) AS max_version FROM schema_versions")
     .get();
   const schemaVersion = Number(versionRow?.max_version ?? 0);
-  if (schemaVersion < 15) {
+  if (schemaVersion < expectedSchemaVersion) {
     throw new Error(
-      `Schema verification failed: expected schema_versions >= 15, found ${String(versionRow?.max_version)}`,
+      `Schema verification failed: expected schema_versions >= ${expectedSchemaVersion}, found ${String(versionRow?.max_version)}`,
     );
   }
   return schemaVersion;
 }
 
-function inspectAppliedMigrationsReadOnly(sqlitePath, migrationFiles) {
+function inspectAppliedMigrationsReadOnly(sqlitePath, migrationFiles, expectedSchemaVersion) {
   const roDb = new DatabaseSync(sqlitePath, { readOnly: true });
   try {
     const tableRow = roDb
@@ -120,7 +135,7 @@ function inspectAppliedMigrationsReadOnly(sqlitePath, migrationFiles) {
     if (unapplied.length > 0) {
       return null;
     }
-    const schemaVersion = verifySchemaInvariants(roDb);
+    const schemaVersion = verifySchemaInvariants(roDb, expectedSchemaVersion);
     return {
       ok: true,
       sqlitePath,
@@ -144,6 +159,9 @@ export function runMigrateLocalD1OnRoot(targetRoot = process.cwd()) {
     "miniflare-D1DatabaseObject",
   );
   const migrationFiles = listShippedMigrationFiles();
+  // Derived, not typed: adding a migration must not leave this runner verifying
+  // against an older ceiling than the schema it just applied.
+  const expectedSchemaVersion = Number(migrationFiles.at(-1).slice(0, 4));
 
   const existingSqliteFile = existsSync(d1StateDir)
     ? readdirSync(d1StateDir).find((name) => /^[0-9a-f]+\.sqlite$/i.test(name))
@@ -151,7 +169,11 @@ export function runMigrateLocalD1OnRoot(targetRoot = process.cwd()) {
 
   if (existingSqliteFile) {
     const existingSqlitePath = join(d1StateDir, existingSqliteFile);
-    const fastPathResult = inspectAppliedMigrationsReadOnly(existingSqlitePath, migrationFiles);
+    const fastPathResult = inspectAppliedMigrationsReadOnly(
+      existingSqlitePath,
+      migrationFiles,
+      expectedSchemaVersion,
+    );
     if (fastPathResult) {
       return fastPathResult;
     }
@@ -206,7 +228,7 @@ export function runMigrateLocalD1OnRoot(targetRoot = process.cwd()) {
       }
     }
 
-    const schemaVersion = verifySchemaInvariants(rawDb);
+    const schemaVersion = verifySchemaInvariants(rawDb, expectedSchemaVersion);
     return {
       ok: true,
       sqlitePath,

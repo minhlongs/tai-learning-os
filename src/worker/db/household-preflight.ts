@@ -11,6 +11,7 @@
  */
 
 import {
+  assertMinimumSchemaVersion,
   extractHouseholdIdentity,
   verifyCleanHouseholdState,
   type CleanHouseholdVerificationReport,
@@ -93,6 +94,8 @@ async function inspectHouseholdDatabaseState(
   db: D1Database,
   snapshot: HouseholdIdentitySnapshot,
 ): Promise<CleanHouseholdVerificationReport> {
+  await assertMinimumSchemaVersion(db, "Household DB preflight failed");
+
   const triggers =
     (
       await db
@@ -201,11 +204,6 @@ async function inspectHouseholdDatabaseState(
     return verifyCleanHouseholdState(db);
   }
 
-  if (report.schemaVersion < 15) {
-    throw new Error(
-      `Household DB preflight failed: expected schemaVersion >= 15, found ${report.schemaVersion}`,
-    );
-  }
   if (report.lessonsCount < 50 || report.lessonVersionsCount < 50) {
     throw new Error(
       `Household DB preflight failed: expected at least 50 catalogue lessons and 50 lesson_versions, found lessons=${report.lessonsCount}, lessonVersions=${report.lessonVersionsCount}`,

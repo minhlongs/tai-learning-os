@@ -220,7 +220,7 @@ describe("household D1 database clean reprovisioning", () => {
     const report = await verifyCleanHouseholdState(cleanDb);
 
     expect(report).toEqual({
-      schemaVersion: 15,
+      schemaVersion: 16,
       lessonsCount: 50,
       lessonVersionsCount: 50,
       parentsCount: 1,

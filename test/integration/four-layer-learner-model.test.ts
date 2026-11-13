@@ -362,6 +362,46 @@ describe("layer 2 — every attempt is classified exactly once, in an immutable 
       /skill_evidence_observation is append-only: UPDATE is not permitted/,
     );
   });
+
+  it("rejects UPDATE on the raw attempt it was derived from", async () => {
+    await solveStepIndependently(0);
+
+    // Layer 2 is only worth reading if layer 1 cannot be rewritten underneath
+    // it: flipping the outcome of an already-graded attempt would let a reader
+    // justify a competency state from history that never happened.
+    await expect(
+      env.DB.prepare("UPDATE learning_attempts SET outcome = 'incorrect'").run(),
+    ).rejects.toThrow(/learning_attempts is append-only: UPDATE is not permitted/);
+  });
+});
+
+describe("erasure still reaches every layer", () => {
+  it("a parent-confirmed learner deletion removes attempts, observations and estimates", async () => {
+    await solveStepIndependently(0);
+    expect(await observations()).toHaveLength(1);
+    expect(await estimateRow()).not.toBeNull();
+
+    const res = await call("/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: `XOA ${LEARNER_NICKNAME}` },
+    });
+    expect(res.status).toBe(200);
+
+    // The append-only guard covers UPDATE, not DELETE. Erasure by the parent is
+    // an audited path, and a guard that blocked it would trade a real privacy
+    // right for an immutability the audit ledger already provides.
+    const counts = await env.DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM learning_attempts WHERE learner_id = ?1) AS attempts,
+         (SELECT COUNT(*) FROM skill_evidence_observation WHERE learner_id = ?1) AS observations,
+         (SELECT COUNT(*) FROM skill_estimate WHERE learner_id = ?1) AS estimates,
+         (SELECT COUNT(*) FROM audit_events WHERE action = 'learner.deleted') AS deletions`,
+    )
+      .bind(learnerId)
+      .first<{ attempts: number; observations: number; estimates: number; deletions: number }>();
+
+    expect(counts).toEqual({ attempts: 0, observations: 0, estimates: 0, deletions: 1 });
+  });
 });
 
 describe("layer 3 — the stored estimate replays bit-for-bit from the ledger", () => {

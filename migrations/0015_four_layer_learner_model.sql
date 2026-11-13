@@ -127,11 +127,18 @@ CREATE INDEX IF NOT EXISTS idx_skill_estimate_learner
 
 -- ── Append-only protection for the evidence layer ───────────────────────────
 --
--- Same reasoning as `audit_events` in migration 0004: the evidence layer exists
--- to be pointed at when a parent asks "why is this state INDEPENDENT?", and an
--- updatable evidence row can be rewritten to justify any state. Rows may be
--- added and (via learner deletion) removed with the learner; they may not be
--- edited in place.
+-- The evidence layer exists to be pointed at when a parent asks "why is this
+-- state INDEPENDENT?", and an updatable evidence row can be rewritten to justify
+-- any state. Rows may be added and (via learner deletion) removed with the
+-- learner; they may not be edited in place.
+--
+-- Scope, stated precisely because it is narrower than `audit_events` in
+-- migration 0004: 0004 blocks both UPDATE and DELETE, while this migration
+-- adds an UPDATE guard only. Deletion stays permitted on the evidence layers
+-- because a parent's erasure request is a real right, it is audited before it
+-- runs, and the backup drill can recover a mistaken one. Migration 0016 extends
+-- the same UPDATE-only guard to `learning_attempts`, the layer these rows are
+-- derived from, which until then had no trigger at all.
 --
 -- What these triggers do NOT do, stated plainly: they do not stop DROP TABLE,
 -- a schema change, or replacement of the database file — exactly the same

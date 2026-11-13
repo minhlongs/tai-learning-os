@@ -25,9 +25,21 @@ npm run household:preflight
 ```
 Lệnh sẽ trả về báo cáo JSON xác nhận:
 - Tệp cấu hình `.dev.vars` đã có đầy đủ khóa bảo mật phiên và mật khẩu phụ huynh.
-- Cơ sở dữ liệu D1 cục bộ nguyên vẹn (`integrityCheck: "ok"`), đúng phiên bản lược đồ mới nhất (`schemaVersion: 14`) và đủ 50 bài học trong danh mục.
+- Cơ sở dữ liệu D1 cục bộ nguyên vẹn (`integrityCheck: "ok"`), đúng phiên bản lược đồ mới nhất (`schemaVersion` ≥ 15) và đủ 50 bài học trong danh mục.
 - Hồ sơ hộ gia đình sạch tuyệt đối (chỉ có 1 phụ huynh, 1 học sinh `"Tài"`, 0 trung tâm/lớp học mô phỏng).
 - Trạng thái `readyForLearnerSession: true` (đã có bài học được phụ huynh duyệt cho bé).
+
+### 1.2 Nếu lệnh kiểm tra báo "schemaVersion" quá cũ (If preflight refuses on schemaVersion)
+Nếu màn hình báo đúng một dòng như sau:
+```
+preflight refused: Household DB preflight failed: expected schemaVersion >= 15, found 14. Run `npm run db:migrate` to bring this database up to date.
+```
+thì đó **không phải lỗi** — chỉ là cơ sở dữ liệu của máy chưa được cập nhật lên phiên bản lược đồ mới nhất. Phụ huynh chỉ cần chạy đúng lệnh mà thông báo đã ghi:
+```bash
+npm run db:migrate
+npm run household:preflight   # chạy lại để xác nhận đã sẵn sàng
+```
+**English:** If `npm run household:preflight` stops with `expected schemaVersion >= 15, found 14`, the household database is simply older than the code shipped in this repository. Nothing is broken and no data is lost — run `npm run db:migrate` once, then run `npm run household:preflight` again.
 
 ---
 

@@ -1040,7 +1040,7 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
     const files = listShippedMigrationFiles();
     expect(files).toHaveLength(MIGRATION_FILES.length);
     expect(files[0]).toBe("0001_initial_schema.sql");
-    expect(files.at(-1)).toBe("0015_four_layer_learner_model.sql");
+    expect(files.at(-1)).toBe("0016_learning_attempts_append_only_update_guard.sql");
     expect(files.every((f) => /^\d{4}_.*\.sql$/.test(f))).toBe(true);
 
     // Contiguous 0001..N with no gaps and no duplicates: the schema version is

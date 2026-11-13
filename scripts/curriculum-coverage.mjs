@@ -33,11 +33,19 @@ const { openTestDatabase } = await import("../test/integration/test-db.ts");
 const { seedLessons } = await import("../test/integration/lesson-seed.ts");
 
 /**
- * Denominator for the coverage line, carried from the Masterplan audit rather
- * than re-derived here: the Grade 4–5 period budget normalises to roughly 1.400
- * standardised lesson slots, of which ~560 are the standardised Grade 4–5
+ * Denominator for the coverage line, carried by hand from the Masterplan audit
+ * rather than re-derived here: the Grade 4–5 period budget normalises to roughly
+ * 1.400 standardised lesson slots, of which ~560 are the standardised Grade 4–5
  * count and ~2.650 are the Grade 4–12 scope. The report prints all three ratios
  * so no single percentage can be quoted without its denominator.
+ *
+ * **These three numbers are the only hand-carried values in this script.** Every
+ * other figure in the report — lesson count, objective count, edge count, every
+ * gap — is read back out of SQLite after the migrations and the shipped registry
+ * have run. These three cannot be, because no migration teaches a period count:
+ * they are an external curriculum estimate. If that estimate changes, change it
+ * here and regenerate; do not silently quote a coverage percentage without the
+ * denominator it was computed against.
  */
 const COVERAGE_DENOMINATORS = [
   { label: "quỹ tiết Grade 4–5 / Grade 4–5 period budget", total: 1400 },

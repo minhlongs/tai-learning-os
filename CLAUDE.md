@@ -40,7 +40,7 @@
 # Install dependencies
 npm install
 
-# Apply local D1 migrations (0001_initial_schema.sql through 0015_four_layer_learner_model.sql)
+# Apply local D1 migrations (0001_initial_schema.sql through 0016_learning_attempts_append_only_update_guard.sql)
 npm run db:migrate
 npm run db:dump -- --output ./dump.sql # Read-only SQLite SQL dump (excludes parents/auth_throttles data)
 
@@ -53,8 +53,8 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (21 files, 349 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (19 files, 200 tests)
+npm run test               # Vitest unit tests (21 files, 356 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (19 files, 202 tests)
 npm run test:e2e           # Playwright E2E browser tests (54 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + validate:lessons + build
 

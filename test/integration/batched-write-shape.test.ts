@@ -14,10 +14,13 @@ import { openTestDatabase, type TestProxy } from "./test-db";
  * append-only proof that the evidence was written. They only mean anything
  * together, and D1 gives no explicit transaction control — the sole way to make
  * a group of writes commit or roll back as one unit is `env.DB.batch([...])`.
+ * The four-layer learner model added two more of these: a
+ * `skill_evidence_observation` names the attempt it was classified from, and a
+ * `skill_estimate` certifies a ledger prefix. Both dangle if written alone.
  *
  * So the invariant is not "no write outside a batch". A lone INSERT is already
  * atomic, and wrapping one statement in a batch of one buys nothing. The
- * invariant is: **every group of related writes touching those three tables
+ * invariant is: **every group of related writes touching those five tables
  * commits as one batch, so no reader ever observes half of a group.**
  *
  * This suite proves that by instrumenting the D1 handle the Worker is given.
@@ -58,12 +61,28 @@ const DISPLAY_NAME = "Phụ huynh";
 const LEARNER_NICKNAME = "Tài";
 const TEST_SECRET = "integration-only-not-a-real-secret-value";
 
-type ThreeTable = "learning_attempts" | "skill_evidence" | "audit_events";
+/**
+ * Every table whose rows only mean something as part of a group.
+ *
+ * The two `skill_evidence_observation` / `skill_estimate` rows were added by the
+ * four-layer learner model: an observation names the attempt it was classified
+ * from, and an estimate certifies a ledger prefix. Either one committed alone
+ * would point at evidence this commit did not write. They are written by
+ * helpers that hand back a statement "for composing into `db.batch`", which is
+ * exactly the shape this guard exists to check — a table written that way and
+ * never watched is coverage in name only.
+ */
+type WatchTable =
+  | "learning_attempts"
+  | "skill_evidence"
+  | "skill_evidence_observation"
+  | "skill_estimate"
+  | "audit_events";
 
-type WriteEvent = { table: ThreeTable; depth: number; sql: string };
+type WriteEvent = { table: WatchTable; depth: number; sql: string };
 
-const THREE_TABLE_INSERT =
-  /^\s*insert\s+(?:or\s+\w+\s+)?into\s+"?(learning_attempts|skill_evidence|audit_events)"?\b/i;
+const WATCHED_INSERT =
+  /^\s*insert\s+(?:or\s+\w+\s+)?into\s+"?(skill_evidence_observation|learning_attempts|skill_evidence|skill_estimate|audit_events)"?\b/i;
 
 const AUDIT_DELETE = /^\s*delete\s+from\s+"?audit_events"?\b/i;
 
@@ -78,9 +97,9 @@ type TrackingState = {
 };
 
 function recordExecution(sql: string, state: TrackingState): void {
-  const insert = THREE_TABLE_INSERT.exec(sql);
+  const insert = WATCHED_INSERT.exec(sql);
   if (insert) {
-    state.writes.push({ table: insert[1]!.toLowerCase() as ThreeTable, depth: state.depth, sql });
+    state.writes.push({ table: insert[1]!.toLowerCase() as WatchTable, depth: state.depth, sql });
     return;
   }
   if (AUDIT_DELETE.test(sql)) state.auditDeletes.push(sql);
@@ -242,11 +261,11 @@ async function answerFirstStepCorrectly(session: StartSessionResponse): Promise<
   expect(((await res.json()) as SubmitAttemptResponse).outcome).toBe("correct");
 }
 
-function batched(table: ThreeTable): WriteEvent[] {
+function batched(table: WatchTable): WriteEvent[] {
   return state.writes.filter((write) => write.table === table && write.depth > 0);
 }
 
-function unbatched(table: ThreeTable): WriteEvent[] {
+function unbatched(table: WatchTable): WriteEvent[] {
   return state.writes.filter((write) => write.table === table && write.depth === 0);
 }
 
@@ -306,7 +325,7 @@ beforeEach(async () => {
   learnerId = ((await enrolRes.json()) as { learner: { id: string } }).learner.id;
 });
 
-describe("every grouped write touching the three evidence tables commits as one batch", () => {
+describe("every grouped write touching the watched evidence tables commits as one batch", () => {
   it("starts a session with its audit row in the same batch", async () => {
     const lessonId = await approveFirstLesson();
     resetTracker();
@@ -334,6 +353,12 @@ describe("every grouped write touching the three evidence tables commits as one 
     expect(batched("learning_attempts")).toHaveLength(1);
     expect(batched("audit_events")).toHaveLength(1);
     expect(batched("skill_evidence")).toHaveLength(1);
+    // Layers 2 and 3 ride the same batch as the attempt they describe. If either
+    // ever moves out, the attempt could land without the observation naming it.
+    expect(unbatched("skill_evidence_observation")).toHaveLength(0);
+    expect(unbatched("skill_estimate")).toHaveLength(0);
+    expect(batched("skill_evidence_observation")).toHaveLength(1);
+    expect(batched("skill_estimate").length).toBeGreaterThanOrEqual(1);
   });
 
   it("records a parent correction with its audit row in the same batch", async () => {
@@ -475,6 +500,12 @@ describe("import restores grouped evidence as a batch and names its unbatched ro
     expect(batched("skill_evidence").length).toBeGreaterThanOrEqual(1);
     expect(unbatched("learning_attempts")).toHaveLength(0);
     expect(unbatched("skill_evidence")).toHaveLength(0);
+
+    // The restored observation names an attempt this very import writes, so it
+    // must land in that batch rather than after it.
+    expect(batched("skill_evidence_observation").length).toBeGreaterThanOrEqual(1);
+    expect(unbatched("skill_evidence_observation")).toHaveLength(0);
+    expect(unbatched("skill_estimate")).toHaveLength(0);
 
     // At least `data.imported`, and one restored `hint.requested` per hint the
     // file recorded. Enumerated, not asserted away: they are proof rows written
