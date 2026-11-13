@@ -1,7 +1,7 @@
 # Ma trận kiểm chứng G0–G16
 
-**Ngày đo:** 2026-11-10 (G0–G16); 2026-11-13 (mục MB, mục OPS, và số đếm bộ kiểm thử); 2026-11-13 (đo lại G0, G4, G7, G8, G11, G15 trên HEAD mới)
-**HEAD:** `535e761755eca925cb9828b3bc4ba07a783dae7a`
+**Ngày đo:** 2026-11-10 (G0–G16); 2026-11-13 (mục MB, mục OPS, và số đếm bộ kiểm thử); 2026-11-13 (đo lại G0, G4, G7, G8, G11, G12, G15 trên HEAD mới)
+**HEAD:** `ce1d87c57afff4020b1bf27f145c7a0988eabb07` (đo lại 2026-11-13; bản trước ghim `535e761…` với cây làm việc bẩn — xem G0)
 **Nhánh:** `feat/mission-a-2036-foundation`
 **Máy:** macOS, Node v26.7.0, npm 11.x
 
@@ -27,7 +27,7 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 chặn mọi
 
 | Cổng | Tên | Phán quyết | Số đo chính |
 |---|---|---|---|
-| G0 | Baseline & môi trường | **PARTIAL** | HEAD `535e761…`, cây làm việc **21 tệp chưa commit** (20 sửa + 1 chưa theo dõi) |
+| G0 | Baseline & môi trường | **PASS** | HEAD `ce1d87c57afff…`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (exit 0) |
 | G1 | Nhất quán mô hình năng lực | **PASS** | `src/` + `test/`: **0** `EMERGING`; 5 trạng thái khớp `COMPETENCY_STATES` |
 | G2 | Kiểm thử không phụ thuộc mạng | **HOLD** | **0** test chặn tuyến mạng ra ngoài |
 | G3 | Bí mật & mặc định an toàn | **PASS** | 0 bí mật mặc định; 20 test canh giữ |
@@ -39,13 +39,13 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 chặn mọi
 | G9 | Giới hạn phiên học | **HOLD** | **0** giới hạn 25 phút; 0 bảng xếp hạng |
 | G10 | Khả năng tiếp cận | **HOLD** | **0** kiểm thử `axe` |
 | G11 | Nguyên tử hoá ghi chéo bảng | **PASS** | 16 điểm `batch(`; 4 test rollback; 8 test hình dạng batch |
-| G12 | Sao lưu & khôi phục | **PASS** | Drill `ok:true`; **`restoreMs: 92`** < 60 giây; **`recordsLost: 0`** / 548 bản ghi; mutation làm drill exit 1 |
+| G12 | Sao lưu & khôi phục | **PASS** | Drill `ok:true`; **`restoreMs: 97`** < 60 giây (4 lần chạy: 97/101/98/99); **`recordsLost: 0`** / 548 bản ghi; mutation làm drill exit 1 |
 | G13 | Kiểm chứng nội dung bằng công cụ | **HOLD** | **0** tích hợp `sympy`/`promptfoo` |
 | G14 | Đo lường thực nghiệm | **PARTIAL** | Giao thức đã dựng: `retention:report` → `NO_DATA` trên DB thật (0 lần học); drill → `MEASURED` (`probes 4/3`, rate `0.5` / `0.666…`); **7/7** mutation bị bắt; **0** số đo thật vì chưa có dữ liệu |
 | G15 | Mô hình chi phí | **HOLD** | **0** mô hình TCO; **1** dòng khớp chữ "TCO" và đó là checklist văn xuôi ở `MISSION_B_PUBLIC_REPO_RISK.md`; **0** trong `src/`, **0** trong `scripts/` |
 | G16 | Phê duyệt của chủ sở hữu | **HOLD** | 0 bản ký duyệt; 3 điều kiện tiên quyết còn mở |
 
-**Kết luận:** 7 PASS (G1, G3, G4, G5, G7, G11, G12), 3 PARTIAL (G0, G8, G14), 7 HOLD (G2, G6, G9, G10, G13, G15, G16). Theo quy tắc chặn cứng của Masterplan, repo **không đủ điều kiện triển khai** — và đó là trạng thái đúng, vì chính sách của dự án là `PRODUCTION DEPLOY BLOCKED`.
+**Kết luận:** 8 PASS (G0, G1, G3, G4, G5, G7, G11, G12), 2 PARTIAL (G8, G14), 7 HOLD (G2, G6, G9, G10, G13, G15, G16). Theo quy tắc chặn cứng của Masterplan, repo **không đủ điều kiện triển khai** — và đó là trạng thái đúng, vì chính sách của dự án là `PRODUCTION DEPLOY BLOCKED`.
 
 ---
 
@@ -62,8 +62,8 @@ git merge-base --is-ancestor bff5c9d HEAD; echo "exit=$?"
 
 **Kết quả nguyên văn (đo lại 2026-11-13):**
 ```
-535e761755eca925cb9828b3bc4ba07a783dae7a
-21
+ce1d87c57afff4020b1bf27f145c7a0988eabb07
+0
 exit=0
 ```
 
@@ -72,13 +72,12 @@ Phân rã cây làm việc:
 git status --porcelain | awk '{print $1}' | sort | uniq -c
 ```
 ```
-   1 ??
-  20 M
+(không có dòng nào)
 ```
 
-**Đo được:** HEAD đúng là `535e761755eca925cb9828b3bc4ba07a783dae7a`; baseline `bff5c9d` là tổ tiên của HEAD (exit 0); cây làm việc có **21 tệp chưa commit** — **20 sửa đổi** và **1 tệp chưa được theo dõi**. Các bản đo trước đã cũ và không được giữ lại như thể chúng còn đúng: bản 2026-11-10 ghi 23 tệp, bản 2026-11-12 ghi 46 tệp, rồi 18 tệp. Con số này đổi mỗi lần có thay đổi được commit hay thêm vào, nên nó phải được đo lại chứ không được chép: sau bản 18, `docs/DATA_MODEL.md` được mở rộng ra toàn bộ 16 migration và `scripts/curriculum-coverage.mjs` được chú thích, nên lên 20 sửa đổi + 1 chưa theo dõi = **21**.
+**Đo được:** HEAD đúng là `ce1d87c57afff4020b1bf27f145c7a0988eabb07`; baseline `bff5c9d` là tổ tiên của HEAD (exit 0); cây làm việc có **0 tệp** thay đổi. Các bản đo trước đã cũ và không được giữ lại như thể chúng còn đúng: bản 2026-11-10 ghi 23 tệp, bản 2026-11-12 ghi 46 tệp, rồi 18 tệp, rồi 21 tệp. Con số này đổi mỗi lần có thay đổi được commit hay thêm vào, nên nó phải được đo lại chứ không được chép. Bản 21 tệp ghi trên HEAD `535e761` với **20 sửa đổi + 1 tệp chưa theo dõi**; 21 tệp đó đã được commit trọn vẹn thành `ce1d87c` (`21 files changed, 681 insertions(+), 124 deletions(-)`), nên cây làm việc giờ sạch và mọi số đo dưới đây tái lập được từ một commit đã đóng.
 
-**Phán quyết: PARTIAL.** SHA bị ghim và quan hệ tổ tiên đúng, nhưng cây làm việc **bẩn**. Mọi số đo trong tài liệu này đo trên HEAD + 21 tệp chưa commit đó, không đo trên một commit đã đóng. Điều này có nghĩa: chạy lại các câu lệnh trên máy khác ở đúng HEAD `535e761` sẽ **không** cho cùng kết quả. Đây là lý do G0 không thể PASS trước khi toàn bộ thay đổi được commit — và đây cũng là lý do con số 21 phải được đo lại, chứ không được chép từ bản trước.
+**Phán quyết: PASS.** SHA được ghim, baseline đúng là tổ tiên, và cây làm việc sạch — chạy lại các câu lệnh trong tài liệu này trên máy khác ở đúng HEAD `ce1d87c` cho cùng kết quả. Phán quyết trước đó là **PARTIAL** vì cây làm việc bẩn; nguyên nhân đã được xoá bằng cách commit, không phải bằng cách nới điều kiện, nên phán quyết được nâng theo cùng bộ tiêu chí.
 
 ---
 
@@ -400,7 +399,7 @@ Hai bảng trong số năm đó là `skill_evidence_observation` và `skill_esti
 
 Ngoài ra có ba builder ghi-ba-bảng **không có caller nào trong `src/`**: `recordAttempt`, `upsertSkillEvidence`, `upsertReviewSchedule` — chỉ test gọi. Đây là bề mặt chết; nếu ai đó nối chúng vào một tuyến trong tương lai, test hình dạng batch sẽ bắt được vì tuyến đó sẽ hiện ra như phát hiện mới.
 
-**Một lưu ý về nơi bằng chứng này sống.** `npm run verify` **không** chạy `test:integration` — nó chỉ chạy `npm run test` (vitest unit). Toàn bộ 8 test trên nằm trong suite tích hợp, nên bằng chứng của hàng này là `npm run test:integration`, không phải `verify`. Đo được: `18 tệp / 186 test passed` sau khi thêm tệp này.
+**Một lưu ý về nơi bằng chứng này sống.** `npm run verify` **không** chạy `test:integration` — nó chỉ chạy `npm run test` (vitest unit). Toàn bộ 8 test trên nằm trong suite tích hợp, nên bằng chứng của hàng này là `npm run test:integration`, không phải `verify`. (Con số `18 tệp / 186 test passed` ghi ở đây là số đo **lúc tệp `batched-write-shape.test.ts` được thêm vào**, giữ lại như lịch sử. Đo lại trên HEAD `ce1d87c`: `1 tệp / 8 test passed`, và toàn bộ suite tích hợp là **19 tệp / 202 test passed**.)
 
 **Phán quyết: PASS**, với bốn kịch bản rollback được nêu tên, tám hình dạng batch được đo, và bảy tuyến một-câu-lệnh được liệt kê thay vì bị phủ định.
 
@@ -425,7 +424,7 @@ grep -n "performance.now()\|restoreMs\|recordsLost" scripts/backup-restore-drill
 576:  const recordsLost = backedUpRecords - restoredRecords;
 ```
 
-**Đo được:** drill chạy exit 0, `ok:true`, **23 bộ sưu tập** (mọi khoá của `EXPORT_COLLECTIONS` trừ `auditEvents`) được khôi phục với số dòng khớp bản gốc, **`restoreMs: 92`** đo bằng `performance.now()` từ lần đọc byte đầu tiên trên đĩa tới dòng cuối cùng được ghi — **dưới ngân sách 60 giây 652 lần**, và drill tự `assert` điều đó nên một lần khôi phục chậm sẽ làm hỏng drill chứ không lặng lẽ in ra một con số không ai đọc. **`recordsLost: 0`** trên **548 bản ghi** — con số này lấy từ **lần export lại sau khi khôi phục, đọc dòng thật trong D1**, không phải từ `importReport.counts`; `countOf` trong `importRecord` đếm `data[key].length` trên chính thân yêu cầu, nên so `counts` với phong bì là so tệp với chính nó và **không bao giờ** phát hiện được một dòng bị bỏ rơi. `approvalFailClosedToDraft:true` chứng minh phê duyệt bài học **fail closed** về `draft` khi thiếu. Drill dùng thư mục tạm `mkdtempSync(.../tai-learning-os-backup-drill-*)` và **không bao giờ** mở `.wrangler/state` hay `.dev.vars`.
+**Đo được:** drill chạy exit 0, `ok:true`, **23 bộ sưu tập** (mọi khoá của `EXPORT_COLLECTIONS` trừ `auditEvents`) được khôi phục với số dòng khớp bản gốc, **`restoreMs: 97`** đo bằng `performance.now()` từ lần đọc byte đầu tiên trên đĩa tới dòng cuối cùng được ghi — **dưới ngân sách 60 giây 652 lần**, và drill tự `assert` điều đó nên một lần khôi phục chậm sẽ làm hỏng drill chứ không lặng lẽ in ra một con số không ai đọc. **`recordsLost: 0`** trên **548 bản ghi** — con số này lấy từ **lần export lại sau khi khôi phục, đọc dòng thật trong D1**, không phải từ `importReport.counts`; `countOf` trong `importRecord` đếm `data[key].length` trên chính thân yêu cầu, nên so `counts` với phong bì là so tệp với chính nó và **không bao giờ** phát hiện được một dòng bị bỏ rơi. `approvalFailClosedToDraft:true` chứng minh phê duyệt bài học **fail closed** về `draft` khi thiếu. Drill dùng thư mục tạm `mkdtempSync(.../tai-learning-os-backup-drill-*)` và **không bao giờ** mở `.wrangler/state` hay `.dev.vars`.
 
 **Kiểm chứng ngược (mutation):** sửa `importRecord` để bỏ qua `skillEvidenceObservations` (`for (const row of [] )`) rồi chạy lại drill → **exit 1**, nguyên văn:
 ```
@@ -654,8 +653,8 @@ npm run validate:lessons
 npm run backup:drill
 
 # Bộ kiểm thử đầy đủ
-npx vitest run            # 21 tệp / 349 test
-npm run test:integration  # 19 tệp / 200 test
+npx vitest run            # 21 tệp / 356 test
+npm run test:integration  # 19 tệp / 202 test
 
 # OPS
 npm run household:preflight
@@ -669,5 +668,5 @@ npx vitest run test/unit/household-preflight.test.ts
 - Không khẳng định hệ thống an toàn để triển khai. **Bảy** cổng HOLD ở trên chặn điều đó.
 - Không khẳng định nội dung chương trình đã đủ. 50 bài là 3,57% quỹ tiết Grade 4–5; phần còn thiếu là công việc soạn nội dung, nằm ngoài phạm vi đợt này.
 - Không khẳng định G6 đã đóng. Điều kiện "khác phiên" chưa được cài đặt, và việc cài đặt nó cần thay đổi `AttemptEvidence` cùng schema.
-- Không khẳng định G12 đã sẵn sàng cho dữ liệu thật. Drill đo `restoreMs: 92` trên **548 bản ghi** trong một D1 tạm; đó là bằng chứng cho ngân sách 60 giây ở quy mô hiện tại, **không** phải phép đo trên cơ sở dữ liệu nhiều năm của gia đình, nơi `learning_attempts` sẽ lớn hơn nhiều lần.
-- Không khẳng định các số đo trên tái lập được từ HEAD `535e761` một mình — cây làm việc còn 21 tệp chưa commit (G0).
+- Không khẳng định G12 đã sẵn sàng cho dữ liệu thật. Drill đo `restoreMs: 97` (phương sai của 4 lần chạy: 97/101/98/99 ms) trên **548 bản ghi** trong một D1 tạm; đó là bằng chứng cho ngân sách 60 giây ở quy mô hiện tại, **không** phải phép đo trên cơ sở dữ liệu nhiều năm của gia đình, nơi `learning_attempts` sẽ lớn hơn nhiều lần. Drill này cũng không đọc `.wrangler/state` nên chưa chứng minh khôi phục được cơ sở dữ liệu hộ gia đình thật.
+- Không khẳng định các số đo trên tái lập được từ HEAD một mình — chúng đo trên HEAD `ce1d87c` với cây làm việc sạch (G0), nhưng bốn bộ kiểm thử trong repo này phụ thuộc vào trình duyệt và môi trường Node (CI dùng Node 24, máy đo dùng Node 26.7.0).
