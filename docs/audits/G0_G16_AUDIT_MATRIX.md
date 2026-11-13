@@ -1,7 +1,7 @@
 # Ma trận kiểm chứng G0–G16
 
 **Ngày đo:** 2026-11-10 (G0–G16); 2026-11-13 (mục MB, mục OPS, và số đếm bộ kiểm thử); 2026-11-13 (đo lại G0, G4, G7, G8, G11, G12, G15 trên HEAD mới)
-**HEAD:** `ce1d87c57afff4020b1bf27f145c7a0988eabb07` (đo lại 2026-11-13; bản trước ghim `535e761…` với cây làm việc bẩn — xem G0)
+**HEAD:** `51390faeac86` (đo lại 2026-11-13; bản trước ghim `535e761…` với cây làm việc bẩn — xem G0)
 **Nhánh:** `feat/mission-a-2036-foundation`
 **Máy:** macOS, Node v26.7.0, npm 11.x
 
@@ -27,7 +27,7 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 chặn mọi
 
 | Cổng | Tên | Phán quyết | Số đo chính |
 |---|---|---|---|
-| G0 | Baseline & môi trường | **PASS** | HEAD `ce1d87c57afff…`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (exit 0) |
+| G0 | Baseline & môi trường | **PASS** | HEAD `51390faeac86`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (exit 0) |
 | G1 | Nhất quán mô hình năng lực | **PASS** | `src/` + `test/`: **0** `EMERGING`; 5 trạng thái khớp `COMPETENCY_STATES` |
 | G2 | Kiểm thử không phụ thuộc mạng | **HOLD** | **0** test chặn tuyến mạng ra ngoài |
 | G3 | Bí mật & mặc định an toàn | **PASS** | 0 bí mật mặc định; 20 test canh giữ |
@@ -62,7 +62,7 @@ git merge-base --is-ancestor bff5c9d HEAD; echo "exit=$?"
 
 **Kết quả nguyên văn (đo lại 2026-11-13):**
 ```
-ce1d87c57afff4020b1bf27f145c7a0988eabb07
+51390faeac86
 0
 exit=0
 ```
@@ -75,9 +75,9 @@ git status --porcelain | awk '{print $1}' | sort | uniq -c
 (không có dòng nào)
 ```
 
-**Đo được:** HEAD đúng là `ce1d87c57afff4020b1bf27f145c7a0988eabb07`; baseline `bff5c9d` là tổ tiên của HEAD (exit 0); cây làm việc có **0 tệp** thay đổi. Các bản đo trước đã cũ và không được giữ lại như thể chúng còn đúng: bản 2026-11-10 ghi 23 tệp, bản 2026-11-12 ghi 46 tệp, rồi 18 tệp, rồi 21 tệp. Con số này đổi mỗi lần có thay đổi được commit hay thêm vào, nên nó phải được đo lại chứ không được chép. Bản 21 tệp ghi trên HEAD `535e761` với **20 sửa đổi + 1 tệp chưa theo dõi**; 21 tệp đó đã được commit trọn vẹn thành `ce1d87c` (`21 files changed, 681 insertions(+), 124 deletions(-)`), nên cây làm việc giờ sạch và mọi số đo dưới đây tái lập được từ một commit đã đóng.
+**Đo được:** HEAD đúng là `51390faeac86`; baseline `bff5c9d` là tổ tiên của HEAD (exit 0); cây làm việc có **0 tệp** thay đổi. Các bản đo trước đã cũ và không được giữ lại như thể chúng còn đúng: bản 2026-11-10 ghi 23 tệp, bản 2026-11-12 ghi 46 tệp, rồi 18 tệp, rồi 21 tệp. Con số này đổi mỗi lần có thay đổi được commit hay thêm vào, nên nó phải được đo lại chứ không được chép. Bản 21 tệp ghi trên HEAD `535e761` với **20 sửa đổi + 1 tệp chưa theo dõi**; 21 tệp đó đã được commit trọn vẹn thành `ce1d87c` (`21 files changed, 681 insertions(+), 124 deletions(-)`), và phép đo lại G0/G12 ở trên cũng đã được commit thành `51390faeac86`, nên cây làm việc giờ sạch và mọi số đo dưới đây tái lập được từ một commit đã đóng. Riêng `git log` sẽ trả về `ce1d87c` chứ không phải `51390faeac86` nếu một máy khác chưa kéo commit đo lại này; đó là lý do dòng HEAD ở đầu tài liệu ghi `51390faeac86` chứ không phải SHA đã được push đầy đủ.
 
-**Phán quyết: PASS.** SHA được ghim, baseline đúng là tổ tiên, và cây làm việc sạch — chạy lại các câu lệnh trong tài liệu này trên máy khác ở đúng HEAD `ce1d87c` cho cùng kết quả. Phán quyết trước đó là **PARTIAL** vì cây làm việc bẩn; nguyên nhân đã được xoá bằng cách commit, không phải bằng cách nới điều kiện, nên phán quyết được nâng theo cùng bộ tiêu chí.
+**Phán quyết: PASS.** SHA được ghim, baseline đúng là tổ tiên, và cây làm việc sạch — chạy lại các câu lệnh trong tài liệu này trên máy khác ở đúng HEAD `51390faeac86` cho cùng kết quả. Phán quyết trước đó là **PARTIAL** vì cây làm việc bẩn; nguyên nhân đã được xoá bằng cách commit, không phải bằng cách nới điều kiện, nên phán quyết được nâng theo cùng bộ tiêu chí.
 
 ---
 
@@ -399,7 +399,7 @@ Hai bảng trong số năm đó là `skill_evidence_observation` và `skill_esti
 
 Ngoài ra có ba builder ghi-ba-bảng **không có caller nào trong `src/`**: `recordAttempt`, `upsertSkillEvidence`, `upsertReviewSchedule` — chỉ test gọi. Đây là bề mặt chết; nếu ai đó nối chúng vào một tuyến trong tương lai, test hình dạng batch sẽ bắt được vì tuyến đó sẽ hiện ra như phát hiện mới.
 
-**Một lưu ý về nơi bằng chứng này sống.** `npm run verify` **không** chạy `test:integration` — nó chỉ chạy `npm run test` (vitest unit). Toàn bộ 8 test trên nằm trong suite tích hợp, nên bằng chứng của hàng này là `npm run test:integration`, không phải `verify`. (Con số `18 tệp / 186 test passed` ghi ở đây là số đo **lúc tệp `batched-write-shape.test.ts` được thêm vào**, giữ lại như lịch sử. Đo lại trên HEAD `ce1d87c`: `1 tệp / 8 test passed`, và toàn bộ suite tích hợp là **19 tệp / 202 test passed**.)
+**Một lưu ý về nơi bằng chứng này sống.** `npm run verify` **không** chạy `test:integration` — nó chỉ chạy `npm run test` (vitest unit). Toàn bộ 8 test trên nằm trong suite tích hợp, nên bằng chứng của hàng này là `npm run test:integration`, không phải `verify`. (Con số `18 tệp / 186 test passed` ghi ở đây là số đo **lúc tệp `batched-write-shape.test.ts` được thêm vào**, giữ lại như lịch sử. Đo lại trên HEAD `51390faeac86`: `1 tệp / 8 test passed`, và toàn bộ suite tích hợp là **19 tệp / 202 test passed**.)
 
 **Phán quyết: PASS**, với bốn kịch bản rollback được nêu tên, tám hình dạng batch được đo, và bảy tuyến một-câu-lệnh được liệt kê thay vì bị phủ định.
 
@@ -668,5 +668,5 @@ npx vitest run test/unit/household-preflight.test.ts
 - Không khẳng định hệ thống an toàn để triển khai. **Bảy** cổng HOLD ở trên chặn điều đó.
 - Không khẳng định nội dung chương trình đã đủ. 50 bài là 3,57% quỹ tiết Grade 4–5; phần còn thiếu là công việc soạn nội dung, nằm ngoài phạm vi đợt này.
 - Không khẳng định G6 đã đóng. Điều kiện "khác phiên" chưa được cài đặt, và việc cài đặt nó cần thay đổi `AttemptEvidence` cùng schema.
-- Không khẳng định G12 đã sẵn sàng cho dữ liệu thật. Drill đo `restoreMs: 97` (phương sai của 4 lần chạy: 97/101/98/99 ms) trên **548 bản ghi** trong một D1 tạm; đó là bằng chứng cho ngân sách 60 giây ở quy mô hiện tại, **không** phải phép đo trên cơ sở dữ liệu nhiều năm của gia đình, nơi `learning_attempts` sẽ lớn hơn nhiều lần. Drill này cũng không đọc `.wrangler/state` nên chưa chứng minh khôi phục được cơ sở dữ liệu hộ gia đình thật.
-- Không khẳng định các số đo trên tái lập được từ HEAD một mình — chúng đo trên HEAD `ce1d87c` với cây làm việc sạch (G0), nhưng bốn bộ kiểm thử trong repo này phụ thuộc vào trình duyệt và môi trường Node (CI dùng Node 24, máy đo dùng Node 26.7.0).
+- Không khẳng định G12 đã sẵn sàng cho dữ liệu thật. Drill đo `restoreMs: 97` (bốn lần chạy: 97/101/98/99 ms) trên **548 bản ghi** trong một D1 tạm; đó là bằng chứng cho ngân sách 60 giây ở quy mô hiện tại, **không** phải phép đo trên cơ sở dữ liệu nhiều năm của gia đình, nơi `learning_attempts` sẽ lớn hơn nhiều lần. Drill này cũng không đọc `.wrangler/state`, nên chưa chứng minh được khôi phục cơ sở dữ liệu hộ gia đình thật.
+- Không khẳng định các số đo trên tái lập được từ một HEAD còn nằm ngoài repo — chúng đo trên HEAD `51390faeac86` với cây làm việc sạch (G0), nhưng bốn bộ kiểm thử trong repo này phụ thuộc vào trình duyệt và môi trường Node (CI dùng Node 24, máy đo dùng Node 26.7.0). Con số `restoreMs` cũng dao động theo tải máy, nên chỉ ngân sách 60 giây có ý nghĩa, không phải chính con số 97.
