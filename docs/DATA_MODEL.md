@@ -15,12 +15,12 @@ are written out by hand.
 Those numbers come from reading `sqlite_master` after the files have run, not
 from counting `CREATE TABLE` strings: the files contain 39 `CREATE TABLE`
 statements, but four of them create something that does not survive to the end.
-`0007` and `0013` each build a replacement table under a temporary name
-(`review_approvals_v7`, `lesson_steps_v7`, `learning_plan_items_new`) and rename
-it over the original, and `0007` also copies `learning_attempts` into
-`_tmp_learning_attempts` so foreign keys survive a rebuild. A textual count
-reports 39; the applied schema reports 35. Only the applied schema says what
-exists.
+`0007` rebuilds two tables under temporary names (`review_approvals_v7`,
+`lesson_steps_v7`) and also copies `learning_attempts` into
+`_tmp_learning_attempts` so foreign keys survive the rebuild; `0013` rebuilds one
+table under a temporary name (`learning_plan_items_new`) and renames it over the
+original. A textual count reports 39; the applied schema reports 35. Only the
+applied schema says what exists.
 
 Migrations are not hand-edited: a new migration is added, and `schema_versions`
 records which ones have run.
