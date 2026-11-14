@@ -49,6 +49,9 @@ jobs:
       - name: Run AES-256-GCM encrypted backup & restore drill
         run: npm run backup:drill
 
+      - name: Run 14/30-day delayed retention drill
+        run: npm run retention:drill
+
       - name: Run isolated multi-learner pilot seed verification
         run: npm run seed:pilot
 

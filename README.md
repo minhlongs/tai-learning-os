@@ -72,17 +72,22 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (366 tests across 24 files)
+# Chạy toàn bộ Unit Tests (399 tests across 29 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (203 tests across 19 files)
+# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (206 tests across 20 files)
 npm run test:integration
 
-# Chạy Playwright End-to-End Tests (54 tests, Desktop + Tablet + Mobile)
+# Chạy Playwright End-to-End Tests (60 tests, Desktop + Tablet + Mobile, kèm chặn mạng G2 & WCAG 2.2 AA axe G10)
 npm run test:e2e
 
-# Xác thực toàn diện tất cả các cổng (typecheck, lint, test, validate:lessons, build)
+# Xác thực toàn diện tất cả các cổng (typecheck, lint, test, validate:lessons, qa:content, review:simulate, tco:verify, build)
 npm run verify
+
+# Kiểm chứng nội dung ngoại tuyến (G13), mô phỏng FSRS-6 3.650 ngày (G7) và mô hình chi phí TCO (G15)
+npm run qa:content
+npm run review:simulate
+npm run tco:verify
 
 # Diễn tập sao lưu & khôi phục mã hóa AES-256-GCM tự động trong môi trường cô lập
 npm run backup:drill
@@ -90,6 +95,9 @@ npm run backup:drill
 # Xuất hồ sơ học tập ra tập tin JSON dự phòng (hoặc mã hóa AES-256-GCM với --passphrase)
 npm run export:learner -- ./backup-mau.json
 npm run export:learner -- ./backup-mau.enc.json --passphrase "mat-khau-sao-luu"
+
+# Xuất gói Hồ sơ Di sản Mở 10 Năm (1EdTech CLR 2.0, CASE 1.1, IEEE xAPI 2.0 & viewer.html ngoại tuyến, chỉ-đọc 100%)
+npm run export:portability -- --out-dir ./portability-bundle
 
 # Mở khóa tạm thời tài khoản phụ huynh khi nhập sai mật khẩu quá 5 lần
 npm run unlock:parent

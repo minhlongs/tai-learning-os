@@ -445,6 +445,28 @@ describe("single-statement paths are single on purpose", () => {
     expect(state.writes[0]!.depth).toBe(0);
   });
 
+  it("writes the single proof row for open portability export at depth 0", async () => {
+    const lessonId = await approveFirstLesson();
+    const session = await startLesson(lessonId);
+    await answerFirstStepCorrectly(session);
+    resetTracker();
+
+    const res = await call("/api/data/export-portability", { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      viewerHtml: string;
+      xapi20Jsonl: string;
+      manifest: { xapiStatements: number };
+    };
+    expect(body.manifest.xapiStatements).toBeGreaterThanOrEqual(1);
+    expect(body.viewerHtml).toContain("Content-Security-Policy");
+
+    expect(state.batchCalls).toBe(0);
+    expect(state.writes).toHaveLength(1);
+    expect(state.writes[0]!.table).toBe("audit_events");
+    expect(state.writes[0]!.depth).toBe(0);
+  });
+
   it("writes the deletion proof before the cascade, and the cascade as one batch", async () => {
     const lessonId = await approveFirstLesson();
     const session = await startLesson(lessonId);

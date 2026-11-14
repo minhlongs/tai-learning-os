@@ -886,7 +886,7 @@ export function renderStandalonePortabilityViewerHtml(
       <section class="archive-section" aria-labelledby="sec-history">
         <h2 id="sec-history">3. Lịch sử Phiên học &amp; Nhật ký Sự kiện xAPI 2.0 (Sessions &amp; xAPI 2.0 Event Ledger)</h2>
         <h3>Nhật ký phiên học (Chronological Learning Sessions)</h3>
-        <div class="table-wrap">
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Bảng nhật ký phiên học">
           <table>
             <thead>
               <tr>
@@ -905,7 +905,7 @@ export function renderStandalonePortabilityViewerHtml(
         </div>
 
         <h3>Nhật ký sự kiện chuẩn IEEE xAPI 2.0 (${String(bundle.manifest.counts.xapiStatements)} statements)</h3>
-        <div class="table-wrap">
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Bảng nhật ký sự kiện IEEE xAPI 2.0">
           <table>
             <thead>
               <tr>

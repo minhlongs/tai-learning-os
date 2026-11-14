@@ -53,6 +53,7 @@ import {
   upsertCurriculumSetup,
 } from "./routes/parent";
 import { deleteLearner, exportRecord, importRecord } from "./routes/data";
+import { exportPortabilityRecord } from "./routes/portability";
 import {
   grantConsent,
   listConsentableOrganizations,
@@ -156,6 +157,7 @@ const ROUTES: readonly Route[] = [
   parentRoute("GET", /^\/api\/parent\/classroom-lessons$/, listParentClassroomLessonsRoute),
 
   parentRoute("POST", /^\/api\/data\/export$/, exportRecord),
+  parentRoute("POST", /^\/api\/data\/export-portability$/, exportPortabilityRecord),
   parentRoute("POST", /^\/api\/data\/import$/, importRecord),
   parentRoute("DELETE", /^\/api\/data\/learner$/, deleteLearner),
 ];

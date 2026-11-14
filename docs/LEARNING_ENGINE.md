@@ -103,9 +103,9 @@ The ladder as documented in `competency.ts`:
 |---|---|---|
 | `NOT_OBSERVED` | No independent solve recorded. | Chưa quan sát được |
 | `SUPPORTED` | Reached the answer **with any hint (`helpLevel >= 1`) or retry (`attemptNo > 1`)**. | Làm được khi có hỗ trợ |
-| `INDEPENDENT` | Solved **on the first attempt (`attemptNo === 1`) with zero hints (`helpLevel === 0`) and `evidenceKind === "observed"`**. | Tự làm được |
-| `RETAINED` | Solved independently again **after a scheduled review**. | Nhớ được sau thời gian ôn |
-| `TRANSFERRED` | Solved a **transfer** question independently. | Áp dụng được vào tình huống mới |
+| `INDEPENDENT` | Solved **on the first attempt (`attemptNo === 1`) with zero hints (`helpLevel === 0`) and `evidenceKind === "observed"` across `>= 2` distinct sessions**. | Tự làm được |
+| `RETAINED` | Solved independently again **after a due scheduled review (`now >= due_at`)**. | Nhớ được sau thời gian ôn |
+| `TRANSFERRED` | Solved a **transfer** question independently (with `>= 2` independent solves across `>= 2` distinct sessions). | Áp dụng được vào tình huống mới |
 
 ### `COMPETENCY_CONFIG` — the real thresholds
 
@@ -113,6 +113,8 @@ The ladder as documented in `competency.ts`:
 export const COMPETENCY_CONFIG = {
   /** Correct attempts with help_level === 0 needed for INDEPENDENT. */
   independentMinCorrect: 2,
+  /** Distinct learning sessions required before INDEPENDENT is confirmed (Gate G6). */
+  independentMinDistinctSessions: 2,
   /** Only zero-hint attempts count toward independent mastery. */
   smallHint: 0,
   /** An independent solve after a *scheduled* review earns RETAINED. */
@@ -120,11 +122,14 @@ export const COMPETENCY_CONFIG = {
 } as const;
 ```
 
-Three values. `independentMinCorrect: 2` is what stops a single lucky guess
-establishing mastery. `smallHint: 0` enforces the strict boundary — only `helpLevel === 0`
-counts as independent; any hint usage (`1`, `2`, `3`, `4`) or repeat attempt (`attemptNo > 1`) is classified as `assisted` (`SUPPORTED`). `retainedRequiresScheduledReview` is a
-documented intent; the derivation reads it through `isReview`, which
-`scheduleReview` does not itself set.
+Four values. `independentMinCorrect: 2` stops a single lucky guess establishing mastery, while `independentMinDistinctSessions: 2` prevents two back-to-back solves inside the same sitting from claiming durable independence (two independent solves in one session stay `SUPPORTED` until confirmed in a second session; see [`adr/ADR-006-cross-session-mastery-session-cap-and-open-portability.md`](adr/ADR-006-cross-session-mastery-session-cap-and-open-portability.md)). `smallHint: 0` enforces the strict boundary — only `helpLevel === 0` counts as independent; any hint usage (`1`, `2`, `3`, `4`) or pre-due repeat attempt (`attemptNo > 1`) is classified as `assisted` (`SUPPORTED`). When a scheduled review becomes due (`now >= due_at`), the learner's first zero-hint attempt on that skill inside the review session is unlocked as `observed` so 1-to-1 skill lessons can reach `RETAINED` while pre-due retries remain blocked by Gate A2.
+
+### Session duration & eye-rest budget (Gate G9)
+
+`src/shared/engine/session-budget.ts` enforces a deterministic **25-minute Soft Stop** (`MAX_LEARNER_SESSION_MS = 25 * 60 * 1000`) for Grades 4–5:
+
+- An in-flight step submission that crosses the 25-minute mark is still graded and atomically recorded (`sessionTimeBudgetReached: true`, `canAdvance: false`) so the learner never loses work mid-problem.
+- Advancing to a subsequent step or starting a new session is paused for a **15-minute eye-rest cooldown** (`EYE_REST_COOLDOWN_MS`), unless a parent verifies their password via `POST /api/learner/sessions/extend` (+15 minutes, recorded in `audit_events` as `session.time_extended` or `session.rest_overridden`).
 
 ### The exact derivation rule
 

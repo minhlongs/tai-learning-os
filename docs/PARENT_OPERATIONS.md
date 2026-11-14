@@ -82,10 +82,14 @@ Tại trang **"Bảng theo dõi"** (`/parent`):
 - **Tổng quan ghi nhận**: Xem tổng số phiên học đã hoàn thành, số lần trả lời độc lập và tỷ lệ tự làm đúng mà không cần trợ giúp.
 - **Chi tiết từng kỹ năng**:
   - `CHƯA QUAN SÁT (NOT_OBSERVED)`: Bé chưa làm bài tập về kỹ năng này.
-  - `CẦN HỖ TRỢ (SUPPORTED)`: Bé trả lời đúng nhưng cần gợi ý mức 3-4 (đã xem hướng dẫn giải).
-  - `ĐỘC LẬP (INDEPENDENT)`: Bé tự suy nghĩ và trả lời đúng không cần trợ giúp.
-  - `GHI NHỚ TỐT (RETAINED)`: Bé hoàn thành xuất sắc các bài ôn tập cách quãng sau 3, 7, 14 ngày.
-  - `VẬN DỤNG (TRANSFERRED)`: Bé giải quyết tốt các bài toán thực tế phức tạp.
+  - `CẦN HỖ TRỢ (SUPPORTED)`: Bé trả lời đúng nhưng có dùng gợi ý, thử lại, hoặc mới chỉ tự làm đúng trong 1 phiên học duy nhất.
+  - `ĐỘC LẬP (INDEPENDENT)`: Bé tự suy nghĩ và trả lời đúng ngay lần đầu không cần trợ giúp ít nhất 2 lần ở **tối thiểu 2 phiên học khác nhau** (*English: `>= 2` unassisted first-try solves across `>= 2` distinct sessions*).
+  - `GHI NHỚ TỐT (RETAINED)`: Bé tự làm đúng ngay lần đầu trong phiên ôn tập định kỳ sau khi kỹ năng đã đến hạn ôn (`due_at`).
+  - `VẬN DỤNG (TRANSFERRED)`: Bé giải quyết tốt các bài toán thực tế phức tạp một cách độc lập.
+- **Giới hạn phiên học 25 phút & Nghỉ mắt 15 phút (25-Minute Soft Stop & Eye-Rest Cooldown)**:
+  - Mỗi đợt học của học sinh Lớp 4–5 được giới hạn tối đa **25 phút** theo cơ chế **Dừng Mềm (Soft Stop)**: nếu bé đang làm dở một câu hỏi khi chạm mốc 25 phút, hệ thống vẫn chấm điểm và lưu câu trả lời đó bình thường rồi mới hiển thị màn hình mời bé nghỉ mắt **15 phút**.
+  - Nếu phụ huynh ngồi cạnh muốn cho con hoàn thành nốt bài học, phụ huynh có thể nhập mật khẩu ngay trên màn hình nghỉ mắt để cộng thêm **15 phút** (được ghi nhận minh bạch vào nhật ký kiểm toán `session.time_extended` / `session.rest_overridden`).
+  - **English:** Learner sessions enforce a 25-minute Soft Stop (in-flight answers are graded and saved before pausing for a 15-minute eye-rest cooldown). Parents can grant an audited +15-minute extension by entering their password on the rest banner.
 - **Cảnh báo cần phụ huynh can thiệp (`needsParentAttention`)**: Nếu bé làm sai liên tiếp từ 3 lần trở lên ở một kỹ năng, hệ thống sẽ gắn cờ cảnh báo để phụ huynh ngồi cùng giải thích lại khái niệm cốt lõi cho con.
 - **Đề xuất bài học tiếp theo & Liên thông năm học**: Bảng theo dõi hiển thị gợi ý bài học tiếp theo dựa trên tiến độ kỹ năng tiên quyết của bé và hỗ trợ chuyển tiếp năm học mới (giữ nguyên toàn bộ lịch sử năng lực của các năm trước).
 - **Mục tiêu phụ huynh đặt ra (`learning_goals`)**: Phụ huynh có thể tạo mục tiêu học tập mới (chọn môn học, ngày dự kiến hoàn thành, ghi chú đồng hành) và cập nhật trạng thái (*Đang theo đuổi*, *Tạm dừng*, *Đã đạt*, *Đã khép lại*) ngay trên Bảng theo dõi. Mục tiêu của gia đình được tách biệt hoàn toàn với bằng chứng năng lực thực tế của bé.
@@ -131,6 +135,15 @@ Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
   npm run db:reprovision-household -- --approve-grade-lessons
   ```
 - **Cam kết bảo toàn bằng chứng:** Bước 1 của lệnh này mở tệp SQLite cũ ở chế độ **chỉ-đọc tuyệt đối (`readOnly: true`)** để trích xuất thông tin định danh trước khi di chuyển toàn bộ tệp sang `backups/household-db-archive-<timestamp>/`, đảm bảo mã băm SHA-256 của bản lưu trữ không thay đổi một byte nào.
+
+### 5. Xuất Hồ Sơ Di Sản Mở 10 Năm (`CLR 2.0` · `CASE 1.1` · `IEEE xAPI 2.0` · `viewer.html`)
+- Nhằm đảm bảo dữ liệu học tập của con có thể đọc lại độc lập sau 10 năm mà không cần chạy máy chủ TAI Learning OS:
+  - **Trên giao diện web (`/parent/data`)**: Tại mục **"Hồ sơ Di sản Mở 10 Năm"**, nhấn **"Tải Trình xem Độc lập Ngoại tuyến (`viewer.html`)"**. Hệ thống sẽ tải xuống một tệp HTML duy nhất tự chứa bảng tóm tắt năng lực, tiến độ chương trình GDPT 2018, lịch sử làm bài và các nút tải tệp chuẩn quốc tế (`clr-2.0.json`, `case-1.1.json`, `xapi-2.0.jsonl`), mở trực tiếp trên mọi trình duyệt ngay cả khi tắt hoàn toàn Internet (được ghi một dòng `data.portability_exported` vào nhật ký kiểm toán).
+  - **Từ Terminal (Chỉ-đọc 100%, không ghi nhật ký kiểm toán)**:
+    ```bash
+    npm run export:portability -- --out-dir ./ho-so-di-san-$(date +%Y%m%d)
+    ```
+- **English:** Export a zero-network, 10-year open-standards portability bundle (`1EdTech CLR 2.0`, `CASE 1.1`, `IEEE xAPI 2.0`, plus a self-contained offline `viewer.html` playable via `file://` with Wi-Fi disabled) either from `/parent/data` (audited as `data.portability_exported`) or read-only via `npm run export:portability -- --out-dir ./portability-bundle`.
 
 ---
 

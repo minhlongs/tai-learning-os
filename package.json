@@ -29,12 +29,16 @@
     "hash:password": "node scripts/hash-parent-password.mjs",
     "unlock:parent": "node scripts/unlock-parent.mjs",
     "export:learner": "node scripts/export-learner.mjs",
+    "export:portability": "node scripts/export-portability.mjs",
     "backup:drill": "node scripts/backup-restore-drill.mjs",
     "validate:lessons": "node scripts/validate-lessons.mjs",
+    "qa:content": "node scripts/qa-content.mjs",
+    "review:simulate": "node scripts/review-simulate.mjs",
+    "tco:verify": "node scripts/tco-verify.mjs",
     "curriculum:coverage": "node scripts/curriculum-coverage.mjs",
     "retention:report": "node scripts/retention-report.mjs",
     "retention:drill": "node scripts/retention-drill.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run validate:lessons && npm run build"
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run validate:lessons && npm run qa:content && npm run review:simulate && npm run tco:verify && npm run build"
   },
   "dependencies": {
     "react": "19.3.1",

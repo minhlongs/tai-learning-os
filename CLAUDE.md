@@ -53,14 +53,18 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (24 files, 366 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (19 files, 203 tests)
-npm run test:e2e           # Playwright E2E browser tests (54 tests, Desktop, Tablet, Mobile)
-npm run verify             # Full typecheck + lint + unit test + validate:lessons + build
+npm run test               # Vitest unit tests (29 files, 399 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (20 files, 206 tests)
+npm run test:e2e           # Playwright E2E browser tests (60 tests, Desktop, Tablet, Mobile; G2 zero-outbound + G10 axe WCAG 2.2 AA)
+npm run qa:content         # Gate G13 offline deterministic math/pedagogy/leakage QA + promptfoo config check
+npm run review:simulate    # Gate G7 3,650-day FSRS-6 longitudinal simulation (Asia/Ho_Chi_Minh)
+npm run tco:verify         # Gate G15 household TCO (<10M VND/yr) & isolated Mission B sensitivity verifier
+npm run verify             # Full typecheck + lint + unit test + validate:lessons + qa:content + review:simulate + tco:verify + build
 
 # Data & Security operations (local only)
 npm run export:learner -- ./backup-mau.json
 npm run export:learner -- ./backup-mau.enc.json --passphrase "mat-khau-sao-luu"
+npm run export:portability -- --out-dir ./portability-bundle # Read-only 10-year open bundle (CLR 2.0 + CASE 1.1 + xAPI 2.0 + offline viewer.html)
 npm run backup:drill       # Isolated AES-256-GCM encrypted backup & restore drill
 npm run unlock:parent      # Clear auth_throttles after accidental lockout
 npm run db:reset-data
