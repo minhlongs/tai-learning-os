@@ -30,12 +30,12 @@ CREATE TABLE parents (
   updated_at     INTEGER NOT NULL
 );
 
--- The learner. Display name only (e.g. "Tai").
+-- The learner. Display name only (e.g. "An").
 -- Deliberately ABSENT: legal name, date of birth, school, address, phone, photo.
 CREATE TABLE learners (
   id         TEXT PRIMARY KEY NOT NULL,
   parent_id  TEXT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
-  nickname   TEXT NOT NULL,               -- display name, e.g. "Tai"
+  nickname   TEXT NOT NULL,               -- display name, e.g. "An"
   birth_year INTEGER,                     -- year only, optional, for age banding
   grade      INTEGER,                     -- current grade, optional
   timezone   TEXT    NOT NULL DEFAULT 'Asia/Ho_Chi_Minh',

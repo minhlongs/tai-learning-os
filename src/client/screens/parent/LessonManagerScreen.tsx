@@ -40,6 +40,7 @@ import type { ApprovalStatus } from "../../../shared/schemas/attempt";
 import type { ExerciseSpec } from "../../../shared/schemas/exercise";
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
+import { activeLearnerLabelVi } from "../../lib/learner-label";
 import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";
@@ -89,11 +90,16 @@ function statusCell(lesson: {
 }
 
 /** What the parent is told a lesson's status means for the learner's day. */
-const STATUS_EFFECT: Record<ApprovalStatus, string> = {
-  draft: "Bài này chưa hiện với Tài.",
-  approved: "Bài này đang hiện với Tài.",
-  rejected: "Bài này không hiện với Tài.",
-};
+function statusEffectText(status: ApprovalStatus, learnerName: string): string {
+  switch (status) {
+    case "draft":
+      return `Bài này chưa hiện với ${learnerName}.`;
+    case "approved":
+      return `Bài này đang hiện với ${learnerName}.`;
+    case "rejected":
+      return `Bài này không hiện với ${learnerName}.`;
+  }
+}
 
 /** Human name for a step kind, used as a secondary text label in the detail. */
 const STEP_KIND_LABELS: Record<string, string> = {
@@ -113,6 +119,7 @@ export function LessonManagerScreen({
   onNavigate: (to: string) => void;
 }): React.JSX.Element {
   const { session } = useSessionContext();
+  const learnerName = activeLearnerLabelVi(session);
   const mountedRef = useRef(true);
   const requestSeqRef = useRef(0);
 
@@ -305,12 +312,12 @@ export function LessonManagerScreen({
           tone: "ok",
           text:
             status === "rejected"
-              ? `Đã từ chối “${title}”. Bài này sẽ không hiện với Tài.`
+              ? `Đã từ chối “${title}”. Bài này sẽ không hiện với ${learnerName}.`
               : `Đã cập nhật “${title}”.`,
         });
       });
     },
-    [refusal, session.learner?.id],
+    [learnerName, refusal, session.learner?.id],
   );
 
   const handleGrantConsent = useCallback(
@@ -373,13 +380,13 @@ export function LessonManagerScreen({
           <h1 className="page__title">Quản lý bài học</h1>
           <p className="page__lede">
             Tất cả bài học trong máy, kèm trạng thái duyệt thật của từng bài. Chỉ
-            bài đã duyệt mới hiện với Tài.
+            bài đã duyệt mới hiện với {learnerName}.
           </p>
           {/* The invariant, stated where the parent can read it before acting. */}
           <div className="lesson-manager__rule">
             <p>
               <strong>Quy tắc:</strong> chỉ bài “{STATUS_LABELS.approved}” mới xuất
-              hiện khi Tài học. Các trạng thái khác không hiện với Tài.
+              hiện khi {learnerName} học. Các trạng thái khác không hiện với {learnerName}.
             </p>
             <p>
               Khi nội dung bài học bị sửa sau khi đã duyệt, bản duyệt cũ không còn
@@ -472,7 +479,7 @@ export function LessonManagerScreen({
                               {statusCell(lesson).label}
                             </span>
                             <span className="row__meta">
-                              {STATUS_EFFECT[lesson.approvalStatus]}
+                              {statusEffectText(lesson.approvalStatus, learnerName)}
                             </span>
                             {lesson.pendingReapproval ? (
                               /* Safety surface: the cause is spelled out in words. */
@@ -531,6 +538,7 @@ export function LessonManagerScreen({
                               <RefusalPanel
                                 lessonId={lesson.id}
                                 titleVi={lesson.titleVi}
+                                learnerName={learnerName}
                                 busy={busy}
                                 onCancel={() => setRefusal(null)}
                                 onConfirm={(note) => submitRefusal(lesson.id, "rejected", note)}
@@ -552,6 +560,7 @@ export function LessonManagerScreen({
             key={detail ? `${detail.id}:v${detail.version}` : openLessonId}
             panelId="lesson-detail-panel"
             detail={detail}
+            learnerName={learnerName}
             loading={detailLoading}
             error={detailError}
             onClose={closeDetail}
@@ -568,7 +577,7 @@ export function LessonManagerScreen({
             onLessonForked={(forkedLessonId, forkedTitleVi) => {
               setActionNote({
                 tone: "ok",
-                text: `Đã tạo bản luyện tập riêng “${forkedTitleVi}”. Hãy chỉnh sửa và duyệt trước khi cho Tài học.`,
+                text: `Đã tạo bản luyện tập riêng “${forkedTitleVi}”. Hãy chỉnh sửa và duyệt trước khi cho ${learnerName} học.`,
               });
               loadLessons();
               openDetail(forkedLessonId);
@@ -687,7 +696,7 @@ export function LessonManagerScreen({
         </section>
 
         <p className="card__note">
-          Khu vực phụ huynh không hiển thị với Tài.{" "}
+          Khu vực phụ huynh không hiển thị với {learnerName}.{" "}
           <button type="button" className="btn btn--ghost" onClick={() => onNavigate("/parent")}>
             Về trang tổng quan
           </button>
@@ -701,6 +710,7 @@ export function LessonManagerScreen({
 type DetailProps = {
   panelId: string;
   detail: LessonDetailResponse | null;
+  learnerName: string;
   loading: boolean;
   error: string | null;
   panelRef: React.RefObject<HTMLDivElement | null>;
@@ -725,6 +735,7 @@ type EditableStepDraft = {
 function DetailPanel({
   panelId,
   detail,
+  learnerName,
   loading,
   error,
   panelRef,
@@ -873,7 +884,7 @@ function DetailPanel({
               <span className={`status-pill ${STATUS_TONES[detail.approvalStatus]}`}>
                 {STATUS_LABELS[detail.approvalStatus]}
               </span>
-              <span className="row__meta">{STATUS_EFFECT[detail.approvalStatus]}</span>
+              <span className="row__meta">{statusEffectText(detail.approvalStatus, learnerName)}</span>
               <span className="row__meta" data-testid="lesson-detail-version">{`Phiên bản ${detail.version}`}</span>
               <span className="row__meta" data-testid="lesson-detail-ownership">
                 {detail.ownershipType === "family"
@@ -1054,8 +1065,8 @@ function DetailPanel({
           <div className="detail__warning">
             <strong className="detail__warning-title">Đáp án (chỉ phụ huynh xem được)</strong>
             <p>
-              Nội dung bên dưới có đáp án. Không đưa phần này cho Tài xem, không
-              chụp màn hình gửi đi, và không đọc đáp án trước khi Tài tự làm.
+              Nội dung bên dưới có đáp án. Không đưa phần này cho {learnerName} xem, không
+              chụp màn hình gửi đi, và không đọc đáp án trước khi {learnerName} tự làm.
             </p>
           </div>
 
@@ -1156,12 +1167,14 @@ function formatAnswerKey(answerKey: unknown): string {
 function RefusalPanel({
   lessonId,
   titleVi,
+  learnerName,
   busy,
   onCancel,
   onConfirm,
 }: {
   lessonId: string;
   titleVi: string;
+  learnerName: string;
   busy: boolean;
   onCancel: () => void;
   onConfirm: (note: string) => void;
@@ -1175,7 +1188,7 @@ function RefusalPanel({
         {`Từ chối “${titleVi}”?`}
       </p>
       <p className="confirm__body">
-        Sau khi từ chối, bài này sẽ không hiện với Tài cho tới khi bạn duyệt lại.
+        Sau khi từ chối, bài này sẽ không hiện với {learnerName} cho tới khi bạn duyệt lại.
         Bạn vẫn có thể mở bài để xem lại.
       </p>
       <div className="confirm__field">

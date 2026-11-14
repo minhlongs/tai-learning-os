@@ -305,6 +305,7 @@ export async function inspectHouseholdPreflight(
 
   const readyForLearnerSession = ok && approvedLessonsCount > 0;
 
+  const learnerLabel = household.learnerNickname?.trim() || "học sinh";
   let nextActionVi: string;
   if (!devVars.devVarsPresent || !devVars.hasSessionSecret) {
     nextActionVi =
@@ -313,10 +314,9 @@ export async function inspectHouseholdPreflight(
     nextActionVi =
       "Chạy npm run dev và mở /login để hoàn tất thiết lập tài khoản phụ huynh và hồ sơ học sinh.";
   } else if (approvedLessonsCount === 0) {
-    nextActionVi =
-      "DB hộ gia đình sạch 100%, nhưng chưa có bài học nào được duyệt. Hãy chạy npm run household:approve-lessons (hoặc mở /parent/lessons) để duyệt bài cho Tài trước buổi học.";
+    nextActionVi = `DB hộ gia đình sạch 100%, nhưng chưa có bài học nào được duyệt. Hãy chạy npm run household:approve-lessons (hoặc mở /parent/lessons) để duyệt bài cho ${learnerLabel} trước buổi học.`;
   } else {
-    nextActionVi = `Sẵn sàng cho buổi học của ${household.learnerNickname ?? "học sinh"} (${approvedLessonsCount} bài học đã được phụ huynh duyệt).`;
+    nextActionVi = `Sẵn sàng cho buổi học của ${learnerLabel} (${approvedLessonsCount} bài học đã được phụ huynh duyệt).`;
   }
 
   return {

@@ -2,8 +2,8 @@
  * The learner's landing screen.
  *
  * Everything here comes from `LearnerHomeResponse`. The welcome name is
- * `learner.nickname` from the API — never a hardcoded "Chào Tài" — so a learner
- * with a different nickname is greeted correctly.
+ * `learner.nickname` from the API — never a hardcoded greeting name — so a
+ * learner with a different nickname is greeted correctly.
  *
  * It carries no score, no streak and no leaderboard: the product's claim is
  * about evidence, and a child sees only what they can act on next.

@@ -116,7 +116,7 @@ export function buildReadOnlySqlDump(rawDb, options = {}) {
   const includeData = options.includeData !== false;
 
   const lines = [
-    "-- Tai Learning OS local D1 read-only SQL dump",
+    "-- TAI Learning OS local D1 read-only SQL dump",
     "-- Sensitive authentication tables (parents, auth_throttles) are excluded from data export.",
     "PRAGMA foreign_keys = OFF;",
     "BEGIN TRANSACTION;",

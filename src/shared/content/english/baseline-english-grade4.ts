@@ -88,8 +88,8 @@ export const baselineEnglishGrade4: LessonDefinition = {
       kind: "transfer",
       content: {
         type: "multiple_choice",
-        question_vi: "Tài muốn giới thiệu với bạn: 'Đây là cặp sách của mình.' Tài nên nói câu nào?",
-        question_en: "Tai wants to introduce: 'This is my school bag.' What should Tai say?",
+        question_vi: "An muốn giới thiệu với bạn: 'Đây là cặp sách của mình.' An nên nói câu nào?",
+        question_en: "An wants to introduce: 'This is my school bag.' What should An say?",
         choices: [
           { id: "a", label_vi: "This is my school bag.", correct: true },
           { id: "b", label_vi: "My bag is blue.", correct: false },

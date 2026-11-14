@@ -1,4 +1,4 @@
-# TAI LEARNING OS — Hệ Điều Hành Học Tập Tài
+# TAI LEARNING OS — Hệ Điều Hành Học Tập
 
 > **Hệ điều hành học tập local-first, bảo vệ quyền riêng tư tuyệt đối cho trẻ em, do phụ huynh quản trị.**  
 > *A local-first, parent-governed, evidence-based learning operating system for child education.*
@@ -72,7 +72,7 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (364 tests across 24 files)
+# Chạy toàn bộ Unit Tests (366 tests across 24 files)
 npm run test
 
 # Chạy toàn bộ Integration Tests với Worker + SQLite D1 (203 tests across 19 files)

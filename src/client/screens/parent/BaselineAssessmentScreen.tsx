@@ -22,6 +22,7 @@ import type {
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
+import { activeLearnerLabelVi } from "../../lib/learner-label";
 import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { ErrorPanel, LoadingPanel } from "../../components/ScreenState";
@@ -106,13 +107,15 @@ export function BaselineAssessmentScreen({
       });
   };
 
+  const learnerName = activeLearnerLabelVi(session);
+
   return (
     <ProtectedScreen area="parent" session={session}>
       <div className="dashboard">
         <header className="dashboard__header">
           <h1 className="page__title">Đánh giá đầu vào (Baseline Diagnostic)</h1>
           <p className="page__lede">
-            Tổng hợp bằng chứng quan sát đầu vào từ các bài học của Tài cho 5 môn (Toán, Tiếng Việt,
+            Tổng hợp bằng chứng quan sát đầu vào từ các bài học của {learnerName} cho 5 môn (Toán, Tiếng Việt,
             Tiếng Anh, Khoa học, Tư duy phản biện). Báo cáo này không chấm điểm hay xếp loại, mà chỉ
             rõ những gì đã quan sát được độc lập, những gì cần gợi ý hỗ trợ, kỹ năng nào cần thêm
             quan sát, và gợi ý bài học bắt đầu phù hợp.
@@ -168,7 +171,7 @@ export function BaselineAssessmentScreen({
                 {!latest ? (
                   <p className="card__note">
                     Chưa chạy tổng hợp đánh giá đầu vào cho môn này. Nhấn nút trên để phân tích từ
-                    các lần làm bài thực tế của Tài.
+                    các lần làm bài thực tế của {learnerName}.
                   </p>
                 ) : (
                   <dl className="summary-facts" style={{ marginTop: "0.75rem" }}>

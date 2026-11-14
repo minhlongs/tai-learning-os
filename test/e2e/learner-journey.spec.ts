@@ -220,8 +220,8 @@ test.describe("learner journey", () => {
     await expect(subjectCard).toContainText("0 bài học");
 
     await page.goto("/parent/lessons");
-    // The gate, stated where the parent can read it before acting.
-    await expect(page.getByText(/chỉ bài .Đã duyệt. mới xuất hiện khi Tài học/i)).toBeVisible();
+    // The gate, stated where the parent can read it before acting, parameterized by active learner nickname.
+    await expect(page.getByText(/chỉ bài .Đã duyệt. mới xuất hiện khi Bé Mẫu học/i)).toBeVisible();
 
     // The lesson list is ordered by subject, so the first "Đã duyệt" button on
     // the page belongs to an English lesson. Selecting the row by its title is

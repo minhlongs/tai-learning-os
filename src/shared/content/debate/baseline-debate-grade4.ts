@@ -117,8 +117,8 @@ export const baselineDebateGrade4: LessonDefinition = {
       content: {
         type: "multiple_choice",
         question_vi:
-          "Nhóm của Tài đang chọn chủ đề làm báo tường. Bạn Minh nói: “Chọn chủ đề Biển đảo đi, vì tớ vừa mua hộp bút màu mới!”. Để giúp lời đề xuất của Minh thuyết phục hơn, Tài nên góp ý điều gì?",
-        question_en: "Minh says: 'Let's pick the Sea & Islands theme because I just bought a new box of crayons!' How should Tai help Minh make his proposal more convincing?",
+          "Nhóm của An đang chọn chủ đề làm báo tường. Bạn Minh nói: “Chọn chủ đề Biển đảo đi, vì tớ vừa mua hộp bút màu mới!”. Để giúp lời đề xuất của Minh thuyết phục hơn, An nên góp ý điều gì?",
+        question_en: "Minh says: 'Let's pick the Sea & Islands theme because I just bought a new box of crayons!' How should An help Minh make the proposal more convincing?",
         choices: [
           { id: "a", label_vi: "Gợi ý Minh nêu lý do gắn với chủ đề Biển đảo (ví dụ: có nhiều câu chuyện và hình ảnh đẹp để cả nhóm cùng viết và vẽ).", correct: true },
           { id: "b", label_vi: "Khuyên Minh đừng bao giờ nêu ý kiến trong nhóm nữa.", correct: false },

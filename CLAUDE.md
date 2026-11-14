@@ -53,7 +53,7 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (24 files, 364 tests)
+npm run test               # Vitest unit tests (24 files, 366 tests)
 npm run test:integration   # Vitest Worker + D1 integration tests (19 files, 203 tests)
 npm run test:e2e           # Playwright E2E browser tests (54 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + validate:lessons + build

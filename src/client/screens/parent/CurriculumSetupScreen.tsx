@@ -17,6 +17,7 @@ import type {
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
+import { activeLearnerLabelVi } from "../../lib/learner-label";
 import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { ErrorPanel, LoadingPanel } from "../../components/ScreenState";
@@ -175,6 +176,7 @@ export function CurriculumSetupScreen({
   const objectivesForSubject = (data?.objectives ?? []).filter(
     (obj) => obj.subjectId === selectedSubject,
   );
+  const learnerName = activeLearnerLabelVi(session);
 
   return (
     <ProtectedScreen area="parent" session={session}>
@@ -182,7 +184,7 @@ export function CurriculumSetupScreen({
         <header className="dashboard__header">
           <h1 className="page__title">Chương trình học &amp; Sách giáo khoa</h1>
           <p className="page__lede">
-            Thiết lập năm học, khối lớp, bộ sách giáo khoa và bài đang học trên lớp của Tài. Khi chưa
+            Thiết lập năm học, khối lớp, bộ sách giáo khoa và bài đang học trên lớp của {learnerName}. Khi chưa
             rõ bộ sách hoặc bài hiện tại, hệ thống ghi nhận rõ là <code>UNKNOWN</code> và không tự suy
             đoán.
           </p>

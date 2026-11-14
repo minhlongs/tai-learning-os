@@ -339,6 +339,7 @@ describe("read-only household preflight check", () => {
     expect(initialReport.integrityCheck).toBe("ok");
     expect(initialReport.approvedLessonsCount).toBe(0);
     expect(initialReport.readyForLearnerSession).toBe(false);
+    expect(initialReport.nextActionVi).toContain("duyệt bài cho Bé Mẫu trước buổi học");
     expect(initialReport.household).toEqual({
       hasParent: true,
       parentDisplayName: "Phụ huynh",

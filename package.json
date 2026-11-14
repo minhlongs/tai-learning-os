@@ -2,7 +2,7 @@
   "name": "tai-learning-os",
   "private": true,
   "version": "0.1.0",
-  "description": "He dieu hanh hoc tap Tai — local-first MVP. Vietnamese-first, evidence-based, parent-governed.",
+  "description": "TAI Learning OS — local-first MVP. Vietnamese-first, evidence-based, parent-governed.",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
