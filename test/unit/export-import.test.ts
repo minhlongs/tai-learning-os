@@ -739,5 +739,139 @@ describe("version-scoped lessonVersions, lineage, and practice purpose validatio
     });
     expect(familyPracticeInOfficialItem.ok).toBe(false);
   });
+
+  it("accepts a Gate G6 due scheduled-review observed retry (attemptNo >= 2) reaching RETAINED without transfer, while still rejecting pre-due observed retries", () => {
+    const envelope = validEnvelope();
+    const t0 = 1_700_000_000_000;
+    const tDue = t0 + 4 * 86_400_000; // > 3-day initial FSRS Good interval
+
+    const officialLesson = {
+      ...baseLessonExport(),
+      id: "les-off-1",
+      version: 1,
+      ownershipType: "catalogue" as const,
+      ownerParentId: null,
+      purpose: "official" as const,
+      sourceLessonId: null,
+      sourceVersion: null,
+    };
+    const officialStep = {
+      ...baseStepExport(1, "stp-off-1"),
+      lessonId: "les-off-1",
+      kind: "independent" as const,
+      sourceStepId: null,
+    };
+
+    const validReviewEnvelope: ExportEnvelope = {
+      ...envelope,
+      exportedAt: tDue + 120_000,
+      data: {
+        ...envelope.data,
+        lessons: [officialLesson],
+        lessonSteps: [officialStep],
+        learningSessions: [
+          {
+            id: "ses-1",
+            learnerId: "lnr-0001",
+            lessonId: "les-off-1",
+            lessonVersion: 1,
+            schoolYearId: null,
+            startedAt: t0,
+            endedAt: t0 + 60_000,
+            status: "completed",
+            stepsSeen: 1,
+            purpose: "official",
+          },
+          {
+            id: "ses-2",
+            learnerId: "lnr-0001",
+            lessonId: "les-off-1",
+            lessonVersion: 1,
+            schoolYearId: null,
+            startedAt: tDue,
+            endedAt: tDue + 60_000,
+            status: "completed",
+            stepsSeen: 1,
+            purpose: "official",
+          },
+        ],
+        learningAttempts: [
+          {
+            id: "att-1",
+            sessionId: "ses-1",
+            learnerId: "lnr-0001",
+            lessonId: "les-off-1",
+            stepId: "stp-off-1",
+            stepVersion: 1,
+            skillId: "math-frac-equiv",
+            submitted: { kind: "choice", choiceId: "c1" },
+            outcome: "correct",
+            helpLevel: 0,
+            evidenceKind: "observed",
+            attemptNo: 1,
+            createdAt: t0 + 10_000,
+            purpose: "official",
+          },
+          {
+            id: "att-2",
+            sessionId: "ses-2",
+            learnerId: "lnr-0001",
+            lessonId: "les-off-1",
+            stepId: "stp-off-1",
+            stepVersion: 1,
+            skillId: "math-frac-equiv",
+            submitted: { kind: "choice", choiceId: "c1" },
+            outcome: "correct",
+            helpLevel: 0,
+            evidenceKind: "observed",
+            attemptNo: 2,
+            createdAt: tDue + 10_000,
+            purpose: "official",
+          },
+        ],
+        skillEvidence: [
+          {
+            id: "sev-1",
+            learnerId: "lnr-0001",
+            skillId: "math-frac-equiv",
+            state: "RETAINED",
+            independentCount: 2,
+            assistedCount: 0,
+            correctCount: 2,
+            lastIndependentAt: tDue + 10_000,
+            lastObservedAt: tDue + 10_000,
+            source: "derived",
+            correctionNote: null,
+            updatedAt: tDue + 10_000,
+          },
+        ],
+      },
+    };
+    expect(validateExportEnvelope(validReviewEnvelope)).toMatchObject({ ok: true });
+
+    // Pre-due attemptNo=2 forged as `observed` (only 1 hour after t0) MUST still be rejected!
+    const preDueForged: ExportEnvelope = {
+      ...validReviewEnvelope,
+      data: {
+        ...validReviewEnvelope.data,
+        learningSessions: [
+          validReviewEnvelope.data.learningSessions[0]!,
+          {
+            ...validReviewEnvelope.data.learningSessions[1]!,
+            startedAt: t0 + 3_600_000,
+            endedAt: t0 + 3_660_000,
+          },
+        ],
+        learningAttempts: [
+          validReviewEnvelope.data.learningAttempts[0]!,
+          {
+            ...validReviewEnvelope.data.learningAttempts[1]!,
+            createdAt: t0 + 3_610_000,
+          },
+        ],
+      },
+    };
+    expect(validateExportEnvelope(preDueForged).ok).toBe(false);
+  });
 });
 

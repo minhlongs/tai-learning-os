@@ -128,7 +128,7 @@ export async function recordAttemptWithDerivation(
       : (await repo.findLearnerForParent(db, input.learnerId, parentId))?.grade ?? null;
   const [extensionCount, recentSessions, lastParentRestOverrideAt] = await Promise.all([
     repo.countSessionTimeExtensions(db, session.id),
-    repo.listSessionsForLearner(db, input.learnerId, 20),
+    repo.listSessionsForLearner(db, input.learnerId, 100),
     repo.findLatestParentRestOverrideAt(db, input.learnerId),
   ]);
   const carryOverMs = computeContinuousStudyCarryOverMs({

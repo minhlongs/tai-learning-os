@@ -33,6 +33,7 @@ import { verifyPassword } from "../../shared/crypto/password";
 import { replaySkillAttemptEvidence } from "../../shared/engine/recompute-learner-state";
 import { deriveStoredScheduleReasonVi } from "../../shared/engine/review";
 import {
+  EYE_REST_COOLDOWN_MS,
   computeContinuousStudyCarryOverMs,
   evaluateEyeRestCooldown,
   evaluateSessionBudget,
@@ -350,7 +351,7 @@ export const startSession: Handler = async (context) => {
       const [extensionCount, recentForResume, lastRestOverrideForResume, resumedAttempts] =
         await Promise.all([
           repo.countSessionTimeExtensions(context.env.DB, existing.id),
-          repo.listSessionsForLearner(context.env.DB, learner.id, 20),
+          repo.listSessionsForLearner(context.env.DB, learner.id, 100),
           repo.findLatestParentRestOverrideAt(context.env.DB, learner.id),
           repo.listAttemptsForSession(context.env.DB, existing.id),
         ]);
@@ -402,7 +403,7 @@ export const startSession: Handler = async (context) => {
   // AND check whether switching away from `existing` would cross the 25m cap.
   const preCheckNow = Date.now();
   const [recentSessions, lastParentRestOverrideAt] = await Promise.all([
-    repo.listSessionsForLearner(context.env.DB, learner.id, 20),
+    repo.listSessionsForLearner(context.env.DB, learner.id, 100),
     repo.findLatestParentRestOverrideAt(context.env.DB, learner.id),
   ]);
   const priorSegments = recentSessions.map((s) => ({
@@ -413,6 +414,9 @@ export const startSession: Handler = async (context) => {
 
   for (const endedSession of recentSessions) {
     if (endedSession.status === "in_progress" || typeof endedSession.ended_at !== "number") {
+      continue;
+    }
+    if (endedSession.ended_at + EYE_REST_COOLDOWN_MS <= preCheckNow) {
       continue;
     }
     const endedExtensionCount = await repo.countSessionTimeExtensions(
@@ -1087,7 +1091,7 @@ export const extendSessionTime: Handler = async (context) => {
 
     const [extensionCount, recentForExtend, lastRestOverrideForExtend] = await Promise.all([
       repo.countSessionTimeExtensions(db, session.id),
-      repo.listSessionsForLearner(db, learner.id, 20),
+      repo.listSessionsForLearner(db, learner.id, 100),
       repo.findLatestParentRestOverrideAt(db, learner.id),
     ]);
     const extendCarryOverMs = computeContinuousStudyCarryOverMs({

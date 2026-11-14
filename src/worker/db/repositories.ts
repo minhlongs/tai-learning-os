@@ -1297,10 +1297,11 @@ export function attemptInsertGuarded(
            )
            AND (
              ?7 IS NULL
+             OR ?17 = 'practice'
              OR (
                SELECT COUNT(*)
                FROM learning_attempts
-               WHERE learner_id = ?3 AND skill_id = ?7
+               WHERE learner_id = ?3 AND skill_id = ?7 AND purpose = 'official'
              ) = ?16
            )
            AND (

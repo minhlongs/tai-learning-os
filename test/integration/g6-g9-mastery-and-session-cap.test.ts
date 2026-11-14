@@ -9,14 +9,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import worker from "../../src/worker/index";
 import type { AppEnv } from "../../src/worker/http/middleware";
 import type {
+  ExportResponse,
   ExtendSessionTimeResponse,
   FinalizeSessionResponse,
+  ImportResponse,
   StartSessionResponse,
   SubmitAttemptResponse,
 } from "../../src/shared/api-contract";
+import { decryptBackupEnvelope, encryptBackupEnvelope } from "../../src/shared/crypto/backup-cipher";
 import { MAX_LEARNER_SESSION_MS } from "../../src/shared/engine/session-budget";
 import { recomputeLearnerState } from "../../src/shared/engine/recompute-learner-state";
 import { summarizeRetention } from "../../src/shared/engine/retention";
+import { validateExportEnvelope } from "../../src/shared/schemas/transfer";
 import * as repo from "../../src/worker/db/repositories";
 import { selectRetentionAttempts } from "../../src/worker/db/retention-queries";
 import { resetData } from "./reset-data";
@@ -234,7 +238,6 @@ describe("Gate G6 — cross-session INDEPENDENT & scheduled review RETAINED unlo
         helpLevel: 0,
       },
     });
-    nowSpy.mockRestore();
     expect(dueAttemptRes.status).toBe(200);
     const dueAttempt = (await dueAttemptRes.json()) as SubmitAttemptResponse;
     expect(dueAttempt.attemptNo).toBe(3);
@@ -284,6 +287,7 @@ describe("Gate G6 — cross-session INDEPENDENT & scheduled review RETAINED unlo
       method: "POST",
       json: { sessionId: s3Review.sessionId },
     });
+    nowSpy.mockRestore();
     expect(finReviewRes.status).toBe(200);
     const finReviewBody = (await finReviewRes.json()) as FinalizeSessionResponse;
     const reviewSummaryItem = finReviewBody.summary.nextReview.find((r) => r.skillId === skillId);
@@ -310,7 +314,10 @@ describe("Gate G6 — cross-session INDEPENDENT & scheduled review RETAINED unlo
         helpLevel: 0,
       },
     });
-    probeSpy.mockRestore();
+    await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: s4Probe.sessionId },
+    });
     expect(probeAttemptRes.status).toBe(200);
 
     const retentionAttempts = await selectRetentionAttempts(env.DB, learnerId);
@@ -320,11 +327,6 @@ describe("Gate G6 — cross-session INDEPENDENT & scheduled review RETAINED unlo
     expect(h14?.independent).toBe(h14?.probes);
 
     // Parent manual correction preserves the normalized `independent_count` (4 independent solves)
-    await call("/api/session/login", {
-      method: "POST",
-      json: { displayName: "Phụ huynh Minh", password: PASSWORD },
-    });
-    csrf = ((await (await call("/api/session")).json()) as { csrfToken: string }).csrfToken;
     const corrRes = await call("/api/parent/skills/correct", {
       method: "POST",
       json: {
@@ -340,6 +342,106 @@ describe("Gate G6 — cross-session INDEPENDENT & scheduled review RETAINED unlo
       .bind(learnerId, skillId)
       .first<{ independent_count: number }>();
     expect(evAfterCorrection?.independent_count).toBe(4);
+
+    // Fork a family practice lesson on the same skill, record 2 practice attempts, AND
+    // record 1 more official attempt to prove `attemptInsertGuarded` isolates `purpose = 'official'`!
+    const forkRes = await call("/api/parent/lessons/fork", {
+      method: "POST",
+      json: { sourceLessonId: lessonId, titleVi: "Bài luyện tập thêm phân số" },
+    });
+    expect(forkRes.status).toBe(200);
+    const forkedLessonId = ((await forkRes.json()) as { lesson: { id: string } }).lesson.id;
+    await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId: forkedLessonId, status: "approved" },
+    });
+    const pracSession = (await (
+      await call("/api/learner/sessions", { method: "POST", json: { lessonId: forkedLessonId } })
+    ).json()) as StartSessionResponse;
+    const pracStep0 = pracSession.steps[0]!;
+    const pracKey0 = await answerKeyFor(pracStep0.id);
+    for (let i = 0; i < 2; i += 1) {
+      const pracAtt = await call("/api/learner/attempts", {
+        method: "POST",
+        json: {
+          sessionId: pracSession.sessionId,
+          stepId: pracStep0.id,
+          submission: { kind: "choice", choiceId: pracKey0 },
+          helpLevel: 0,
+        },
+      });
+      expect(pracAtt.status).toBe(200);
+    }
+    await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: pracSession.sessionId },
+    });
+    probeSpy.mockRestore();
+
+    // Clear manual parent_correction back to derived `RETAINED` via an official session attempt
+    // (preserving chronological time order after `eighteenDaysLater`) and verify full G12
+    // Export -> AES-256-GCM Encrypt/Decrypt -> Delete -> Import round-trip!
+    await env.DB.prepare(
+      "UPDATE skill_evidence SET source = 'derived', correction_note = NULL WHERE learner_id = ?1 AND skill_id = ?2",
+    )
+      .bind(learnerId, skillId)
+      .run();
+
+    const nineteenDaysLater = eighteenDaysLater + 86_400_000;
+    const finalSpy = vi.spyOn(Date, "now").mockReturnValue(nineteenDaysLater);
+    await call("/api/session/login", {
+      method: "POST",
+      json: { displayName: "Phụ huynh Minh", password: PASSWORD },
+    });
+    csrf = ((await (await call("/api/session")).json()) as { csrfToken: string }).csrfToken;
+
+    const s5Official = (await (
+      await call("/api/learner/sessions", { method: "POST", json: { lessonId } })
+    ).json()) as StartSessionResponse;
+    const postPracticeOfficialAtt = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: s5Official.sessionId,
+        stepId: nonTransferSteps[0]!.id,
+        submission: { kind: "choice", choiceId: key0 },
+        helpLevel: 0,
+      },
+    });
+    expect(postPracticeOfficialAtt.status).toBe(200);
+    await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: s5Official.sessionId },
+    });
+
+    const expRes = await call("/api/data/export", { method: "POST", json: {} });
+    expect(expRes.status).toBe(200);
+    const exportedEnvelope = (await expRes.json()) as ExportResponse;
+    const validation = validateExportEnvelope(exportedEnvelope);
+    if (!validation.ok) {
+      throw new Error(`validateExportEnvelope failed: ${JSON.stringify(validation.errors)}`);
+    }
+    expect(validation.ok).toBe(true);
+
+    const encrypted = await encryptBackupEnvelope(exportedEnvelope, "mat-khau-sao-luu-2026");
+    const decrypted = await decryptBackupEnvelope(encrypted, "mat-khau-sao-luu-2026");
+    expect(decrypted.ok).toBe(true);
+
+    // Delete learner and family lesson so lesson IDs don't collide on restore
+    const delLearnerRes = await call("/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: `XOA ${LEARNER_NICKNAME}` },
+    });
+    expect(delLearnerRes.status).toBe(200);
+    await env.DB.prepare("DELETE FROM lessons WHERE id = ?1").bind(forkedLessonId).run();
+
+    const impRes = await call("/api/data/import", {
+      method: "POST",
+      json: exportedEnvelope,
+    });
+    finalSpy.mockRestore();
+    expect(impRes.status).toBe(200);
+    const impBody = (await impRes.json()) as ImportResponse;
+    expect(impBody.ok).toBe(true);
   });
 });
 

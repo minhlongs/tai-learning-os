@@ -97,10 +97,13 @@ function startSessionFlight(lessonId: string): Promise<StartSessionResponse> {
     .post<StartSessionResponse>(endpoints.startSession, { lessonId })
     .then((result) => {
       if (result.ok) return result.value;
-      // Do not memoize a failure: a network blip must not pin the lesson shut
-      // for the rest of the browser session.
-      startSessionFlights.delete(lessonId);
       throw new Error(failureMessage(result.failure));
+    })
+    .finally(() => {
+      // Deduplicate only concurrent in-flight mounts (React StrictMode double-invoke).
+      // Once settled, evict so any later SPA re-entry fetches fresh server sessionId
+      // and `sessionBudget.softStopped` state instead of replaying a stale t=0 payload.
+      startSessionFlights.delete(lessonId);
     });
   startSessionFlights.set(lessonId, flight);
   return flight;
