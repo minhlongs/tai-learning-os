@@ -1034,6 +1034,25 @@ export async function listSessionsForLearner(
   return result.results ?? [];
 }
 
+export async function listSessionsForLearnerSince(
+  db: Db,
+  learnerId: string,
+  sinceMs: number,
+): Promise<(LearningSessionRow & { is_continuation_expired: number })[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline, purpose,
+              CASE WHEN continuation_deadline IS NOT NULL AND ${SQL_UTC_NOW_MS_EXPR} >= continuation_deadline THEN 1 ELSE 0 END AS is_continuation_expired
+       FROM learning_sessions
+       WHERE learner_id = ?1
+         AND COALESCE(ended_at, started_at) >= ?2
+       ORDER BY started_at DESC`,
+    )
+    .bind(learnerId, sinceMs)
+    .all<LearningSessionRow & { is_continuation_expired: number }>();
+  return result.results ?? [];
+}
+
 export const SESSION_CONTINUATION_GRACE_MS = 30 * 60 * 1000;
 
 /**

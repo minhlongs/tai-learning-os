@@ -351,7 +351,7 @@ export const startSession: Handler = async (context) => {
       const [extensionCount, recentForResume, lastRestOverrideForResume, resumedAttempts] =
         await Promise.all([
           repo.countSessionTimeExtensions(context.env.DB, existing.id),
-          repo.listSessionsForLearner(context.env.DB, learner.id, 100),
+          repo.listSessionsForLearnerSince(context.env.DB, learner.id, resumeNow - DAY_MS),
           repo.findLatestParentRestOverrideAt(context.env.DB, learner.id),
           repo.listAttemptsForSession(context.env.DB, existing.id),
         ]);
@@ -403,7 +403,7 @@ export const startSession: Handler = async (context) => {
   // AND check whether switching away from `existing` would cross the 25m cap.
   const preCheckNow = Date.now();
   const [recentSessions, lastParentRestOverrideAt] = await Promise.all([
-    repo.listSessionsForLearner(context.env.DB, learner.id, 100),
+    repo.listSessionsForLearnerSince(context.env.DB, learner.id, preCheckNow - DAY_MS),
     repo.findLatestParentRestOverrideAt(context.env.DB, learner.id),
   ]);
   const priorSegments = recentSessions.map((s) => ({
@@ -1033,9 +1033,18 @@ export const extendSessionTime: Handler = async (context) => {
   if (ipThrottle.blocked) return rateLimited(ipThrottle.retryAfterSec);
   const acctThrottle = await repo.checkAuthThrottle(db, accountKey, now);
   if (acctThrottle.blocked) return rateLimited(acctThrottle.retryAfterSec);
+  if (context.env.AUTH_RATE_LIMITER) {
+    const { success } = await context.env.AUTH_RATE_LIMITER.limit({ key: ipKey });
+    if (!success) return rateLimited();
+  }
 
   const parentRow = await repo.findParentById(db, context.parent.parentId);
   if (!parentRow) return forbidden("Tài khoản phụ huynh không tồn tại.");
+
+  const safeAuditSessionSubject =
+    typeof body.sessionId === "string" && body.sessionId.trim().length > 0 && body.sessionId.trim().length <= 128
+      ? body.sessionId.trim()
+      : parentRow.id;
 
   const validPassword = await verifyPassword(body.password, parentRow.password_hash);
   if (!validPassword) {
@@ -1045,7 +1054,7 @@ export const extendSessionTime: Handler = async (context) => {
       id: crypto.randomUUID(),
       actor: `parent:${parentRow.id}`,
       action: "session.time_extend_failed",
-      subject: typeof body.sessionId === "string" ? body.sessionId : parentRow.id,
+      subject: safeAuditSessionSubject,
       detail: JSON.stringify({ reason: "invalid_password" }),
       now,
     });
@@ -1091,7 +1100,7 @@ export const extendSessionTime: Handler = async (context) => {
 
     const [extensionCount, recentForExtend, lastRestOverrideForExtend] = await Promise.all([
       repo.countSessionTimeExtensions(db, session.id),
-      repo.listSessionsForLearner(db, learner.id, 100),
+      repo.listSessionsForLearnerSince(db, learner.id, now - DAY_MS),
       repo.findLatestParentRestOverrideAt(db, learner.id),
     ]);
     const extendCarryOverMs = computeContinuousStudyCarryOverMs({

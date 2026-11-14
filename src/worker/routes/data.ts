@@ -1605,6 +1605,8 @@ const LEARNER_SUBJECT_ACTIONS = new Set([
   "curriculum.intake_updated",
   "planner.generated",
   "data.exported",
+  "data.portability_exported",
+  "session.rest_overridden",
 ]);
 
 function filterExportedAuditEvents(
@@ -1653,6 +1655,12 @@ function filterExportedAuditEvents(
         (action === "lesson.forked" || action === "lesson.content_updated") &&
         subject !== null &&
         scope.familyLessonIds.has(subject)
+      ) {
+        matchesLearner = true;
+      } else if (
+        action === "session.time_extended" &&
+        subject !== null &&
+        scope.sessionIds.has(subject)
       ) {
         matchesLearner = true;
       }
