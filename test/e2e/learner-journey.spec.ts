@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { attachZeroOutboundGuard, type OutboundNetworkRecorder } from "./network-guard";
 
 /**
  * The learner journey in a real browser.
@@ -201,6 +202,16 @@ async function signInWithFreshLearner(page: Page): Promise<void> {
 }
 
 test.describe("learner journey", () => {
+  let networkGuard: OutboundNetworkRecorder;
+
+  test.beforeEach(async ({ context }) => {
+    networkGuard = await attachZeroOutboundGuard(context);
+  });
+
+  test.afterEach(() => {
+    networkGuard.assertZeroOutbound();
+  });
+
   test("parent approves a lesson, the learner is taught, and the dashboard records it", async ({
     page,
   }) => {
@@ -245,7 +256,7 @@ test.describe("learner journey", () => {
     // The tile exposes `Mở bài học: <title>`, which names the exact lesson the
     // parent just approved — an implicit class-name match would instead open
     // whichever approved lesson sorted first.
-    await page.getByRole("button", { name: "Mở bài học: Diện tích hình chữ nhật" }).click();
+    await page.getByRole("button", { name: /Mở bài học: Diện tích hình chữ nhật/ }).click();
     await expect(page).toHaveURL(/\/lessons\//);
 
     // ── An answerable step, with no answer key in the payload ───────────────
@@ -321,7 +332,7 @@ test.describe("learner journey", () => {
 
     await page.goto("/");
     await page.getByRole("button", { name: /Toán/ }).click();
-    await page.getByRole("button", { name: "Mở bài học: Diện tích hình chữ nhật" }).click();
+    await page.getByRole("button", { name: /Mở bài học: Diện tích hình chữ nhật/ }).click();
     await expect(page).toHaveURL(/\/lessons\//);
 
     const next = page.getByTestId("next-step");

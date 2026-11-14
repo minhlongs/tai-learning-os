@@ -147,7 +147,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--tlo-space-2);
-  min-height: 44px; /* WCAG 2.2 target size */
+  min-height: 48px; /* Gate G10: >= 48px child touch target */
+  min-width: 48px;
   padding: var(--tlo-space-3) var(--tlo-space-5);
   border: 1px solid transparent;
   border-radius: var(--tlo-radius);
@@ -193,7 +194,8 @@
   background: transparent;
   color: var(--tlo-primary-strong);
   border-color: transparent;
-  min-height: 44px;
+  min-height: 48px;
+  min-width: 48px;
   padding: var(--tlo-space-2) var(--tlo-space-3);
 }
 
@@ -307,7 +309,7 @@
 
 .input {
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   padding: var(--tlo-space-3);
   background: var(--tlo-surface);
   border: 1px solid var(--tlo-border-strong);

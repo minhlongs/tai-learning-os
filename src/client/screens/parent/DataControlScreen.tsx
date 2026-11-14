@@ -28,6 +28,7 @@ import type {
   CreateLearnerResponse,
   DeleteLearnerRequest,
   DeleteLearnerResponse,
+  ExportPortabilityResponse,
   ExportResponse,
   ImportResponse,
 } from "../../../shared/api-contract";
@@ -130,8 +131,8 @@ function byteLength(text: string): number {
 }
 
 /** Hand the envelope to the browser's download machinery and clean up after it. */
-function downloadEnvelope(text: string, fileName: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+function downloadEnvelope(text: string, fileName: string, mimeType = "application/json"): void {
+  const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
@@ -304,6 +305,32 @@ export function DataControlScreen({
     encrypted: boolean;
     counts: { label: string; count: number }[];
   } | null>(null);
+
+  /* 10-Year Open Portability Export ---------------------------------------- */
+  const [portabilityBusy, setPortabilityBusy] = useState(false);
+  const [portabilityError, setPortabilityError] = useState<string | null>(null);
+  const [portabilityResult, setPortabilityResult] = useState<ExportPortabilityResponse | null>(
+    null,
+  );
+
+  const onExportPortability = useCallback(() => {
+    setPortabilityBusy(true);
+    setPortabilityError(null);
+    void api.post<ExportPortabilityResponse>(endpoints.exportPortability).then((result) => {
+      setPortabilityBusy(false);
+      if (!result.ok) {
+        setPortabilityError(failureMessage(result.failure));
+        return;
+      }
+      setPortabilityResult(result.value);
+      const stamp = new Date(result.value.exportedAt).toISOString().slice(0, 10);
+      downloadEnvelope(
+        result.value.viewerHtml,
+        `tai-ho-so-di-san-${stamp}-viewer.html`,
+        "text/html;charset=utf-8",
+      );
+    });
+  }, []);
 
   /* Import ------------------------------------------------------------------ */
   const [importPassphrase, setImportPassphrase] = useState("");
@@ -727,6 +754,99 @@ export function DataControlScreen({
               <p className="card__note">
                 Đây là số liệu thật lấy từ tệp vừa tạo, không phải ước tính.
               </p>
+            </div>
+          ) : null}
+        </section>
+
+        {/* ── 1b. Open Portability (CLR 2.0 + CASE 1.1 + xAPI 2.0 + viewer.html) ── */}
+        <section className="card data-control__section" aria-labelledby="portability-title">
+          <h2 className="card__title" id="portability-title">
+            Hồ sơ Di sản Mở 10 Năm (1EdTech CLR 2.0 · CASE 1.1 · IEEE xAPI 2.0)
+          </h2>
+          <p className="card__note">
+            Xuất lịch sử năng lực và sự kiện học tập của bé ra bộ chuẩn quốc tế mở kèm tệp{" "}
+            <code>viewer.html</code> tự chứa hoàn toàn — mở trực tiếp bằng bất kỳ trình duyệt nào
+            sau 10 năm ngay cả khi ngắt mạng hoàn toàn và không cần máy chủ TAI Learning OS.
+          </p>
+
+          <div className="data-control__actions">
+            <button
+              type="button"
+              className="btn btn--secondary btn--large"
+              onClick={onExportPortability}
+              disabled={portabilityBusy || !learner}
+              data-testid="export-portability-btn"
+            >
+              {portabilityBusy
+                ? "Đang đóng gói hồ sơ mở…"
+                : "Xuất Hồ sơ Di sản Mở (viewer.html + CLR/CASE/xAPI)"}
+            </button>
+          </div>
+
+          {portabilityError ? (
+            <p className="data-control__notice data-control__notice--error" role="alert">
+              <span aria-hidden="true">✕ </span>
+              {portabilityError}
+            </p>
+          ) : null}
+
+          {portabilityResult ? (
+            <div
+              className="data-control__result"
+              role="status"
+              aria-live="polite"
+              data-testid="portability-export-result"
+            >
+              <h3 className="data-control__result-title">
+                <span aria-hidden="true">✓ </span>Đã tạo gói Hồ sơ Di sản Mở
+              </h3>
+              <p className="card__note">
+                Đã tải về tệp đọc ngoại tuyến <code>viewer.html</code> ({portabilityResult.manifest.achievements}{" "}
+                kỹ năng · {portabilityResult.manifest.xapiStatements} sự kiện xAPI 2.0). Phụ huynh cũng có thể
+                tải riêng từng tệp dữ liệu chuẩn bên dưới:
+              </p>
+              <div className="data-control__actions" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() =>
+                    downloadEnvelope(
+                      JSON.stringify(portabilityResult.clr20, null, 2),
+                      "clr-2.0.json",
+                    )
+                  }
+                  data-testid="download-clr20-btn"
+                >
+                  Tải clr-2.0.json
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() =>
+                    downloadEnvelope(
+                      JSON.stringify(portabilityResult.case11, null, 2),
+                      "case-1.1.json",
+                    )
+                  }
+                  data-testid="download-case11-btn"
+                >
+                  Tải case-1.1.json
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() =>
+                    downloadEnvelope(
+                      portabilityResult.xapi20Jsonl,
+                      "xapi-2.0.jsonl",
+                      "application/x-ndjson;charset=utf-8",
+                    )
+                  }
+                  data-testid="download-xapi20-btn"
+                >
+                  Tải xapi-2.0.jsonl
+                </button>
+              </div>
             </div>
           ) : null}
         </section>

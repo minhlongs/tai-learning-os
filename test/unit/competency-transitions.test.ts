@@ -118,18 +118,40 @@ describe("deriveCompetency — a single correct guess is not mastery", () => {
 
   it("reflects the configured minimum in the reported reason", () => {
     expect(COMPETENCY_CONFIG.independentMinCorrect).toBe(2);
+    expect(COMPETENCY_CONFIG.independentMinDistinctSessions).toBe(2);
     expect(COMPETENCY_CONFIG.smallHint).toBe(0);
   });
 });
 
 describe("deriveCompetency — the independent threshold", () => {
-  it("promotes to INDEPENDENT on two unassisted correct attempts (helpLevel: 0, attemptNo: 1)", () => {
+  it("promotes to INDEPENDENT on two unassisted correct attempts across two distinct sessions (helpLevel: 0, attemptNo: 1)", () => {
     const result = deriveCompetency([
-      correct({ helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
-      correct({ helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
+      correct({ sessionId: "session-1", helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
+      correct({ sessionId: "session-2", helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
     ]);
     expect(result.independentCount).toBe(2);
+    expect(result.independentSessionCount).toBe(2);
     expect(result.state).toBe("INDEPENDENT");
+  });
+
+  it("keeps state at SUPPORTED when two unassisted correct attempts occur inside the SAME session (Gate G6)", () => {
+    const sameSession = deriveCompetency([
+      correct({ sessionId: "session-same", helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
+      correct({ sessionId: "session-same", helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
+      correct({
+        sessionId: "session-same",
+        helpLevel: 0,
+        attemptNo: 1,
+        evidenceKind: "observed",
+        isTransfer: true,
+      }),
+    ]);
+    expect(sameSession.independentCount).toBe(3);
+    expect(sameSession.independentSessionCount).toBe(1);
+    expect(sameSession.state).toBe("SUPPORTED");
+    expect(sameSession.state).not.toBe("INDEPENDENT");
+    expect(sameSession.state).not.toBe("TRANSFERRED");
+    expect(sameSession.reason_vi).toContain("trong cùng 1 phiên học");
   });
 
   it("still promotes when the two unassisted attempts are separated by a failure", () => {

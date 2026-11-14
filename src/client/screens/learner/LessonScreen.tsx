@@ -23,13 +23,15 @@
  *     no animation reward. The screen shows what happened.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
+  ExtendSessionTimeResponse,
   RequestHintRequest,
   StartSessionResponse,
   SubmitAttemptRequest,
   SubmitAttemptResponse,
 } from "../../../shared/api-contract";
+import { MAX_LEARNER_SESSION_MINUTES } from "../../../shared/engine/session-budget";
 import type { LearnerExerciseSpec } from "../../../shared/schemas/exercise";
 import type { LessonStepKind } from "../../../shared/schemas/attempt";
 import type { Submission } from "../../../shared/schemas/answer";
@@ -95,10 +97,13 @@ function startSessionFlight(lessonId: string): Promise<StartSessionResponse> {
     .post<StartSessionResponse>(endpoints.startSession, { lessonId })
     .then((result) => {
       if (result.ok) return result.value;
-      // Do not memoize a failure: a network blip must not pin the lesson shut
-      // for the rest of the browser session.
-      startSessionFlights.delete(lessonId);
       throw new Error(failureMessage(result.failure));
+    })
+    .finally(() => {
+      // Deduplicate only concurrent in-flight mounts (React StrictMode double-invoke).
+      // Once settled, evict so any later SPA re-entry fetches fresh server sessionId
+      // and `sessionBudget.softStopped` state instead of replaying a stale t=0 payload.
+      startSessionFlights.delete(lessonId);
     });
   startSessionFlights.set(lessonId, flight);
   return flight;
@@ -118,6 +123,11 @@ export function LessonScreen({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [budgetReachedAfterStep, setBudgetReachedAfterStep] = useState(false);
+  const [showExtendForm, setShowExtendForm] = useState(false);
+  const [parentPassword, setParentPassword] = useState("");
+  const [extending, setExtending] = useState(false);
+  const [extendError, setExtendError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -125,6 +135,7 @@ export function LessonScreen({
       .then((value) => {
         if (!live) return;
         setStart(value);
+        setBudgetReachedAfterStep(Boolean(value.sessionBudget?.softStopped));
         setError(null);
       })
       .catch((error: unknown) => {
@@ -196,6 +207,9 @@ export function LessonScreen({
             return;
           }
           setError(null);
+          if (result.value.sessionTimeBudgetReached) {
+            setBudgetReachedAfterStep(true);
+          }
           patchStep(step.id, {
             outcome: result.value.outcome,
             messageVi: result.value.messageVi,
@@ -207,8 +221,55 @@ export function LessonScreen({
     [patchStep, start, state.helpLevel, step],
   );
 
-  const canAdvance = !submitting && (state.outcome === "correct" || state.outcome === "partial");
+  const isSoftStopped = budgetReachedAfterStep;
+  const canAdvance =
+    !submitting &&
+    !isSoftStopped &&
+    (state.outcome === "correct" || state.outcome === "partial");
   const isLast = index >= steps.length - 1;
+
+  const onExtendSession = useCallback(
+    (event: FormEvent) => {
+      event.preventDefault();
+      if (!start || !parentPassword.trim()) {
+        setExtendError("Phụ huynh vui lòng nhập mật khẩu.");
+        return;
+      }
+      setExtending(true);
+      setExtendError(null);
+      void api
+        .post<ExtendSessionTimeResponse>(endpoints.extendSessionTime, {
+          sessionId: start.sessionId,
+          password: parentPassword,
+        })
+        .then((result) => {
+          setExtending(false);
+          if (!result.ok) {
+            setExtendError(failureMessage(result.failure));
+            return;
+          }
+          setParentPassword("");
+          setShowExtendForm(false);
+          setBudgetReachedAfterStep(false);
+          setStart((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  sessionBudget: prev.sessionBudget
+                    ? {
+                        ...prev.sessionBudget,
+                        extensionCount: result.value.extensionCount,
+                        budgetMs: result.value.budgetMs ?? prev.sessionBudget.budgetMs,
+                        reached: false,
+                      }
+                    : undefined,
+                }
+              : prev,
+          );
+        });
+    },
+    [parentPassword, start],
+  );
 
   const onFinish = useCallback(() => {
     if (!start) return;
@@ -223,9 +284,10 @@ export function LessonScreen({
           setError(failureMessage(result.failure));
           return;
         }
+        startSessionFlights.delete(lessonId);
         onNavigate(`/session/${start.sessionId}`);
       });
-  }, [onNavigate, start]);
+  }, [lessonId, onNavigate, start]);
 
   if (error && !start) {
     return (
@@ -320,12 +382,78 @@ export function LessonScreen({
               </section>
             ) : null}
 
+            {isSoftStopped ? (
+              <section
+                className="lesson-rest-banner"
+                role="status"
+                aria-live="polite"
+                data-testid="session-soft-stop-banner"
+              >
+                <h3 className="lesson-rest-banner__title">
+                  Em đã học trọn {MAX_LEARNER_SESSION_MINUTES} phút rồi — mình nghỉ mắt nhé!
+                </h3>
+                <p>
+                  Câu trả lời vừa rồi đã được lưu lại đầy đủ. Em hãy lưu kết quả phiên học,
+                  đứng dậy nhìn xa thư giãn mắt ít nhất 15 phút trước khi học tiếp.
+                </p>
+                <div className="lesson-rest-banner__actions">
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={onFinish}
+                    disabled={finishing}
+                    data-testid="soft-stop-finish"
+                  >
+                    {finishing ? "Đang lưu kết quả…" : "Nghỉ mắt & xem tổng kết"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => setShowExtendForm((v) => !v)}
+                    data-testid="toggle-parent-extend"
+                  >
+                    Phụ huynh gia hạn (+15 phút)
+                  </button>
+                </div>
+
+                {showExtendForm ? (
+                  <form className="lesson-extend-form" onSubmit={onExtendSession}>
+                    <label className="field" htmlFor="extend-parent-password">
+                      <span className="field__label">Mật khẩu phụ huynh</span>
+                      <input
+                        id="extend-parent-password"
+                        type="password"
+                        className="input"
+                        value={parentPassword}
+                        onChange={(e) => setParentPassword(e.target.value)}
+                        autoComplete="current-password"
+                        disabled={extending}
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      className="btn btn--secondary"
+                      disabled={extending}
+                      data-testid="confirm-parent-extend"
+                    >
+                      {extending ? "Đang xác nhận…" : "Xác nhận gia hạn"}
+                    </button>
+                    {extendError ? (
+                      <p className="field__error" role="alert">
+                        {extendError}
+                      </p>
+                    ) : null}
+                  </form>
+                ) : null}
+              </section>
+            ) : null}
+
             <nav className="lesson-nav" aria-label="Điều hướng bài học">
               <button
                 type="button"
                 className="btn btn--secondary"
                 onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                disabled={index === 0}
+                disabled={index === 0 || isSoftStopped}
               >
                 ← Bước trước
               </button>
@@ -334,7 +462,7 @@ export function LessonScreen({
                   type="button"
                   className="btn btn--primary"
                   onClick={onFinish}
-                  disabled={!canAdvance || finishing}
+                  disabled={(!canAdvance && !isSoftStopped) || finishing}
                 >
                   {finishing ? "Đang kết thúc…" : "Kết thúc bài học"}
                 </button>
@@ -352,7 +480,7 @@ export function LessonScreen({
             </nav>
 
             {/* Why the next button is disabled, said once and only when it is. */}
-            {!canAdvance && index < steps.length - 1 ? (
+            {!canAdvance && !isSoftStopped && index < steps.length - 1 ? (
               <p className="lesson-nav__note">Em cần trả lời đúng bước này để sang bước tiếp theo.</p>
             ) : null}
           </>

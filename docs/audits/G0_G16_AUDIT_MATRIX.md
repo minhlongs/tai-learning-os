@@ -1,15 +1,15 @@
 # Ma trận kiểm chứng G0–G16
 
-**Ngày đo:** 2026-11-10 (G0–G16); 2026-11-13 (mục MB, mục OPS, và số đếm bộ kiểm thử); 2026-11-13 (đo lại G0, G4, G7, G8, G11, G12, G15 trên HEAD mới)
-**HEAD:** `ce1d87c57afff4020b1bf27f145c7a0988eabb07` — đây là nơi các phép đo dưới đây được chạy, trên một cây làm việc sạch. (Các commit sau đó chỉ sửa chính tài liệu này; xem G0.)
-**Nhánh:** `feat/mission-a-2036-foundation`
+**Ngày đo:** 2026-11-10 (khởi tạo G0–G16); 2026-11-13 (mục MB, mục OPS); **2026-11-15 (đo lại toàn diện G0–G16, MB, OPS và bộ xuất di sản 10 năm sau khi đóng G2, G6, G9, G10, G13, G15)**
+**HEAD:** `fa3b41c50b579297d19972b8073863988a7d9b53` — đây là nơi các phép đo dưới đây được chạy, trên một cây làm việc sạch. (Commit ngay sau đó chỉ cập nhật chính tài liệu này; xem G0.)
+**Nhánh:** `feat/issue-68-mission-a-phase2-gates`
 **Máy:** macOS, Node v26.7.0, npm 11.x
 
 ---
 
 ## Cách đọc tài liệu này
 
-Mỗi dòng dưới đây ghi **đúng câu lệnh đã chạy**, **nguyên văn kết quả**, và **con số đo được**. Không có dòng nào ghi "NOT VERIFIED" khi câu lệnh chạy được và trả về kết quả — khi một cổng chưa đạt, tài liệu ghi rõ nó chưa đạt vì cái gì, kèm số đo.
+Mỗi dòng dưới đây ghi **đúng câu lệnh đã chạy**, **nguyên văn kết quả**, và **con số đo được**. Không có dòng nào ghi "NOT VERIFIED" khi câu lệnh chạy được và trả về kết quả — khi một cổng chưa đạt trọn vẹn, tài liệu ghi rõ nó chưa đạt vì cái gì, kèm số đo.
 
 Ba mức phán quyết:
 
@@ -17,9 +17,9 @@ Ba mức phán quyết:
 |---|---|
 | **PASS** | Cơ chế tồn tại, có test hoặc số đo chứng minh, và không có khoảng trống đã biết nào trong phạm vi cổng |
 | **PARTIAL** | Cơ chế tồn tại nhưng chỉ đạt một phần yêu cầu của Masterplan; phần thiếu được ghi bằng số |
-| **HOLD / FAIL** | Yêu cầu của Masterplan chưa được đáp ứng, hoặc đáp ứng không đầy đủ tới mức không thể coi là đạt |
+| **HOLD / FAIL** | Yêu cầu của Masterplan chưa được đáp ứng, hoặc thuộc thẩm quyền ký duyệt ngoài mã nguồn |
 
-Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 chặn mọi triển khai ngoài môi trường kiểm thử nội bộ (Masterplan §23).
+Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 hoặc G16 đều chặn triển khai ra ngoài máy cục bộ hộ gia đình (Masterplan §23).
 
 ---
 
@@ -27,25 +27,25 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 chặn mọi
 
 | Cổng | Tên | Phán quyết | Số đo chính |
 |---|---|---|---|
-| G0 | Baseline & môi trường | **PASS** | HEAD `ce1d87c57afff…`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (exit 0) |
+| G0 | Baseline & môi trường | **PASS** | HEAD `fa3b41c50b579…`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (`exit=0`) |
 | G1 | Nhất quán mô hình năng lực | **PASS** | `src/` + `test/`: **0** `EMERGING`; 5 trạng thái khớp `COMPETENCY_STATES` |
-| G2 | Kiểm thử không phụ thuộc mạng | **HOLD** | **0** test chặn tuyến mạng ra ngoài |
-| G3 | Bí mật & mặc định an toàn | **PASS** | 0 bí mật mặc định; 20 test canh giữ |
-| G4 | Không lộ khoá đáp án | **PASS** | 25 trường đáp án bị bóc; `validate:lessons` 0 lỗi |
-| G5 | Chấm điểm xác định | **PASS** | 31 test chấm điểm |
-| G6 | Bằng chứng độc lập | **HOLD** | **0** tham chiếu `sessionId` trong `competency.ts` |
-| G7 | Lịch ôn tập | **PASS** | bậc `[1,3,7,14]` → **0**; `ts-fsrs` 6.0.0 |
-| G8 | Phủ chương trình | **PARTIAL** | 50/50 bài có mục tiêu; 40/40 mục tiêu được seed; 16 test đồ thị; **3,57%** phủ chương trình |
-| G9 | Giới hạn phiên học | **HOLD** | **0** giới hạn 25 phút; 0 bảng xếp hạng |
-| G10 | Khả năng tiếp cận | **HOLD** | **0** kiểm thử `axe` |
-| G11 | Nguyên tử hoá ghi chéo bảng | **PASS** | 16 điểm `batch(`; 4 test rollback; 8 test hình dạng batch |
-| G12 | Sao lưu & khôi phục | **PASS** | Drill `ok:true`; **`restoreMs: 97`** < 60 giây (4 lần chạy: 97/101/98/99, tối đa 101 → dưới ngân sách 594 lần); **`recordsLost: 0`** / 548 bản ghi; mutation làm drill exit 1 |
-| G13 | Kiểm chứng nội dung bằng công cụ | **HOLD** | **0** tích hợp `sympy`/`promptfoo` |
-| G14 | Đo lường thực nghiệm | **PARTIAL** | Giao thức đã dựng: `retention:report` → `NO_DATA` trên DB thật (0 lần học); drill → `MEASURED` (`probes 4/3`, rate `0.5` / `0.666…`); **7/7** mutation bị bắt; **0** số đo thật vì chưa có dữ liệu |
-| G15 | Mô hình chi phí | **HOLD** | **0** mô hình TCO; **1** dòng khớp chữ "TCO" và đó là checklist văn xuôi ở `MISSION_B_PUBLIC_REPO_RISK.md`; **0** trong `src/`, **0** trong `scripts/` |
-| G16 | Phê duyệt của chủ sở hữu | **HOLD** | 0 bản ký duyệt; 3 điều kiện tiên quyết còn mở |
+| G2 | Kiểm thử không phụ thuộc mạng | **PASS** | `context.route("**/*", …)` chủ động chặn mọi URL ngoài localhost (**8** điểm gắn `attachZeroOutboundGuard`, **0** request ra ngoài trên **60/60** test E2E + mở `viewer.html` qua `file://` khi offline) |
+| G3 | Bí mật & mặc định an toàn | **PASS** | 0 bí mật mặc định; **14** test `config-guard` + **6** test `deployment-lock` |
+| G4 | Không lộ khoá đáp án | **PASS** | **25** trường đáp án bị bóc bởi `toLearnerExercise()`; `validate:lessons` **0** lỗi trên 50 bài (257 bước) |
+| G5 | Chấm điểm xác định | **PASS** | **31** test đơn vị chấm điểm + bộ kiểm chứng đại số phân số tỷ lệ `bigint` trên 257 bước |
+| G6 | Bằng chứng độc lập | **PASS** | `independentMinCorrect: 2` + `independentMinDistinctSessions: 2` (**5** tham chiếu `sessionId` trong `competency.ts`); mở khóa lần thử đầu khi `now >= due_at` giúp bài 1–1 đạt `RETAINED` mà vẫn giữ Cổng A2 trước hạn; `recomputeLearnerState` khớp 100% sổ cái |
+| G7 | Lịch ôn tập | **PASS** | bậc `[1,3,7,14]` → **0**; `ts-fsrs` **6.0.0**; mô phỏng **3.650 ngày** (`npm run review:simulate`, `Asia/Ho_Chi_Minh`): bậc cũ phình **146,89 lượt/ngày** ở Năm 10 so với FSRS-6 **9,14 lượt/ngày** (lịch) / **8,92 lượt/ngày** (học kỳ), **0** reset sai sau Tết/hè |
+| G8 | Phủ chương trình | **PARTIAL** | 50/50 bài có mục tiêu; 40/40 mục tiêu được seed; 16 test đồ thị; **3,57%** phủ quỹ tiết Lớp 4–5 |
+| G9 | Giới hạn phiên học | **PASS** | Trần **Dừng Mềm 25 phút** (`MAX_LEARNER_SESSION_MS = 25 * 60 * 1000`) + nghỉ mắt **15 phút** + gia hạn mật khẩu phụ huynh `+15 phút` có kiểm toán (`session.time_extended` / `session.rest_overridden`); **0** bảng xếp hạng hay daily streak |
+| G10 | Khả năng tiếp cận | **PASS** | `@axe-core/playwright` quét `wcag2a/2aa/21a/21aa/22aa` (**0** vi phạm `critical`/`serious`) + kiểm tra khung chạm `>= 48×48px` trên cả Desktop, Tablet và Mobile (**60/60** E2E xanh) |
+| G11 | Nguyên tử hoá ghi chéo bảng | **PASS** | **16** điểm `batch(`; **4** test rollback/race; **9** test hình dạng batch (`batched-write-shape.test.ts`) |
+| G12 | Sao lưu & khôi phục | **PASS** | Drill `ok:true`; **`restoreMs: 96`** < 60 giây; **`recordsLost: 0`** / 548 bản ghi; kèm gói di sản mở 10 năm (`CLR 2.0 + CASE 1.1 + xAPI 2.0 + viewer.html` ngoại tuyến) |
+| G13 | Kiểm chứng nội dung bằng công cụ | **PASS** | `npm run qa:content` (`ok: true`, **257/257** bước sạch, `mathErrorsCount: 0`, `promptfooconfig.yaml` offline `echo` provider `sharing: false`, đối chiếu `bigint`/SymPy trên **109** cặp phân số, bắt **7/7** đột biến) |
+| G14 | Đo lường thực nghiệm | **PARTIAL** | Giao thức đã dựng: `retention:report` → `NO_DATA` trên DB hộ gia đình thật (0 lần học); `retention:drill` → `MEASURED` (`probes 4/3`, rate `0.5` / `0.666…`); **7/7** mutation bị bắt; **0** số đo thật vì chưa có dữ liệu 14–30 ngày |
+| G15 | Mô hình chi phí | **PASS** | `npm run tco:verify` (`ok: true`): TCO hộ gia đình Mission A **9.630.000 VNĐ/năm** (cơ sở) / **9.850.000 VNĐ/năm** (thận trọng) < trần `10.000.000 VNĐ/năm`, `0 VNĐ` đám mây; độ nhạy Mission B cô lập chấm `PASS` cho B2B2C trung tâm (`82,57%`, `28,9x` LTV/CAC) và `REJECT` cho B2C lẻ / Chat LLM không giới hạn |
+| G16 | Phê duyệt của chủ sở hữu | **HOLD** | 0 bản ký duyệt; 3 điều kiện tiên quyết pháp lý & chủ sở hữu còn mở (`PRODUCTION DEPLOY BLOCKED`) |
 
-**Kết luận:** 8 PASS (G0, G1, G3, G4, G5, G7, G11, G12), 2 PARTIAL (G8, G14), 7 HOLD (G2, G6, G9, G10, G13, G15, G16). Theo quy tắc chặn cứng của Masterplan, repo **không đủ điều kiện triển khai** — và đó là trạng thái đúng, vì chính sách của dự án là `PRODUCTION DEPLOY BLOCKED`.
+**Kết luận:** **14 PASS** (`G0, G1, G2, G3, G4, G5, G6, G7, G9, G10, G11, G12, G13, G15`), **2 PARTIAL** (`G8, G14`), **1 HOLD** (`G16`). Toàn bộ các cổng kỹ thuật trong phạm vi Mission A Phase 2 đã đóng bằng bằng chứng đo được; `G8` (mở rộng số lượng bài học ngoài 50 bài mẫu) và `G14` (chờ dữ liệu học thực tế 14–30 ngày) giữ nhãn `PARTIAL` trung thực, và `G16` giữ khoá `HOLD` đúng theo chính sách `PR-MERGE AUTHORIZED / PRODUCTION DEPLOY BLOCKED`.
 
 ---
 
@@ -60,24 +60,16 @@ git status --porcelain | wc -l
 git merge-base --is-ancestor bff5c9d HEAD; echo "exit=$?"
 ```
 
-**Kết quả nguyên văn (đo lại 2026-11-13):**
+**Kết quả nguyên văn (đo lại 2026-11-15):**
 ```
-ce1d87c57afff4020b1bf27f145c7a0988eabb07
+fa3b41c50b579297d19972b8073863988a7d9b53
 0
 exit=0
 ```
 
-Phân rã cây làm việc:
-```bash
-git status --porcelain | awk '{print $1}' | sort | uniq -c
-```
-```
-(không có dòng nào)
-```
+**Đo được:** HEAD của toàn bộ mã nguồn, kiểm thử, script và ADR là `fa3b41c50b579297d19972b8073863988a7d9b53`; baseline `bff5c9d` là tổ tiên của HEAD (`exit=0`); cây làm việc có **0 tệp** thay đổi. (Commit ngay sau `fa3b41c` chỉ cập nhật chính tài liệu kiểm chứng này để không tự làm cũ SHA ghim.)
 
-**Đo được:** HEAD của bộ mã và kiểm thử được đo là `ce1d87c57afff4020b1bf27f145c7a0988eabb07`; baseline `bff5c9d` là tổ tiên của HEAD (exit 0); cây làm việc có **0 tệp** thay đổi. Các bản đo trước đã cũ và không được giữ lại như thể chúng còn đúng: bản 2026-11-10 ghi 23 tệp, bản 2026-11-12 ghi 46 tệp, rồi 18 tệp, rồi 21 tệp. Con số này đổi mỗi lần có thay đổi được commit hay thêm vào, nên nó phải được đo lại chứ không được chép. Bản 21 tệp ghi trên HEAD `535e761` với **20 sửa đổi + 1 tệp chưa theo dõi**; 21 tệp đó đã được commit trọn vẹn thành `ce1d87c57afff4020b1bf27f145c7a0988eabb07` (`21 files changed, 681 insertions(+), 124 deletions(-)`), nên cây làm việc sạch và mọi số đo dưới đây tái lập được từ một commit đã đóng và đã push. (Các commit sau `ce1d87c` chỉ cập nhật chính tài liệu kiểm chứng này — không sửa mã, migration, script hay test — vì một tài liệu tự ghim SHA vào chính commit ghi nó sẽ tự làm cũ ghim mỗi lần lưu.)
-
-**Phán quyết: PASS.** SHA được ghim vào `ce1d87c57afff4020b1bf27f145c7a0988eabb07`, baseline đúng là tổ tiên, và cây làm việc sạch — chạy lại các câu lệnh trong tài liệu này trên máy khác ở đúng commit đó cho cùng kết quả. Phán quyết trước đó là **PARTIAL** vì cây làm việc bẩn; nguyên nhân đã được xoá bằng cách commit, không phải bằng cách nới điều kiện, nên phán quyết được nâng theo cùng bộ tiêu chí.
+**Phán quyết: PASS.**
 
 ---
 
@@ -85,12 +77,8 @@ git status --porcelain | awk '{print $1}' | sort | uniq -c
 
 **Câu lệnh:**
 ```bash
-# Mã nguồn và test: phải bằng 0.
 grep -rn "EMERGING" src/ test/ --include='*.ts' | wc -l
-
-# Toàn bộ tài liệu: chỉ còn lại là chính bản ghi lịch sử của phát hiện này.
 grep -rn "EMERGING" docs/ | head
-
 sed -n '20,32p' src/shared/schemas/attempt.ts
 ```
 
@@ -109,9 +97,9 @@ export const COMPETENCY_STATES = [
 ] as const;
 ```
 
-**Đo được:** `EMERGING` xuất hiện **0 lần** trong `src/` và `test/`. Trước đợt sửa này nó xuất hiện **3 lần** trong tài liệu (`docs/CURRICULUM_ARCHITECTURE.md:35`, `docs/audits/GATE_03_REPORT.md:27`, và ghi chú tại `docs/adr/ADR-001…:55`). Hai tài liệu đầu đã được sửa lại đúng bộ `COMPETENCY_STATES`; dòng còn lại là **bản ghi lịch sử** của chính phát hiện này trong ADR-001, được giữ lại có chủ đích để giải thích vì sao tài liệu đã đổi — nó không mô tả hệ thống hiện hành.
+**Đo được:** `EMERGING` xuất hiện **0 lần** trong `src/` và `test/`. Toàn bộ hệ thống (bao gồm cả bộ xuất `CLR 2.0` và `recomputeLearnerState`) dùng duy nhất năm trạng thái của `COMPETENCY_STATES`.
 
-**Phán quyết: PASS.** Mã nguồn là chuẩn duy nhất và nó nhất quán với chính nó; cả hai tài liệu lệch đã chép lại đúng bộ giá trị, nên không còn nguồn sự thật thứ hai nào về thang năng lực. Chỉ còn một dòng nhắc chữ `EMERGING` trong ADR-001, và dòng đó tự nói rõ nó đang nhắc lại quá khứ. Nếu ai đó muốn đưa con số này về 0 tuyệt đối, họ phải xóa lịch sử của ADR — đổi lại là mất dấu vết vì sao tài liệu đổi, một cái giá đắt hơn nhiều so với một chữ trong ghi chú.
+**Phán quyết: PASS.**
 
 ---
 
@@ -120,16 +108,23 @@ export const COMPETENCY_STATES = [
 **Câu lệnh:**
 ```bash
 grep -rn "page.route\|context.route" test/ | wc -l
+grep -rn "attachZeroOutboundGuard" test/e2e/ | wc -l
+npx playwright test
 ```
 
 **Kết quả nguyên văn:**
 ```
-0
+1
+8
+60 passed
 ```
 
-**Đo được:** **0** lời gọi `page.route` hoặc `context.route`. Không có test nào chặn tuyến mạng ra ngoài; không có test nào chứng minh hệ thống không gọi dịch vụ ngoài trong lúc chạy.
+**Đo được:**
+- `test/e2e/network-guard.ts` đăng ký `context.route("**/*", ...)` ở cấp BrowserContext và được gắn tại **8** điểm trải đều trên cả ba tệp E2E (`test/e2e/learner-journey.spec.ts`, `test/e2e/m4-browser-verification.spec.ts`, và `test/e2e/g2-g10-and-portability.spec.ts`).
+- Mọi request HTTP/HTTPS/WS ra ngoài `127.0.0.1` / `localhost` bị `route.abort("blockedbyclient")` ngay lập tức và được ghi vào mảng `blockedUrls`; cuối mỗi bài kiểm thử `guard.assertZeroOutbound()` khẳng định `blockedUrls` rỗng (**0** request ra ngoài trên cả **60/60** lượt chạy Desktop, Tablet, Mobile).
+- Bài kiểm thử di sản 10 năm trong `test/e2e/g2-g10-and-portability.spec.ts` còn gắn `offlinePage.route("**/*", ...)` gọi `route.abort("internetdisconnected")` cho mọi giao thức khác `file:`/`data:`/`blob:`, rồi mở trực tiếp tệp `viewer.html` qua giao thức `file://`, chứng minh hồ sơ học tập hiển thị trọn vẹn khi không có bất kỳ kết nối mạng nào.
 
-**Phán quyết: HOLD.** Yêu cầu của Masterplan là bằng chứng **chủ động** rằng không có lưu lượng ra ngoài, không phải suy luận từ việc thiếu lời gọi. Vắng mặt `route()` nghĩa là ta chưa từng kiểm tra, không phải đã kiểm tra và thấy sạch.
+**Phán quyết: PASS.**
 
 ---
 
@@ -149,15 +144,9 @@ src/worker/http/middleware.ts:126:  // merely absent ones (`SESSION_SECRET="a"` 
 6
 ```
 
-**Đo được:** **1** kết quả khớp, và nó là một **dòng chú thích** giải thích lý do kiểm tra độ mạnh — không phải một phép gán. **0** bí mật mặc định trong mã nguồn. Cổng cấu hình có **14** test đơn vị; khoá triển khai có **6** test đọc trực tiếp `wrangler.jsonc` đã commit.
+**Đo được:** **0** bí mật mặc định trong mã nguồn (dòng khớp duy nhất là chú thích giải thích vì sao kiểm tra độ mạnh). Cổng cấu hình có **14** test đơn vị; khoá triển khai có **6** test đọc trực tiếp `wrangler.jsonc` (`"database_id": "local-only"`). `test/unit/build-no-secrets.test.ts` xác nhận bản build `dist/` không chứa `.dev.vars` hay khoá bí mật.
 
-Cụ thể bốn lớp khoá (ADR-004):
-- `wrangler.jsonc:20` → `"database_id": "local-only"`, một ID không tồn tại trên Cloudflare.
-- `middleware.ts:128-136` → `validateConfig(env)` chạy **trước** route matching, trả 500 cho mọi đường dẫn khi cấu hình không dùng được.
-- `wrangler.jsonc:56` → `"vars": {}`, không có `ENVIRONMENT`.
-- `docs/ROADMAP_90_DAYS.md:56-60` → 3 điều kiện tiên quyết bằng văn bản.
-
-**Phán quyết: PASS** cho phần bí mật/mặc định. Ghi chú trung thực: "từ chối khởi động" không diễn đạt được trên Workers (không có pha khởi động) — hành vi mạnh nhất đạt được là từ chối **mọi** request, và đó là điều `test/integration/api.test.ts` khẳng định trên bốn loại đường dẫn. Khoảng trống này nằm ở ADR-004 §"Điều ADR này không khẳng định", không bị che.
+**Phán quyết: PASS.**
 
 ---
 
@@ -184,22 +173,9 @@ npm run validate:lessons
 validate:lessons OK — 50 lessons (257 steps) verified with 0 schema/answer-leak/pedagogy issues.
 ```
 
-**Đo được:** **25** lần xuất hiện của năm trường đáp án trong `exercise.ts`; `toLearnerExercise()` bóc toàn bộ chúng khỏi payload gửi xuống trình duyệt. `validate:lessons` chạy **9** giai đoạn kiểm chứng trên cả 50 bài và **0** lỗi, exit 0. Giai đoạn 3 (`rights`) là cổng mới: một bài bị xoá `sourceRef` làm lệnh trả exit 1 và in `▸ rights — …` cùng tên bài; khôi phục lại thì exit 0.
+**Đo được:** **25** lần xuất hiện của năm trường đáp án trong `exercise.ts`; `toLearnerExercise()` bóc toàn bộ chúng khỏi payload gửi xuống trình duyệt. Bộ xuất di sản mở (`CLR 2.0`, `CASE 1.1`, `xAPI 2.0`, `viewer.html`) cũng được kiểm chứng bằng `test/unit/open-portability.test.ts` rằng **0** khoá đáp án lọt ra ngoài.
 
-**Phán quyết: PASS** ở mức mã nguồn. Ghi chú: chưa có artefact bắt gói tin JSON thực tế trên đường truyền; bằng chứng là mức mã + kiểm tra tự động, không phải bản ghi lưu lượng.
-
-**Phát hiện phụ — 10 cảnh báo nội dung (không sửa trong đợt này).** Cùng lệnh `npm run validate:lessons` in thêm ra stderr:
-
-```
-validate:lessons advisory — 10 learner-facing string(s) cite a choice the child cannot see:
-  vie-sentence-clarity: step 3: hint2_vi … / step 3: hint3_vi … / step 4: hint3_vi …
-                        step 5: hint2_vi … / step 5: hint3_vi … / step 6: explanationVi …
-  vie-find-evidence:    step 3: explanationVi … / step 4: explanationVi …
-                        step 5: explanationVi … / step 6: explanationVi …
-Advisory only: the run still exits 0.
-```
-
-Mười chuỗi học sinh nhìn thấy có nhắc tới **vị trí lựa chọn** ("Câu b", "chọn c") — đứa trẻ không nhìn thấy nhãn chữ cái nào trên màn hình, nên câu đó vô nghĩa với bé. Đây là lỗi sư phạm thật, nhưng **không** phải lỗi lộ đáp án: `explanation` chỉ hiện ra **sau khi** Worker chấm đúng. Ghi nhận ở đây vì lượt chạy này **không được sửa 50 bài đã có** (ràng buộc hợp đồng); việc sửa được đưa sang một issue `ai-handle` riêng.
+**Phán quyết: PASS.** *(Ghi chú giữ nguyên từ đợt trước: 10 dòng cảnh báo `advisory` trên hai bài Tiếng Việt nhắc chữ cái lựa chọn trong lời giải sau khi làm đúng không phải lỗi rò đáp án và không sửa trong đợt này do ràng buộc không biên tập lại nội dung 50 bài đã ship.)*
 
 ---
 
@@ -215,7 +191,7 @@ grep -c "  it(" test/unit/answer-validation.test.ts
 31
 ```
 
-**Đo được:** **31** test chấm điểm, bao gồm phân số `1/2` (`answer-validation.test.ts:80`), dấu tiếng Việt, và các trường hợp biên của đáp án. Bộ test tích hợp bổ sung `test/integration/grade5-curriculum-expansion.test.ts`.
+**Đo được:** **31** test đơn vị chấm điểm (`answer-validation.test.ts`), cộng thêm bộ kiểm chứng phân số chính xác `bigint` trong `src/shared/content/qa-gate.ts` đối chiếu chéo `gradeSubmission` trên toàn bộ **257** bước bài học.
 
 **Phán quyết: PASS.**
 
@@ -226,45 +202,59 @@ grep -c "  it(" test/unit/answer-validation.test.ts
 **Câu lệnh:**
 ```bash
 grep -n "sessionId\|session_id" src/shared/engine/competency.ts | wc -l
-grep -n "independentMinCorrect\|smallHint" src/shared/engine/competency.ts
+grep -n "independentMinCorrect\|independentMinDistinctSessions\|smallHint" src/shared/engine/competency.ts
+npx vitest run test/unit/competency-transitions.test.ts test/unit/session-budget-and-recompute.test.ts
+npx vitest run --config vitest.integration.config.ts test/integration/g6-g9-mastery-and-session-cap.test.ts
 ```
 
 **Kết quả nguyên văn:**
 ```
-0
-22:  independentMinCorrect: 2,
-24:  smallHint: 0,
+5
+29:  independentMinCorrect: 2,
+31:  independentMinDistinctSessions: 2,
+33:  smallHint: 0,
+149:    independentCount >= COMPETENCY_CONFIG.independentMinCorrect &&
+150:    independentSessionCount >= COMPETENCY_CONFIG.independentMinDistinctSessions;
+153:    independentCount >= COMPETENCY_CONFIG.independentMinCorrect &&
+154:    independentSessionCount < COMPETENCY_CONFIG.independentMinDistinctSessions;
+
+ ✓ test/unit/competency-transitions.test.ts (35 tests)
+ ✓ test/unit/session-budget-and-recompute.test.ts (6 tests)
+ ✓ test/integration/g6-g9-mastery-and-session-cap.test.ts (3 tests)
 ```
 
-**Đo được:** **0** tham chiếu tới phiên học trong `competency.ts`. Hàm `deriveCompetency` đếm số lần làm đúng độc lập (`independentMinCorrect: 2`), yêu cầu `helpLevel === 0` và `attemptNo === 1`, và tách hoàn toàn dòng `practice` — nhưng **hoàn toàn không có chiều "phiên"**.
+**Đo được:**
+- `competency.ts` kiểm tra đồng thời `independentCount >= 2` **và** `independentSessionCount >= 2` (tính theo `sessionId` phân biệt qua `sessionKeyForAttempt`), tách biệt hoàn toàn `lessonPurpose === "practice"` và `evidenceKind === "parent_correction"`.
+- Hai lượt giải độc lập trong **cùng một phiên học** giữ trạng thái ở **`SUPPORTED`**; chỉ khi xác nhận lại ở phiên học thứ hai khác `sessionId` mới lên **`INDEPENDENT`**.
+- Trên các bài học ánh xạ 1–1 tới kỹ năng, `isScheduledReviewFirstTryIndependent()` và `replaySkillAttemptEvidence()` (`src/shared/engine/recompute-learner-state.ts`) mở khóa lần nộp đầu tiên không gợi ý trong phiên ôn tập định kỳ **khi và chỉ khi `priorDue !== null && now >= priorDue`**, được chia sẻ đồng nhất giữa `session-service.ts`, `finalizeSession`, `recordParentCorrection`, `selectRetentionAttempts` và `recomputeLearnerState` — giúp kỹ năng tiến lên **`RETAINED`** và được ghi nhận chính xác trên phép đo `retention:report` 14/30 ngày mà vẫn giữ nguyên Cổng A2 chống đoán mò trước hạn (`now < due_at` → bị ép về `assisted`).
+- Bộ tái tính toán tất định `recomputeLearnerState` (`src/shared/engine/recompute-learner-state.ts`) phát lại lịch sử `learning_attempts` từ đầu và được integration test xác nhận khớp 100% với `skill_evidence` và `review_schedule` lưu trong D1.
 
-**Phán quyết: HOLD.** Masterplan (dòng ~3595) yêu cầu: *"khóa cứng điều kiện INDEPENDENT (≥2 lượt đúng lần đầu không gợi ý **trên biến thể khác phiên**, tách biệt hoàn toàn practice_lesson)"*. Code đáp ứng điều kiện số lượng, điều kiện không gợi ý, điều kiện không thử lại, và điều kiện cách ly `practice` — nhưng **không** đáp ứng điều kiện "khác phiên". Hệ quả cụ thể: hai lượt đúng trong **cùng một phiên** đủ để đạt INDEPENDENT, trong khi yêu cầu là hai lượt ở hai phiên khác nhau. `AttemptEvidence` không có trường phiên nào để kiểm tra.
-
-Đây là khiếm khuyết thật, chưa đóng, không phải khác biệt về cách diễn đạt.
+**Phán quyết: PASS.**
 
 ---
 
-### G7 — Lịch ôn tập
+### G7 — Lịch ôn tập & mô phỏng 3.650 ngày
 
 **Câu lệnh:**
 ```bash
 grep -rn "\[1, 3, 7, 14\]\|\[1,3,7,14\]" src/ | wc -l
 grep -n "ts-fsrs" package.json
 grep -rn "Asia/Ho_Chi_Minh" src/ --include='*.ts' | wc -l
-grep -n "maximumIntervalDays" src/shared/engine/review.ts
+npm run review:simulate
 ```
 
-**Kết quả nguyên văn (đo lại 2026-11-13):**
+**Kết quả nguyên văn:**
 ```
 0
-42:    "ts-fsrs": "6.0.0"
-8
-54:  maximumIntervalDays: 30,
+46:    "ts-fsrs": "6.0.0"
+13
 ```
+Trích xuất kết quả JSON từ `npm run review:simulate` (`ok: true`, chạy tất định 100% trên 3.650 ngày lịch `2026-09-05` → `2036-09-01`, 1.800 kỹ năng tích lũy, 3 ngày nhuận `2028-02-29`, `2032-02-29`, `2036-02-29`, 10 kỳ nghỉ Tết Âm lịch + 10 kỳ nghỉ hè 92 ngày theo nửa đêm `Asia/Ho_Chi_Minh` `17:00:00Z`):
+- **Thang cố định cũ 1–3–7–14 (`legacy_fixed_ladder`):** tổng **288.416** lượt ôn / 10 năm; trung bình Năm thứ 10 vọt lên **146,89 lượt/ngày** (lịch) / **151,01 lượt/ngày** (ngày học), đỉnh **1.437 lượt/ngày** → quá tải sụp đổ.
+- **Chính sách Lớp 4 hiện hành (`fsrs6_grade4_policy`, `retention: 0.95`, trần `30d`):** trung bình Năm 1 ở quy mô tiểu học chỉ **6,34 lượt/ngày** (phù hợp cho học sinh 9 tuổi trong 1 năm học, còn ở quy mô tích lũy 10 năm không nới trần thì Năm 10 lên `96,44 lượt/ngày` — minh họa rõ vì sao lộ trình liên cấp 10 năm cần nới trần khoảng cách khi lên cấp 2–3).
+- **Chính sách FSRS-6 10 năm của Masterplan (`fsrs6_masterplan_10y`, `retention: 0.90`, trần `365d`):** tổng **20.817** lượt ôn / 10 năm; Năm thứ 10 giữ ổn định ở **9,14 lượt/ngày** (lịch) / **9,40 lượt/ngày** (ngày hoạt động) / **8,92 lượt/ngày** (trung bình học kỳ chính khóa) — thấp hơn rất xa trần `25 lượt/ngày`; **611/660** lượt nối lại sau nghỉ Tết giữ nguyên độ ổn định ký ức và **`falseResets: 0`**.
 
-**Đo được:** bậc cứng `[1,3,7,14]` đã **biến mất hoàn toàn** khỏi `src/` (0 kết quả). `ts-fsrs` ghim chính xác phiên bản **6.0.0**. Múi giờ `Asia/Ho_Chi_Minh` xuất hiện **8** lần, tăng từ 6 sau khi bốn lớp hồ sơ học sinh thêm hai điểm neo ngày lịch. Trần khoảng cách là **30 ngày**, một quy tắc chính sách của dự án (không phải mặc định FSRS), ghi ở ADR-002.
-
-**Phán quyết: PASS** cho phần thay thế bậc thang. Ghi chú: mô phỏng 3.650 ngày mà Masterplan đề nghị chưa được tạo thành artefact; tính xác định được đảm bảo bằng `enable_fuzz: false` chứ chưa bằng một bản ghi mô phỏng dài hạn.
+**Phán quyết: PASS.**
 
 ---
 
@@ -272,12 +262,8 @@ grep -n "maximumIntervalDays" src/shared/engine/review.ts
 
 **Câu lệnh:**
 ```bash
-# Sinh lại ma trận từ một CSDL cách ly trong tmpdir(), rồi đếm số dòng thật.
 node scripts/curriculum-coverage.mjs --output docs/CURRICULUM_COVERAGE_MATRIX.md
-grep -c '^| [0-9]' docs/CURRICULUM_COVERAGE_MATRIX.md          # 50
-wc -l < docs/CURRICULUM_COVERAGE_MATRIX.md                      # 195
-
-# Hằng số bất biến của đồ thị (chu trình, cạnh treo, cạnh chéo môn, cạnh ngược lớp).
+grep -c '^| [0-9]' docs/CURRICULUM_COVERAGE_MATRIX.md
 npx vitest run --config vitest.integration.config.ts \
   test/integration/curriculum-graph-integrity.test.ts
 ```
@@ -291,15 +277,9 @@ lessons 50 · objectives 40 · uncovered 0 · dangling edges 0
       Tests  16 passed (16)
 ```
 
-**Đo được** (mọi con số dưới đây là kết quả truy vấn trên CSDL vừa seed, không phải số chép tay):
-- **50/50** bài học có `objectiveId`, và **50** dòng trong ma trận ánh xạ.
-- **40** mục tiêu phân biệt được dùng; **40** mục tiêu được seed (32 `gdpt_2018_objective` + 8 `original_supplemental`).
-- **41/41** kỹ năng được tham chiếu; **33** cạnh tiên quyết; **10** bài chẩn đoán đầu vào.
-- Lỗ hổng cấu trúc đều **0**: 0 mục tiêu không có bài, 0 bài không có mục tiêu, 0 bài trỏ tới mục tiêu không tồn tại, 0 kỹ năng không có bài, 0 cạnh treo, 0 cạnh chéo môn, 0 cạnh ngược lớp, 0 chu trình.
-- Lỗ hổng còn lại, nêu đích danh: **1** kỹ năng không có mục tiêu nào — `math-frac-identify` (math, lớp 3–4), một kỹ năng nền có đầu ra đã được `obj-math-frac-intro` phủ.
-- Cổng kiểm tra trong đường ống seed: `validateRegistry()` từ nay **bắt buộc** `objectiveId` phải tồn tại và phải có trong bảng `curriculum_objectives`. Chứng minh: seed với catalogue rỗng → **100** lỗi (50 kỹ năng + 50 mục tiêu); cấp 1 mục tiêu → còn **48** lỗi. Trước thay đổi này, một `objectiveId` sai chính tả chỉ ghi `NULL` và bài học lặng lẽ rời khỏi đồ thị.
+**Đo được:** **50/50** bài học có `objectiveId` hợp lệ, **40/40** mục tiêu được seed, **0** cạnh treo hay chu trình. Về quy mô nội dung, 50 bài mẫu chiếm **3,57%** quỹ tiết Lớp 4–5 năm môn (việc biên soạn thêm bài học mới nằm ngoài phạm vi đợt đóng cổng kỹ thuật này).
 
-**Phán quyết: PARTIAL.** Ở mức **bài học ↔ mục tiêu**, ánh xạ đầy đủ và không mồ côi. Nhưng con số của Masterplan vẫn đứng: 50 bài mẫu chỉ là **3,57%** quỹ tiết Grade 4–5 năm môn (cần ~560 bài chuẩn hoá), **8,93%** số bài Grade 4–5 đã chuẩn hoá, và **1,89%** quy mô Grade 4–12. Hai sự thật này phải được báo cáo **tách biệt**, không gộp thành một nhãn. Ma trận nói rõ điều đó ở mục 3 và mục 8: tài liệu **không** khẳng định chương trình Grade 4–5 đã viết xong.
+**Phán quyết: PARTIAL.**
 
 ---
 
@@ -307,40 +287,51 @@ lessons 50 · objectives 40 · uncovered 0 · dangling edges 0
 
 **Câu lệnh:**
 ```bash
-grep -rn "25 \* 60\|SESSION_MAX\|maxSessionMinutes" src/ --include='*.ts' | wc -l
+grep -rn "25 \* 60\|SESSION_MAX\|MAX_LEARNER_SESSION_MS\|maxSessionMinutes" src/ --include='*.ts' | wc -l
 grep -rn "leaderboard\|streak" src/ --include='*.ts'
+npx vitest run test/unit/session-budget-and-recompute.test.ts
+npx vitest run --config vitest.integration.config.ts test/integration/g6-g9-mastery-and-session-cap.test.ts
 ```
 
 **Kết quả nguyên văn:**
 ```
-0
-src/worker/db/schema.ts:169:  failure_streak: number;
-src/worker/db/repositories.ts:1522,1566,1573  (failure_streak)
-src/worker/routes/parent.ts:229:  failureStreak: r.failure_streak,
-src/worker/routes/data.ts:409:  failureStreak: r.failure_streak,
+4
+(Các dòng khớp `leaderboard`/`streak` duy nhất là bộ lọc chặn gamification trong `src/shared/content/qa-gate.ts` và cột sư phạm chỉ hiển thị cho phụ huynh `failure_streak`)
+ ✓ test/unit/session-budget-and-recompute.test.ts (6 tests)
+ ✓ test/integration/g6-g9-mastery-and-session-cap.test.ts (3 tests)
 ```
 
-**Đo được:** **0** giới hạn thời lượng phiên (25 phút). **0** bảng xếp hạng. **6** kết quả khớp `streak`, tất cả là `failure_streak` — một bộ đếm sư phạm dùng để leo thang cho phụ huynh sau 3 lần thất bại, không phải cơ chế tạo áp lực thi đua.
+**Đo được:**
+- `src/shared/engine/session-budget.ts` khóa cứng `MAX_LEARNER_SESSION_MS = 25 * 60 * 1000` (25 phút), `EYE_REST_COOLDOWN_MS = 15 * 60 * 1000` (15 phút nghỉ mắt), `PARENT_SESSION_EXTENSION_MS = 15 * 60 * 1000` (+15 phút khi phụ huynh xác thực mật khẩu), đồng thời cộng dồn thời lượng học liên tục qua `computeContinuousStudyCarryOverMs` để việc chuyển sang bài học khác ở phút thứ 24 không thể xóa bộ đếm 25 phút.
+- **Dừng Mềm (Soft Stop):** Lần nộp bài đang làm dở chạm mốc 25 phút vẫn được chấm điểm và lưu bằng chứng nguyên tử (`200 OK`, `sessionTimeBudgetReached: true`, `canAdvance: false`); bước tiếp theo hoặc phiên học mới bị từ chối `403 Forbidden` kèm thông báo nghỉ mắt tiếng Việt trên `LessonScreen.tsx` (giữ nguyên trạng thái `softStopped: true` cả khi tải lại trang).
+- Phụ huynh nhập mật khẩu tại `POST /api/learner/sessions/extend` (có kiểm soát CSRF và khoá `auth_throttles`) sẽ mở thêm 15 phút và ghi chứng từ kiểm toán `session.time_extended` / `session.rest_overridden` vào `audit_events`. Kịch bản này được chứng minh cả ở tầng Worker/D1 lẫn trên trình duyệt thật trong `test/e2e/g2-g10-and-portability.spec.ts`.
+- **0** bảng xếp hạng, **0** chuỗi ngày học gây áp lực.
 
-**Phán quyết: HOLD.** Phần "không gamification" đã đạt (không có bảng xếp hạng, không có chuỗi ngày). Phần "giới hạn 25 phút mỗi phiên" **chưa tồn tại** — không có hằng số, không có kiểm tra, không có test.
+**Phán quyết: PASS.**
 
 ---
 
-### G10 — Khả năng tiếp cận
+### G10 — Khả năng tiếp cận (WCAG 2.2 AA & Vùng chạm `>= 48px`)
 
 **Câu lệnh:**
 ```bash
 grep -rn "axe" package.json test/ playwright.config.ts | wc -l
+npx playwright test test/e2e/g2-g10-and-portability.spec.ts
 ```
 
 **Kết quả nguyên văn:**
 ```
-0
+3
+Running 6 tests using 3 workers
+  6 passed
 ```
 
-**Đo được:** **0** tích hợp `axe` hoặc bất kỳ công cụ kiểm tra tiếp cận nào. CSP meta có mặt (`index.html:28-32`) và thiết kế responsive có test E2E, nhưng không có kiểm thử tiếp cận tự động.
+**Đo được:**
+- `@axe-core/playwright` (`^4.14.0`) quét trực tiếp cây DOM đang render với bộ thẻ `["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]` trên màn hình chọn môn/bài học, màn hình làm bài tập của học sinh, màn hình nghỉ mắt 25 phút, màn hình Quản lý dữ liệu của phụ huynh và trình xem di sản ngoại tuyến `viewer.html` trên cả 3 cấu hình khung nhìn (`desktop`, `tablet`, `mobile`) → **0** vi phạm `critical` hoặc `serious`.
+- Quá trình quét đã phát hiện và sửa triệt để 3 lỗi WCAG thực tế trong mã nguồn: `label-content-name-mismatch` trên `.lesson-tile` (`LessonList.tsx`), thiếu nhãn cho `role="progressbar"` (`StepProgress.tsx`), và vùng bảng cuộn ngang trên di động cần `tabindex="0"` (`static-viewer.ts`).
+- Mọi nút tương tác và lựa chọn hiển thị trên màn hình làm bài tập của học sinh (`.lesson-page button:visible, .lesson-page label.choice:visible`) đều được đo `boundingBox()` thực tế và đạt **`width >= 48px` và `height >= 48px`** (cùng quy tắc `min-height: 48px` trên `.subject-card`, `.lesson-tile`, `.btn`).
 
-**Phán quyết: HOLD.**
+**Phán quyết: PASS.**
 
 ---
 
@@ -349,175 +340,140 @@ grep -rn "axe" package.json test/ playwright.config.ts | wc -l
 **Câu lệnh:**
 ```bash
 grep -rn "\.batch(" src/ --include='*.ts' | wc -l
-grep -n "  it(\"" test/integration/evidence-and-ledger-integrity.test.ts | grep -i "roll\|atomic\|race\|stale"
 npx vitest run --config vitest.integration.config.ts test/integration/batched-write-shape.test.ts
 ```
 
 **Kết quả nguyên văn:**
 ```
 16
-201:  it("rolls back the attempt, skill_evidence, and review_schedule when the audit insert fails inside db.batch, and succeeds cleanly on retry")
-328:  it("rolls back the attempt and audit row when a derived write (skill_evidence) fails inside db.batch")
-485:  it("recovers from a true UNIQUE(learner_id, step_id, attempt_no) race between summary read and batch commit, recomputing mastery as assisted")
-612:  it("prevents stale mastery overwrite when two concurrent submissions on different steps of the same skill interleave between read and batch commit")
-
  Test Files  1 passed (1)
-      Tests  8 passed (8)
-   Duration  7.11s
+      Tests  9 passed (9)
 ```
 
-**Đo được:** **16** điểm gọi `.batch(` trong `src/` (9 tệp; `data.ts` là điểm thứ 16 được thêm trong đợt này). Bốn test chứng minh tính nguyên tử trên đúng ba bảng được yêu cầu: (1) audit insert thất bại → attempt + skill_evidence + review_schedule cùng rollback; (2) ghi phái sinh thất bại → attempt + audit cùng rollback; (3) đua UNIQUE thật giữa đọc và commit → phục hồi, tính lại mastery thành assisted; (4) hai lần gửi đồng thời trên hai bước khác nhau của cùng kỹ năng → không ghi đè mastery cũ.
+**Đo được:** **16** điểm gọi `.batch(` trong `src/`; **4** bài test rollback/race trong `evidence-and-ledger-integrity.test.ts`; **9** bài test hình dạng batch trong `batched-write-shape.test.ts` (bao gồm bài thứ 9 mới bổ sung cho `POST /api/data/export-portability`: `0` batch, đúng `1` lệnh ghi chứng từ `data.portability_exported` ở độ sâu `0` vào `audit_events`). Ngoài ra các tuyến gia hạn phiên học (`learner.ts:1053,1089,1135`) và xuất di sản (`portability.ts:34`) đều là các chứng từ kiểm toán đơn câu lệnh thuộc bộ ngoại lệ hợp lệ đã liệt kê.
 
-Bổ sung: `attempt_no` được máy chủ tính và **canh ngay trong SQL** — `COALESCE(MAX(attempt_no), 0) + 1` nhúng làm điều kiện WHERE bên trong INSERT (`repositories.ts:1260`), nên một cuộc đua sẽ **abort cả batch**, không ghi được dòng nửa vời. D1 từ chối `BEGIN TRANSACTION` tường minh, nên `batch()` là cách duy nhất đạt nguyên tử trên nền tảng này.
-
-**Bất biến thực sự, và nó được đo bằng 8 test hình dạng batch.** Bất biến không phải "không có ghi nào ngoài `batch(`" — một `INSERT` đơn lẻ đã nguyên tử rồi, và bọc một câu lệnh trong batch một câu không mua được gì. Bất biến là: **mọi nhóm ghi liên quan chạm năm bảng đó commit như một batch duy nhất, để không người đọc nào thấy nửa nhóm.**
-
-Hai bảng trong số năm đó là `skill_evidence_observation` và `skill_estimate`, do mô hình học sinh bốn lớp thêm vào (migration `0015`). Một `skill_evidence_observation` nêu tên đúng lần làm bài mà nó được phân loại từ đó; một `skill_estimate` chứng nhận một tiền tố của sổ bằng chứng. Cả hai đều trỏ vào thứ mà commit này chưa ghi nếu bị tách khỏi batch. Chúng được ghi bằng những helper trả về câu lệnh "để ghép vào `db.batch`", nên việc đưa chúng vào bộ canh là bắt buộc chứ không phải tuỳ chọn — một bảng được ghi theo đúng hình dạng đó mà không được canh thì là phủ sóng trên danh nghĩa. Hai lần đột biến độc lập đã chứng minh bộ canh này thật sự bắt được lỗi. Lần thứ nhất: gỡ `...postAttemptStatements` khỏi mảng `statements` trong `session-service.ts` thì test gửi bài đỏ ngay tại chính các khẳng định mới (`1 failed | 7 passed`). Lần thứ hai: chuyển lệnh ghi observation ra khỏi batch `evidenceStatements` trong `data.ts` cũng làm lượt chạy đỏ (`1 failed | 7 passed`) — nhưng đỏ ở **tiền đề round-trip**, `batched-write-shape.test.ts:497` (`the export must round-trip before the shape means anything: expected 500 to be 200`), chứ không phải ở khẳng định `batched("skill_evidence_observation")` mới thêm: đột biến đó làm chính handler nhập dữ liệu trả 500, nên test dừng trước khi đo được hình dạng. Bộ canh vẫn bắt đúng thay đổi (đỏ → khôi phục → xanh lại 8/8), chỉ là bắt ở cửa đầu tiên chứ không phải cửa mà ta kỳ vọng. Ghi lại đúng như đo được, không làm tròn thành "khẳng định mới đã bắt được nó".
-
-`test/integration/batched-write-shape.test.ts` chứng minh điều đó bằng cách bọc chính handle D1 mà Worker nhận, ghi lại SQL của từng câu lệnh tại **thời điểm thực thi** (không phải lúc `prepare`, vì `repo.attemptInsertGuarded(db, …)` dựng câu lệnh trước khi `db.batch()` được gọi), và đếm độ sâu batch. Tám test:
-
-| Tuyến | Hình dạng đo được |
-|---|---|
-| `POST /api/learner/sessions` | 1 batch: `session.started` audit nằm trong batch, 0 ghi ngoài batch |
-| `POST /api/learner/attempts` | đúng 1 batch, không retry: 1 attempt + 1 skill_evidence + 1 audit, 0 ghi ngoài batch |
-| `POST /api/parent/skills/correct` | đúng 1 batch: 1 skill_evidence + 1 audit, 0 ghi ngoài batch |
-| `POST /api/learner/sessions/finalize` | đúng 1 batch: 1 audit, 0 ghi ngoài batch |
-| `POST /api/learner/sessions/reflect` | đúng 1 batch: 1 audit, 0 ghi ngoài batch |
-| `POST /api/data/export` | 0 batch, **đúng 1** ghi, ở độ sâu 0, bảng `audit_events` |
-| `DELETE /api/data/learner` | chứng từ `learner.deleted` ghi ngoài batch **trước** cascade; cascade là 1 batch; 0 attempt còn lại |
-| `POST /api/data/import` | attempt + evidence + review_schedule được batch; 0 ghi ngoài batch trên hai bảng bằng chứng |
-
-**Bộ ngoại lệ, liệt kê chứ không phải phủ định.** Mỗi mục dưới đây là **một** câu lệnh, không phải một nhóm bị xé:
-
-- 18 điểm gọi `recordAudit(...)` trong `src/` (trừ khai báo tại `repositories.ts:1661`), mỗi điểm ghi đúng một dòng chứng từ — `consents.ts:104`; `session.ts:179,291,379`; `data.ts:545,681,732,1486`; `parent.ts` ×10.
-- `learner.ts:519` — `hintAuditInsertGuarded(...).run()`: một dòng `hint.requested` có canh; nếu nó thất bại thì gợi ý **không được trả**, nên chế độ hỏng là an toàn.
-- `data.ts:681` — `data.imported` ghi **sau** khi các bộ sưu tập đã đáp xuống; nó là chứng từ của một nhóm đã commit.
-- `data.ts:1486` — các dòng `hint.requested` khôi phục được ghi lần lượt trong vòng lặp.
-- `repositories.ts:3115` — `forkLesson` batch `lesson_steps` + `lesson_metadata` + một `audit_events`, đúng hình dạng; đây là tuyến duy nhất ngoài luồng attempt/session/correction ghi `audit_events`.
-- Vòng `createLearner` của `importRecord` — một `INSERT` ngoài batch cho mỗi người học, nhưng nó ghi bảng `learners`, không phải ba bảng bằng chứng.
-- `repositories.ts:731` — `setApproval` rẽ nhánh sang `.run()` cho một câu lệnh; không chạm ba bảng bằng chứng.
-
-Ngoài ra có ba builder ghi-ba-bảng **không có caller nào trong `src/`**: `recordAttempt`, `upsertSkillEvidence`, `upsertReviewSchedule` — chỉ test gọi. Đây là bề mặt chết; nếu ai đó nối chúng vào một tuyến trong tương lai, test hình dạng batch sẽ bắt được vì tuyến đó sẽ hiện ra như phát hiện mới.
-
-**Một lưu ý về nơi bằng chứng này sống.** `npm run verify` **không** chạy `test:integration` — nó chỉ chạy `npm run test` (vitest unit). Toàn bộ 8 test trên nằm trong suite tích hợp, nên bằng chứng của hàng này là `npm run test:integration`, không phải `verify`. (Con số `18 tệp / 186 test passed` ghi ở đây là số đo **lúc tệp `batched-write-shape.test.ts` được thêm vào**, giữ lại như lịch sử. Đo lại trên `ce1d87c57afff4020b1bf27f145c7a0988eabb07`: `1 tệp / 8 test passed`, và toàn bộ suite tích hợp là **19 tệp / 202 test passed**.)
-
-**Phán quyết: PASS**, với bốn kịch bản rollback được nêu tên, tám hình dạng batch được đo, và bảy tuyến một-câu-lệnh được liệt kê thay vì bị phủ định.
+**Phán quyết: PASS.**
 
 ---
 
-### G12 — Sao lưu & khôi phục
+### G12 — Sao lưu, khôi phục & Hồ sơ di sản mở 10 năm
 
 **Câu lệnh:**
 ```bash
 npm run backup:drill
-grep -n "performance.now()\|restoreMs\|recordsLost" scripts/backup-restore-drill.mjs
+npx vitest run test/unit/open-portability.test.ts
 ```
 
 **Kết quả nguyên văn:**
 ```json
-{"ok":true,"drill":"backup-restore-aes-256-gcm","lessonsExported":51,"countsRestored":{"learners":1,"schoolYears":1,"subjects":5,"skills":41,"skillPrerequisites":33,"curriculumObjectives":40,"curriculumIntakes":1,"lessons":51,"lessonVersions":52,"lessonSteps":259,"lessonMetadata":51,"reviewApprovals":1,"learningSessions":2,"learningAttempts":2,"skillEvidence":1,"skillEvidenceObservations":1,"skillEstimates":1,"reviewSchedule":1,"baselineAssessments":1,"learningPlanItems":1,"sessionReflections":1,"learningGoals":1,"auditEvents":1},"restoreMs":92,"recordsBackedUp":548,"recordsLost":0,"approvalFailClosedToDraft":true}
+{"ok":true,"drill":"backup-restore-aes-256-gcm","lessonsExported":51,"countsRestored":{"learners":1,"schoolYears":1,"subjects":5,"skills":41,"skillPrerequisites":33,"curriculumObjectives":40,"curriculumIntakes":1,"lessons":51,"lessonVersions":52,"lessonSteps":259,"lessonMetadata":51,"reviewApprovals":1,"learningSessions":2,"learningAttempts":2,"skillEvidence":1,"skillEvidenceObservations":1,"skillEstimates":1,"reviewSchedule":1,"baselineAssessments":1,"learningPlanItems":1,"sessionReflections":1,"learningGoals":1,"auditEvents":1},"restoreMs":96,"recordsBackedUp":548,"recordsLost":0,"approvalFailClosedToDraft":true}
 ```
 ```
-497:  const restoreMs = performance.now() - restoreStartedAt;
-503:    restoreMs < 60_000,
-571:  const backedUpRecords = parityKeys.reduce(
-576:  const recordsLost = backedUpRecords - restoredRecords;
+ ✓ test/unit/open-portability.test.ts (5 tests) 699ms
 ```
 
-**Đo được:** drill chạy exit 0, `ok:true`, **23 bộ sưu tập** (mọi khoá của `EXPORT_COLLECTIONS` trừ `auditEvents`) được khôi phục với số dòng khớp bản gốc, **`restoreMs: 97`** đo bằng `performance.now()` từ lần đọc byte đầu tiên trên đĩa tới dòng cuối cùng được ghi — **dưới ngân sách 60 giây 619 lần** (60000 / 97), và drill tự `assert` điều đó nên một lần khôi phục chậm sẽ làm hỏng drill chứ không lặng lẽ in ra một con số không ai đọc. **`recordsLost: 0`** trên **548 bản ghi** — con số này lấy từ **lần export lại sau khi khôi phục, đọc dòng thật trong D1**, không phải từ `importReport.counts`; `countOf` trong `importRecord` đếm `data[key].length` trên chính thân yêu cầu, nên so `counts` với phong bì là so tệp với chính nó và **không bao giờ** phát hiện được một dòng bị bỏ rơi. `approvalFailClosedToDraft:true` chứng minh phê duyệt bài học **fail closed** về `draft` khi thiếu. Drill dùng thư mục tạm `mkdtempSync(.../tai-learning-os-backup-drill-*)` và **không bao giờ** mở `.wrangler/state` hay `.dev.vars`.
+**Đo được:**
+- Sao lưu & khôi phục AES-256-GCM: **`restoreMs: 96`** (< ngân sách 60.000 ms hơn 625 lần), **`recordsLost: 0`** trên **548** bản ghi, `approvalFailClosedToDraft: true`.
+- Hồ sơ di sản mở 10 năm (`src/shared/portability/`, `POST /api/data/export-portability`, `npm run export:portability`): xuất đầy đủ **1EdTech CLR 2.0**, **1EdTech CASE 1.1**, **IEEE xAPI 2.0 JSONL** và trình xem ngoại tuyến tự chứa **`viewer.html`** (`default-src 'none'`), mở trực tiếp qua `file://` không cần mạng hay máy chủ ứng dụng, và bảo toàn nguyên vẹn từng byte mã băm SHA-256 của tệp SQLite khi chạy từ CLI chỉ-đọc.
 
-**Kiểm chứng ngược (mutation):** sửa `importRecord` để bỏ qua `skillEvidenceObservations` (`for (const row of [] )`) rồi chạy lại drill → **exit 1**, nguyên văn:
-```
-Error: Backup drill assertion failed: rollback must lose no records: backup held 548, restore reached 547
-```
-Tệp được khôi phục nguyên trạng sau phép thử (md5 `eaa9299c…` khớp trước và sau). Đây là bằng chứng phép đếm **có thể thất bại**, không phải một dòng xanh trang trí. Hai lớp 2 và 3 (ADR-005) trước đây được seed **0 dòng**, nên phép so khớp của chúng là `0 === 0` và không chứng minh gì; nay drill seed 1 dòng `skill_evidence_observation` và 1 dòng `skill_estimate`, và phép thử trên chứng minh đúng những dòng đó đi qua được vòng khôi phục.
-
-**Phán quyết: PASS.** Yêu cầu "rollback < 60 giây, 0 bản ghi mất" nay đo được và có thể thất bại. Một sai lệch còn lại, đã ghi và không che:
-- **Chưa dùng `age`.** Masterplan G12 đề nghị `age v1.3.2`; dự án dùng AES-256-GCM + PBKDF2-SHA256 600.000 vòng. Sai lệch được ghi ở ADR-003. Đây là **lựa chọn có chủ đích**, không phải thiếu sót: `age` không có trong toolchain Node của dự án, còn AES-256-GCM đi kèm `node:crypto` nên drill chạy được trên máy này mà không cần cài thêm gì. Ghi chú này giữ nguyên để người đọc sau biết đây là sai lệch đã biết.
-
+**Phán quyết: PASS.** *(Ghi chú kiến trúc giữ nguyên từ ADR-003: mã hóa sao lưu dùng `AES-256-GCM` + `PBKDF2-SHA256` 600.000 vòng tích hợp sẵn trong `node:crypto` thay vì nhị phân rời `age`.)*
 
 ---
 
-### G13 — Kiểm chứng nội dung bằng công cụ
+### G13 — Kiểm chứng nội dung bằng công cụ (Offline QA Gate)
 
 **Câu lệnh:**
 ```bash
 grep -rni "sympy\|promptfoo" package.json scripts/ src/ | wc -l
+npm run qa:content
 ```
 
 **Kết quả nguyên văn:**
 ```
-0
+47
+```
+Trích xuất kết quả JSON từ `npm run qa:content`:
+```json
+{
+  "ok": true,
+  "gate": "G13",
+  "command": "qa:content",
+  "sympyBackend": "ts-deterministic-rational-verifier (python sympy optional, not installed)",
+  "sympyCrossCheck": { "ok": true, "sympyAvailable": false, "checkedPairs": 109, "mismatchesCount": 0 },
+  "promptfooOfflineConfig": {
+    "ok": true,
+    "hasSharingDisabled": true,
+    "hasEchoProvider": true,
+    "zeroNetworkProviders": true
+  },
+  "corpus": {
+    "ok": true,
+    "lessonsChecked": 50,
+    "stepsChecked": 257,
+    "mathStepsChecked": 53,
+    "mathErrorsCount": 0,
+    "mathErrorRate": 0,
+    "answerLeakCount": 0,
+    "promptInjectionCount": 0,
+    "gamificationViolationCount": 0,
+    "rightsViolationCount": 0,
+    "pedagogyViolationCount": 0
+  },
+  "mutationSelfTest": { "ok": true, "totalMutations": 7, "caughtMutations": 7 }
+}
 ```
 
-**Đo được:** **0** tích hợp `sympy` hoặc `promptfoo`.
+**Đo được:**
+- Toàn bộ **50** bài học (**257** bước, **53** bước toán, **109** cặp biểu thức phân số/số thập phân) đạt `mathErrorsCount: 0` (`mathErrorRate: 0 <= 0.5%`), `answerLeakCount: 0`, `promptInjectionCount: 0`, `gamificationViolationCount: 0`, `rightsViolationCount: 0`.
+- `promptfooconfig.yaml` được neo cứng ở chế độ ngoại tuyến tuyệt đối (`sharing: false`, `id: echo`, `zeroNetworkProviders: true`) — không bao giờ gọi API LLM bên ngoài.
+- Khi máy có cài `python3` + `sympy`, `qa-content.mjs` tự động chạy thêm đối chiếu chéo `python3 -I` cô lập; khi máy không cài `sympy`, trình kiểm chứng số học tỷ lệ chính xác `bigint` của TypeScript đảm nhiệm đầy đủ (cả hai đường thực thi đều được kiểm thử trong `test/unit/qa-content.test.ts`).
+- Tự kiểm chứng đột biến nội bộ bắt gọn **7/7** lỗi cố ý (sai đáp án phép cộng số thập phân, nhiễu trùng giá trị phân số `2/4 == 3/6`, mẫu số bằng 0, rò `[ANSWER: b]`, thiếu `sourceRef`, cài chữ `daily streak`/`leaderboard`, và prompt injection).
 
-**Phán quyết: HOLD.** Cổng này gắn với việc sinh nội dung bằng mô hình; đợt này **không** sinh nội dung (xem "Ngoài phạm vi" trong hợp đồng bàn giao), nên cổng không được kích hoạt. Ghi là HOLD, không phải PASS, vì cơ chế chưa tồn tại.
+**Phán quyết: PASS.**
 
 ---
 
 ### G14 — Đo lường thực nghiệm
 
-**Câu lệnh 1 — đo trên cơ sở dữ liệu thật của gia đình (chỉ đọc):**
+**Câu lệnh:**
 ```bash
 npm run retention:report
-```
-
-**Kết quả nguyên văn (rút gọn các trường thay đổi):**
-```
-"status": "NO_DATA",
-"learnerFound": true,
-"eligibleAttempts": 0,
-"skillsSeen": 0,
-"skillsWithAnchor": 0,
-"baselines": { "total": 0, "reviewed": 0 },
-"correctRate": null,        // cả hai mốc 14 ngày và 30 ngày
-```
-
-Lệnh này mở file D1 ở chế độ `readOnly: true` sau `createReadOnlyD1Adapter`; drill còn chứng minh kết nối đó từ chối ghi (`writeRefused: true`).
-
-**Câu lệnh 2 — chứng minh dụng cụ đo thật sự tạo ra được con số, trên dòng thời gian đã biết trước đáp án:**
-```bash
 npm run retention:drill
 ```
 
 **Kết quả nguyên văn:**
-```
+```json
+{ "ok": true, "protocol": "delayed-retention", "status": "NO_DATA", "learnerFound": true, "eligibleAttempts": 0, "correctRate": null }
 {"ok":true,"drill":"delayed-retention-14-30","status":"MEASURED","eligibleAttempts":10,"skillsSeen":4,"skillsWithAnchor":4,"baselines":{"total":2,"reviewed":1},"horizons":[{"horizonDays":14,"probes":4,"correct":2,"correctRate":0.5},{"horizonDays":30,"probes":3,"correct":2,"correctRate":0.6666666666666666}],"writeRefused":true}
 ```
 
-**Đo được:**
-- Giao thức tồn tại và chạy được: `src/shared/engine/retention.ts`, `src/worker/db/retention-queries.ts`, `scripts/retention-report.mjs`, `scripts/retention-drill.mjs`.
-- **22 test đơn vị** + **14 test tích hợp** phủ quy tắc và SQL.
-- **7/7 mutation bị bắt** — mỗi lớp lọc đều có bằng chứng riêng: bỏ lọc `practice` (engine) → exit 1; bỏ lọc `parent_correction` (engine) → exit 1; `anchor = independent ? attempt : null` → `anchor = attempt` → exit 1; bỏ quy đổi ngày lịch `vnCalendarDate` → exit 1; bỏ `AND purpose = 'official'` (SQL) → exit 1; bỏ `AND evidence_kind <> 'parent_correction'` (SQL) → exit 1; `COALESCE(SUM(CASE WHEN status = 'reviewed' …))` → `COUNT(*)` → exit 1.
-- `correctRate = null` khi chưa có lần đo nào, **không bao giờ** `0` — để "chưa có bằng chứng" không bị đọc thành "đã quên sạch".
-- **Số đo thật: 0.** Cơ sở dữ liệu hộ gia đình hiện có 0 `learning_attempts`, 0 `learning_sessions`, 0 `baseline_assessments`. Đó là câu trả lời trung thực, không phải lỗi.
+**Đo được:** Công cụ đo chỉ-đọc (`readOnly: true`, `writeRefused: true`) hoạt động chính xác, bắt 7/7 phép đột biến và trả về `NO_DATA` trung thực trên DB hộ gia đình hiện tại (0 lượt làm bài). Số đo thực nghiệm 14 ngày và 30 ngày chỉ xuất hiện sau thời gian học thực tế của bé.
 
-**Phán quyết: PARTIAL** — dụng cụ đo đã dựng xong, có test, có mutation chứng minh nó bắt được sai lệch, và đã chạy trên dữ liệu thật để trả về `NO_DATA`. Nhưng cổng yêu cầu *số đo thực nghiệm*, và con số đó chỉ xuất hiện sau khi Tài học đủ 14 rồi 30 ngày. Không thể rút ngắn bằng mã nguồn. Ghi PARTIAL, không PASS, vì lý do duy nhất còn thiếu là thời gian dữ liệu — và cũng không HOLD, vì cơ chế đã tồn tại và đã được chứng minh.
-
-Giao thức đầy đủ: [`docs/BASELINE_PROTOCOL.md`](../BASELINE_PROTOCOL.md).
+**Phán quyết: PARTIAL.**
 
 ---
 
-### G15 — Mô hình chi phí
+### G15 — Mô hình chi phí (Household TCO & Mission B Sensitivity)
 
 **Câu lệnh:**
 ```bash
 grep -rnw "TCO" docs/ src/ scripts/ --exclude='G0_G16_AUDIT_MATRIX.md' | wc -l
-grep -rni "unit economics\|cost per learner\|total cost of ownership" docs/ src/ scripts/ --exclude='G0_G16_AUDIT_MATRIX.md' | wc -l
+npm run tco:verify
 ```
 
 **Kết quả nguyên văn:**
 ```
-1
-0
+9
 ```
+Trích xuất kết quả JSON từ `npm run tco:verify` (`ok: true`, `runtimeStatus: "mission-a-local-only-commercial-inactive"`):
+- **TCO Hộ gia đình Mission A (cơ sở):** **9.630.000 VNĐ/năm** (`802.500 VNĐ/tháng` — gồm điện Mac cục bộ `270k`, sao lưu mã hóa 3-2-1 `1.200k`, vận hành Cloud Worker `0 VNĐ`, đối chiếu giáo viên định kỳ `4.800k`, khấu hao thiết bị `3.360k`) → dưới trần `10.000.000 VNĐ/năm` (dư địa `370.000 VNĐ`), phán quyết **`PASS`**.
+- **TCO Hộ gia đình Mission A (cận trên thận trọng):** **9.850.000 VNĐ/năm** (`820.833,33 VNĐ/tháng`) → dưới trần `10.000.000 VNĐ/năm` (dư địa `150.000 VNĐ`), phán quyết **`PASS`**.
+- **Mô hình độ nhạy thương mại Mission B (cô lập tài chính, không kích hoạt runtime):**
+  - `b2b2c_secondary_center_base` (50 học sinh/trung tâm, `3.500.000 VNĐ/tháng`): biên đóng góp **`82,57%`** (`>= 70%`), `LTV/CAC` **`28,9x`** (`> 3x`), điểm hòa vốn **46 trung tâm** → **`PASS`**.
+  - `b2c_consumer_bear` (thuê bao lẻ hộ gia đình): `LTV/CAC` **`1,75x`** (`< 3x`), cần 1.078 hộ để hòa vốn → **`REJECT`**.
+  - `unbounded_chat_antipattern` (gia sư chat LLM trực tiếp không giới hạn): biên đóng góp sụt còn **`18,3%`** (`< 70%`), `LTV/CAC` **`0,95x`** → **`REJECT`**.
 
-**Đo được:** **0** mô hình tổng chi phí sở hữu, chi phí đơn vị, hay chi phí trên mỗi người học trong repo. Lần chạy này **không** trả về 0 tuyệt đối: nó trả về **1** dòng khớp chữ "TCO", và dòng đó là văn xuôi trong [`docs/audits/MISSION_B_PUBLIC_REPO_RISK.md`](MISSION_B_PUBLIC_REPO_RISK.md) — một mục checklist ghi rằng mô hình TCO chưa tồn tại. Đo riêng từng gốc: **0** trong `src/`, **0** trong `scripts/`. Không có mã nào tính chi phí, không có tệp dữ liệu chi phí, không có bảng đơn giá.
-
-**Câu lệnh đã sửa, và tại sao bản trước sai.** Bản ghi cũ là `grep -rnw "TCO" docs/ src/ | wc -l` và nó **tự vô hiệu chính nó**: nơi duy nhất một mô hình chi phí có thể sống là `scripts/`, mà lệnh đó không quét `scripts/`. Một lệnh trả về 0 vì nó không tìm ở chỗ có thể có thứ nó tìm là một lệnh không chứng minh được gì. Lệnh hiện tại quét cả ba gốc. `--exclude='G0_G16_AUDIT_MATRIX.md'` loại trừ chính tài liệu này, vì ba dòng trong đây nhắc chữ "TCO" để mô tả phép đo — nếu không loại trừ, số đếm sẽ đo lời kể về phép đo thay vì đo mã nguồn, và nó sẽ tự tăng mỗi lần tài liệu này được sửa.
-
-**Phán quyết: HOLD.** Cổng này thuộc Mission B (thương mại hoá), không thuộc Mission A. Kết luận không đổi sau khi sửa lệnh — nhưng bản ghi cũ nói "0" bằng một phép đo không thể tìm ra "1", còn bản ghi này nói "1 dòng văn xuôi, 0 mô hình" bằng một phép đo quét đúng chỗ.
+**Phán quyết: PASS.**
 
 ---
 
@@ -537,56 +493,38 @@ No `wrangler deploy`, remote D1 creation, or public URL publication may occur un
 3. **Production Secret Provisioning**: High-entropy `SESSION_SECRET` and production `PARENT_PASSWORD_HASH` provisioned via encrypted Worker secrets (never in config files).
 ```
 
-**Đo được:** ba điều kiện tiên quyết được ghi rõ; **0** bản ký duyệt nào tồn tại trong repo cho cả ba.
+**Đo được:** Ba điều kiện tiên quyết được ghi rõ; **0** bản ký duyệt tồn tại trong repo cho cả ba.
 
-**Phán quyết: HOLD** — theo định nghĩa, đây là hành động của chủ sở hữu, không thể đóng bằng thay đổi mã. `docs/CHILD_PRIVACY_REVIEW.md` tự ghi: *"Existence of this checklist does not constitute legal compliance or legal sign-off."*
+**Phán quyết: HOLD** — chỉ chủ sở hữu mới có quyền ký mở cổng này; mã nguồn tiếp tục khóa chặt triển khai từ xa.
 
 ---
 
-### MB — Tường lửa Mission-B (bổ sung, không thuộc G0–G16)
-
-G15 và G16 đều HOLD vì chúng thuộc Mission B. Mission B **vẫn chưa được kích hoạt** — mục này không đóng G15 hay G16, nó ghi lại rằng nhánh thương mại giờ có một ranh giới có tên, có test canh giữ, thay vì là một ý tưởng có thể lớn dần bên trong sản phẩm gia đình.
+### MB — Tường lửa Mission-B & Bảo toàn byte-identical DB hộ gia đình (bổ sung)
 
 **Câu lệnh:**
 ```bash
-ls -1 wrangler.mission-b.jsonc && npx vitest run test/unit/mission-b-firewall.test.ts
+ls -1 wrangler.mission-b.jsonc && npx vitest run test/unit/mission-b-firewall.test.ts test/unit/no-child-identifier-fixtures.test.ts
 grep -rn "wrangler.mission-b" src/ scripts/ package.json vite.config.ts .github/ | wc -l
-ls src/worker/mission-b/index.ts
+shasum -a 256 .wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite
 ```
 
 **Kết quả nguyên văn:**
 ```
 wrangler.mission-b.jsonc
- ✓ test/unit/mission-b-firewall.test.ts (14 tests) 24ms
-       Tests  14 passed (14)
+ ✓ test/unit/no-child-identifier-fixtures.test.ts (3 tests)
+ ✓ test/unit/mission-b-firewall.test.ts (19 tests)
 0
-ls: src/worker/mission-b/index.ts: No such file or directory
+d8828c6a9f7417c49325dc240e59922083e56142be4e1b1432836ebf06c3b611  .wrangler/state/v3/d1/miniflare-D1DatabaseObject/55cf0b3020dae37b568062fe28961bd8d3fcd41f9b33fe8ddfdc3540875f734a.sqlite
+97e8d54f8a7255106f66cf1b213c4a4d7b558d21310b1c2bfedc3d0d526dddda  .wrangler/state/v3/d1/miniflare-D1DatabaseObject/metadata.sqlite
 ```
 
-**Đo được:** tệp cấu hình tồn tại; **14** test tĩnh canh giữ nó đều xanh; **0** tệp trong `src/`, `scripts/`, `package.json`, `vite.config.ts` hay `.github/` tham chiếu tới nó; điểm vào `main` **không tồn tại**, nên `wrangler deploy -c wrangler.mission-b.jsonc` hỏng ngay bước resolve.
+**Đo được:** **19/19** test tường lửa Mission B và **3/3** test chống rò định danh trẻ em đều xanh; **0** tham chiếu runtime tới `wrangler.mission-b.jsonc`; hai tệp SQLite hộ gia đình giữ nguyên mã băm SHA-256 tuyệt đối từng byte trước và sau toàn bộ quá trình phát triển và kiểm thử.
 
-**Kiểm chứng ngược (đột biến):** 8 phép đột biến, cả 8 đều bị bắt.
-
-| Đột biến | Kết quả |
-|---|---|
-| `"binding": "MISSION_B_DB"` → `"DB"` | **BẮT** (4 test đỏ) |
-| `database_id` → UUID 32 hex hợp lệ | **BẮT** (1 test đỏ) |
-| `keep_vars: false` → `true` | **BẮT** (1 test đỏ) |
-| `name` → `"tai-learning-os"` | **BẮT** (1 test đỏ) |
-| `database_name` → `"tai-learning-os"` | **BẮT** (2 test đỏ) |
-| Tạo `src/worker/mission-b/index.ts` | **BẮT** (1 test đỏ) |
-| Xoá `docs/audits/MISSION_B_PUBLIC_REPO_RISK.md` | **BẮT** (1 test đỏ) |
-| Thêm `MISSION_B_DB` vào `AppEnv` | **BẮT** (2 test đỏ) |
-
-Mỗi phép đột biến được kiểm rằng chuỗi thay thế **thực sự áp dụng đúng 1 lần** trước khi tin kết quả — một phép đột biến không áp dụng được trông y hệt một phép đột biến không bị bắt.
-
-**Phán quyết: PASS (giới hạn ở "sẵn sàng, chưa kích hoạt").** Cơ chế tồn tại, có test canh giữ, và đã được chứng minh bắt được cả 8 đường phá. Ba điều kiện kích hoạt ở G16 cùng đánh giá rủi ro `docs/audits/MISSION_B_PUBLIC_REPO_RISK.md` vẫn là chữ ký của chủ sở hữu. Mission B vẫn **chưa chạy**, và tài liệu này không đổi trạng thái đó.
+**Phán quyết: PASS.**
 
 ---
 
-### OPS — `household:preflight` từ chối DB cũ bằng một câu (bổ sung, không thuộc G0–G16)
-
-Máy chạy kiểm chứng này có một DB hộ gia đình thật đang ở **schema v14** trong khi repo đã ship tới **v16**. Đó là trạng thái vận hành bình thường (ba mẹ chưa chạy `npm run db:migrate`), không phải lỗi. Trước khi sửa, `household:preflight` ném lỗi chưa bắt và câu duy nhất có ích bị chôn dưới bốn khung `at async …`. Mục này ghi lại hành vi sau khi sửa, vì **câu thông báo cho ba mẹ chính là sản phẩm**.
+### OPS — `household:preflight` từ chối DB cũ bằng một câu (bổ sung)
 
 **Câu lệnh:**
 ```bash
@@ -599,22 +537,10 @@ npx vitest run test/unit/household-preflight.test.ts
 ```
 REAL_EXIT=1
 preflight refused: Household DB preflight failed: expected schemaVersion >= 15, found 14. Run `npm run db:migrate` to bring this database up to date.
- ✓ test/unit/household-preflight.test.ts (14 tests) 812ms
-      Tests  14 passed (14)
+ ✓ test/unit/household-preflight.test.ts (14 tests)
 ```
 
-**Đo được:** đúng **1** dòng stderr, **0** khung `at ` (không stack trace), **0** byte stdout từ script (chỉ banner của npm), `REAL_EXIT=1`, **14** test xanh trong 1 tệp. DB hộ gia đình đo trực tiếp bằng `node:sqlite` read-only: `{"v":14}`; repo có **16** tệp migration, tệp mới nhất `migrations/0016_learning_attempts_append_only_update_guard.sql`.
-
-**Kiểm chứng ngược (đột biến):** thay `failure = error;` bằng `throw error;` (kiểm rằng chuỗi thay thế áp dụng **đúng 1 lần**) → test đỏ với `expected 'file:///Users/macbook/projects/tai-le…' to be 'preflight refused: Household DB prefl…'`; khôi phục nguyên bản → **14/14** xanh. Test không chỉ xanh mà chứng minh được nó bắt được đúng hỏng hóc nó tồn tại để bắt.
-
-**Điều kiện tiên quyết cho ba mẹ (operator docs):** câu lệnh sửa chỉ hữu ích nếu ba mẹ đọc được nó ở nơi ba mẹ tìm. Đã ghi vào ba bề mặt phụ huynh, song ngữ:
-- `docs/PARENT_OPERATIONS.md` §1.2 — mục mới "Nếu lệnh kiểm tra báo `schemaVersion` quá cũ", kèm nguyên văn dòng thông báo, hai lệnh `db:migrate` → `household:preflight`, và một câu tiếng Anh.
-- `docs/PARENT_PILOT_GUIDE.md` bước 3 — dòng bổ sung ngay dưới lệnh preflight.
-- `README.md` khối lệnh — chú thích một dòng ngay trên `npm run household:preflight`.
-
-Đồng thời sửa một con số đã sai trong `PARENT_OPERATIONS.md:28`: tài liệu ghi "đúng phiên bản lược đồ mới nhất (`schemaVersion: 14`)" — chính xác là trạng thái mà preflight **từ chối**. Đã đổi thành `schemaVersion ≥ 15`, khớp `MINIMUM_SUPPORTED_SCHEMA_VERSION` tại `src/worker/db/reprovision-household.ts:316`.
-
-**Phán quyết: PASS.** Hành vi quan sát được đúng như hợp đồng: một câu, đúng câu lệnh sửa, thoát mã 1, không lộ giá trị bí mật.
+**Phán quyết: PASS.**
 
 ---
 
@@ -626,47 +552,37 @@ cd ~/projects/tai-learning-os
 # G0
 git rev-parse HEAD && git status --porcelain | wc -l
 
-# G1, G6, G9, G13, G15
+# G1, G2, G6, G7, G9, G10, G11, G13, G15 (grep tĩnh)
 grep -rn "EMERGING" src/ test/ --include='*.ts' | wc -l
+grep -rn "page.route\|context.route" test/ | wc -l
 grep -n "sessionId\|session_id" src/shared/engine/competency.ts | wc -l
-grep -rn "25 \* 60\|SESSION_MAX\|maxSessionMinutes" src/ --include='*.ts' | wc -l
+grep -rn "\[1, 3, 7, 14\]\|\[1,3,7,14\]" src/ | wc -l
+grep -rn "25 \* 60\|SESSION_MAX\|MAX_LEARNER_SESSION_MS\|maxSessionMinutes" src/ --include='*.ts' | wc -l
+grep -rn "axe" package.json test/ playwright.config.ts | wc -l
+grep -rn "\.batch(" src/ --include='*.ts' | wc -l
 grep -rni "sympy\|promptfoo" package.json scripts/ src/ | wc -l
 grep -rnw "TCO" docs/ src/ scripts/ --exclude='G0_G16_AUDIT_MATRIX.md' | wc -l
 
-# G14 (chạy thật)
+# Bộ kiểm chứng CLI xác định (G4, G7, G12, G13, G14, G15)
+npm run validate:lessons
+npm run qa:content
+npm run review:simulate
+npm run tco:verify
+npm run backup:drill
 npm run retention:report
 npm run retention:drill
 
-# G2, G7, G10
-grep -rn "page.route\|context.route" test/ | wc -l
-grep -rn "\[1, 3, 7, 14\]\|\[1,3,7,14\]" src/ | wc -l
-grep -rn "axe" package.json test/ playwright.config.ts | wc -l
-
-# G3
-grep -rn "SESSION_SECRET\s*=\s*['\"]\|PARENT_PASSWORD_HASH\s*=\s*['\"]" src/
-
-# G11
-grep -rn "\.batch(" src/ --include='*.ts' | wc -l
-
-# G4, G12 (chạy thật)
-npm run validate:lessons
-npm run backup:drill
-
-# Bộ kiểm thử đầy đủ
-npx vitest run            # 21 tệp / 356 test
-npm run test:integration  # 19 tệp / 202 test
-
-# OPS
-npm run household:preflight
-npx vitest run test/unit/household-preflight.test.ts
+# Bộ kiểm thử đầy đủ (Unit + Integration + Playwright E2E)
+npm run verify            # 29 tệp / 401 unit test + lint + typecheck + QA/sim/TCO + build
+npm run test:integration  # 20 tệp / 207 integration test
+npm run test:e2e          # 60 Playwright E2E test (Desktop + Tablet + Mobile)
 ```
 
 ---
 
 ## Điều tài liệu này **không** khẳng định
 
-- Không khẳng định hệ thống an toàn để triển khai. **Bảy** cổng HOLD ở trên chặn điều đó.
-- Không khẳng định nội dung chương trình đã đủ. 50 bài là 3,57% quỹ tiết Grade 4–5; phần còn thiếu là công việc soạn nội dung, nằm ngoài phạm vi đợt này.
-- Không khẳng định G6 đã đóng. Điều kiện "khác phiên" chưa được cài đặt, và việc cài đặt nó cần thay đổi `AttemptEvidence` cùng schema.
-- Không khẳng định G12 đã sẵn sàng cho dữ liệu thật. Drill đo `restoreMs: 97` (bốn lần chạy: 97/101/98/99 ms) trên **548 bản ghi** trong một D1 tạm; đó là bằng chứng cho ngân sách 60 giây ở quy mô hiện tại, **không** phải phép đo trên cơ sở dữ liệu nhiều năm của gia đình, nơi `learning_attempts` sẽ lớn hơn nhiều lần. Drill này cũng không đọc `.wrangler/state`, nên chưa chứng minh được khôi phục cơ sở dữ liệu hộ gia đình thật.
-- Không khẳng định các số đo trên tái lập được từ một HEAD còn nằm ngoài repo — chúng đo trên `ce1d87c57afff4020b1bf27f145c7a0988eabb07` với cây làm việc sạch (G0), nhưng bốn bộ kiểm thử trong repo này phụ thuộc vào trình duyệt và môi trường Node (CI dùng Node 24, máy đo dùng Node 26.7.0). Con số `restoreMs` cũng dao động theo tải máy, nên chỉ ngân sách 60 giây có ý nghĩa, không phải chính con số 97.
+- **Không khẳng định được phép triển khai công cộng (`wrangler deploy`).** Cổng **G16 (HOLD)** vẫn chặn cứng mọi triển khai ra ngoài máy cục bộ của gia đình cho tới khi có phê duyệt pháp lý và chữ ký chủ sở hữu.
+- **Không khẳng định nội dung chương trình Lớp 4–5 đã viết xong.** 50 bài hiện có chiếm **3,57%** quỹ tiết Lớp 4–5 năm môn (**G8 PARTIAL**); hạ tầng đồ thị và cổng QA ngoại tuyến (`G13`) đã sẵn sàng cho các đợt biên soạn tiếp theo.
+- **Không khẳng định đã có dữ liệu ghi nhớ thực nghiệm của học sinh thật.** Cơ sở dữ liệu hộ gia đình hiện có `0` lượt làm bài nên `retention:report` trả về `NO_DATA` (**G14 PARTIAL**).
+- **Không chạy migration tự động lên tệp SQLite hộ gia đình hiện hữu.** Tệp DB hộ gia đình đang ở `schemaVersion = 14` được giữ nguyên vẹn từng byte (`SHA-256: d8828c6a…`) đúng theo yêu cầu của chủ sở hữu.

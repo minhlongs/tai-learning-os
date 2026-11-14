@@ -30,6 +30,7 @@ export function StepProgress({
       <div
         className="step-progress__track"
         role="progressbar"
+        aria-label="Tiến độ các bước trong bài học"
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={completed}

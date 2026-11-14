@@ -6,6 +6,7 @@ import {
   resolveIsolatedE2eSqlitePath,
   setSessionContinuationDeadlineNearNow,
 } from "./e2e-db-helper";
+import { attachZeroOutboundGuard, type OutboundNetworkRecorder } from "./network-guard";
 
 /**
  * M4 Browser Verification Suite
@@ -43,6 +44,16 @@ async function signInAsParent(page: Page): Promise<string> {
 
 test.describe("M4 Browser Verification Flows", () => {
   test.describe.configure({ mode: "serial" });
+
+  let networkGuard: OutboundNetworkRecorder;
+
+  test.beforeEach(async ({ context }) => {
+    networkGuard = await attachZeroOutboundGuard(context);
+  });
+
+  test.afterEach(() => {
+    networkGuard.assertZeroOutbound();
+  });
 
   test("1. Learner switcher updates view context and isolates learner progress", async ({ page }) => {
     const csrf = await signInAsParent(page);

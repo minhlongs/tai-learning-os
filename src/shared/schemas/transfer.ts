@@ -12,6 +12,9 @@
  */
 
 import type { ApprovalStatus, CompetencyState, SessionStatus } from "./attempt";
+import { isScheduledReviewFirstTryIndependent } from "../engine/recompute-learner-state";
+import { scheduleReview } from "../engine/review";
+import type { AttemptEvidence } from "../engine/competency";
 import type { ExerciseSpec } from "./exercise";
 
 export const TRANSFER_FORMAT_VERSION = 1;
@@ -873,6 +876,7 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     }
   }
   const hintFloorByLearnerStep = new Map<string, number>();
+  const hintFloorByLearnerSessionStep = new Map<string, number>();
 
   for (const audit of data.auditEvents) {
     if (typeof audit.actor !== "string" || audit.actor.trim().length === 0) {
@@ -926,16 +930,100 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       const key = `${actorLearnerId}::${audit.subject}`;
       const prev = hintFloorByLearnerStep.get(key) ?? 0;
       if (level > prev) hintFloorByLearnerStep.set(key, level);
+      if (typeof detailObj.sessionId === "string" && detailObj.sessionId.length > 0) {
+        const sessionKey = `${actorLearnerId}::${detailObj.sessionId}::${audit.subject}`;
+        const prevSession = hintFloorByLearnerSessionStep.get(sessionKey) ?? 0;
+        if (level > prevSession) hintFloorByLearnerSessionStep.set(sessionKey, level);
+      }
     }
   }
 
   // Provenance cross-check: attempts must not violate first-attempt or hint-floor rules,
   // and skillEvidence must not claim higher independentCount or competency state than derived from attempts.
+  // Under Gate G6, a due scheduled review (`createdAt >= priorDueAt`) unlocks a single
+  // unassisted first-try attempt inside that review session as `observed` even when
+  // `attemptNo > 1` on the reused 1-to-1 lesson step.
   const attemptsByLearnerStep = new Map<string, LearningAttemptExport[]>();
   const observedCorrectByLearnerSkill = new Map<string, number>();
   const transferStepIds = new Set(
     data.lessonSteps.filter((s) => s.kind === "transfer").map((s) => s.id),
   );
+
+  const unlockedScheduledReviewAttemptIds = new Set<string>();
+  const dueReviewAttemptIds = new Set<string>();
+  const officialByLearnerSkill = new Map<string, LearningAttemptExport[]>();
+  for (const att of data.learningAttempts) {
+    if (!att.skillId || !exportedLearnerIds.has(att.learnerId)) continue;
+    const effPurpose =
+      att.purpose === "practice" ||
+      practiceLessonIds.has(att.lessonId) ||
+      practiceSessionIds.has(att.sessionId)
+        ? "practice"
+        : (att.purpose ?? "official");
+    if (effPurpose !== "official" || att.evidenceKind === "parent_correction") continue;
+    const skKey = `${att.learnerId}::${att.skillId}`;
+    const list = officialByLearnerSkill.get(skKey) ?? [];
+    list.push(att);
+    officialByLearnerSkill.set(skKey, list);
+  }
+
+  for (const [, rawSkillAttempts] of officialByLearnerSkill) {
+    const sorted = [...rawSkillAttempts].sort((a, b) => {
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return a.id.localeCompare(b.id);
+    });
+    const replayed: AttemptEvidence[] = [];
+    let priorDueAt: number | null = null;
+    const seenSessionSteps = new Map<string, number>();
+
+    for (const att of sorted) {
+      const sKey = `${att.sessionId}::${att.stepId}`;
+      const priorSameSessionStepAttempts = seenSessionSteps.get(sKey) ?? 0;
+      seenSessionSteps.set(sKey, priorSameSessionStepAttempts + 1);
+
+      const sessionFloor =
+        hintFloorByLearnerSessionStep.get(`${att.learnerId}::${att.sessionId}::${att.stepId}`) ?? 0;
+      const isReview = priorDueAt !== null && att.createdAt >= priorDueAt;
+      const reviewUnlock =
+        sessionFloor === 0 &&
+        isScheduledReviewFirstTryIndependent({
+          outcome: att.outcome,
+          helpLevel: att.helpLevel,
+          priorDueAt,
+          createdAt: att.createdAt,
+          priorSameSessionStepAttempts,
+          purpose: "official",
+        });
+
+      if (isReview) {
+        dueReviewAttemptIds.add(att.id);
+      }
+      if (reviewUnlock && att.evidenceKind === "observed") {
+        unlockedScheduledReviewAttemptIds.add(att.id);
+      }
+
+      const effectiveAttemptNo =
+        att.evidenceKind === "observed" && reviewUnlock ? 1 : (att.attemptNo ?? 1);
+
+      replayed.push({
+        attemptId: att.id,
+        sessionId: att.sessionId,
+        skillId: att.skillId ?? "",
+        outcome: att.outcome,
+        helpLevel: att.helpLevel,
+        evidenceKind: att.evidenceKind,
+        attemptNo: effectiveAttemptNo,
+        isTransfer: transferStepIds.has(att.stepId) && att.outcome === "correct",
+        isReview,
+        createdAt: att.createdAt,
+      });
+
+      const decision = scheduleReview(replayed, att.createdAt);
+      if (decision) {
+        priorDueAt = decision.dueAt;
+      }
+    }
+  }
 
   for (const attempt of data.learningAttempts) {
     if (!exportedLearnerIds.has(attempt.learnerId)) {
@@ -964,7 +1052,13 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
           `Lượt làm bài luyện tập (${attempt.id}) không được phép ghi nhận là bằng chứng độc lập (observed).`,
         );
       }
-      if (attemptNo > 1 || attempt.helpLevel > 0 || floor > 0) {
+      const isUnlockedReview = unlockedScheduledReviewAttemptIds.has(attempt.id);
+      const sessionFloor =
+        hintFloorByLearnerSessionStep.get(
+          `${attempt.learnerId}::${attempt.sessionId}::${attempt.stepId}`,
+        ) ?? 0;
+      const effectiveFloor = isUnlockedReview ? sessionFloor : floor;
+      if ((!isUnlockedReview && attemptNo > 1) || attempt.helpLevel > 0 || effectiveFloor > 0) {
         errors.push(
           `Lượt làm bài ${attempt.id} không thể được ghi nhận là độc lập (observed) khi đã dùng gợi ý hoặc làm lại.`,
         );
@@ -986,16 +1080,25 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
 
   for (const [, stepAttempts] of attemptsByLearnerStep) {
     const seenNos = new Set<number>();
-    let observedCount = 0;
+    const observedSessions = new Set<string>();
+    let nonReviewObservedCount = 0;
     for (const att of stepAttempts) {
       const no = att.attemptNo ?? 1;
       if (seenNos.has(no)) {
         errors.push(`Trùng số thứ tự lượt làm bài (attemptNo=${no}) trên bước ${att.stepId}.`);
       }
       seenNos.add(no);
-      if (att.evidenceKind === "observed") observedCount += 1;
+      if (att.evidenceKind === "observed") {
+        if (observedSessions.has(att.sessionId)) {
+          errors.push("Một bước học không thể có nhiều hơn một lượt làm bài độc lập (observed).");
+        }
+        observedSessions.add(att.sessionId);
+        if (!unlockedScheduledReviewAttemptIds.has(att.id)) {
+          nonReviewObservedCount += 1;
+        }
+      }
     }
-    if (observedCount > 1) {
+    if (nonReviewObservedCount > 1) {
       errors.push("Một bước học không thể có nhiều hơn một lượt làm bài độc lập (observed).");
     }
   }
@@ -1100,10 +1203,23 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
           `Bằng chứng kỹ năng ${row.skillId} khai báo trạng thái ${row.state} nhưng không có lượt làm đúng độc lập (observed).`,
         );
       }
-      if ((row.state === "TRANSFERRED" || row.state === "RETAINED") && !anyObservedTransfer) {
+      if (row.state === "TRANSFERRED" && !anyObservedTransfer) {
         errors.push(
           `Bằng chứng kỹ năng ${row.skillId} khai báo trạng thái ${row.state} nhưng không có lượt làm đúng độc lập ở bước vận dụng (transfer).`,
         );
+      }
+      if (row.state === "RETAINED") {
+        const hasDueReviewObserved = skillAttempts.some(
+          (a) =>
+            a.outcome === "correct" &&
+            a.evidenceKind === "observed" &&
+            (unlockedScheduledReviewAttemptIds.has(a.id) || dueReviewAttemptIds.has(a.id)),
+        );
+        if (!hasDueReviewObserved && !anyObservedTransfer) {
+          errors.push(
+            `Bằng chứng kỹ năng ${row.skillId} khai báo trạng thái RETAINED nhưng không có lượt ôn tập định kỳ làm đúng độc lập.`,
+          );
+        }
       }
     }
   }

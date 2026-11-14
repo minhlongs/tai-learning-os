@@ -126,3 +126,20 @@ export function setSessionContinuationDeadlineNearNow(
   }
   return readSessionSnapshotFromIsolatedDb(sessionId);
 }
+
+export function backdateSessionStartInIsolatedDb(
+  sessionId: string,
+  elapsedMs: number,
+): void {
+  const sqlitePath = resolveIsolatedE2eSqlitePath();
+  const db = new DatabaseSync(sqlitePath);
+  try {
+    db.prepare(
+      `UPDATE learning_sessions
+          SET started_at = ${SQL_UTC_NOW_MS_EXPR} - ?
+        WHERE id = ?`,
+    ).run(elapsedMs, sessionId);
+  } finally {
+    db.close();
+  }
+}

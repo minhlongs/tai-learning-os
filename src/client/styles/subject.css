@@ -59,7 +59,7 @@
   flex-direction: column;
   gap: var(--tlo-space-2);
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   padding: var(--tlo-space-4);
   text-align: start;
   background: var(--tlo-surface);

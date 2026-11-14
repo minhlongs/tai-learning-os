@@ -11,6 +11,7 @@
  */
 
 import type { EvidenceKind, SubmissionOutcome } from "../../shared/schemas/attempt";
+import { replaySkillAttemptEvidence } from "../../shared/engine/recompute-learner-state";
 import type { RetentionAttempt } from "../../shared/engine/retention";
 
 /** The single learner this local install records for, or `null` when none is enrolled. */
@@ -28,6 +29,8 @@ export async function selectHouseholdLearnerId(db: D1Database): Promise<string |
 
 type AttemptRow = {
   id: string;
+  session_id: string;
+  step_id: string;
   skill_id: string | null;
   outcome: string;
   help_level: number;
@@ -47,6 +50,11 @@ type AttemptRow = {
  * `purpose` is read from the attempt row, not from the session: migration 0012
  * added the column to both, and the attempt's own value is the one the write
  * path sets at insert time.
+ *
+ * Chronological `dueAt` boundaries are replayed per skill via `replaySkillAttemptEvidence`
+ * so due scheduled-review first-try `observed` solves on 1-to-1 skill lessons
+ * (where `learning_attempts.attempt_no >= 2` on the reused step) normalize to
+ * `attemptNo: 1`, matching `deriveCompetency` and `recomputeLearnerState`.
  */
 export async function selectRetentionAttempts(
   db: D1Database,
@@ -54,7 +62,7 @@ export async function selectRetentionAttempts(
 ): Promise<RetentionAttempt[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, skill_id, outcome, help_level, evidence_kind, attempt_no, purpose, created_at
+      `SELECT id, session_id, step_id, skill_id, outcome, help_level, evidence_kind, attempt_no, purpose, created_at
          FROM learning_attempts
         WHERE learner_id = ?1
           AND purpose = 'official'
@@ -65,13 +73,48 @@ export async function selectRetentionAttempts(
     .bind(learnerId)
     .all<AttemptRow>();
 
-  return (results ?? []).map((row) => ({
+  const rows = results ?? [];
+  const bySkill = new Map<string, AttemptRow[]>();
+  for (const row of rows) {
+    if (!row.skill_id) continue;
+    const bucket = bySkill.get(row.skill_id) ?? [];
+    bucket.push(row);
+    bySkill.set(row.skill_id, bucket);
+  }
+
+  const normalizedAttemptNoById = new Map<string, number>();
+  const emptyTransferSet = new Set<string>();
+  for (const [skillId, skillRows] of bySkill) {
+    const replayed = replaySkillAttemptEvidence({
+      skillId,
+      attempts: skillRows.map((r) => ({
+        id: r.id,
+        sessionId: r.session_id,
+        stepId: r.step_id,
+        skillId: r.skill_id,
+        outcome: r.outcome as SubmissionOutcome,
+        helpLevel: r.help_level,
+        evidenceKind: r.evidence_kind as EvidenceKind,
+        attemptNo: r.attempt_no,
+        purpose: r.purpose === "practice" ? "practice" : "official",
+        createdAt: r.created_at,
+      })),
+      transferStepIds: emptyTransferSet,
+    });
+    for (const ev of replayed) {
+      if (ev.attemptId && typeof ev.attemptNo === "number") {
+        normalizedAttemptNoById.set(ev.attemptId, ev.attemptNo);
+      }
+    }
+  }
+
+  return rows.map((row) => ({
     attemptId: row.id,
     skillId: row.skill_id,
     outcome: row.outcome as SubmissionOutcome,
     helpLevel: row.help_level,
     evidenceKind: row.evidence_kind as EvidenceKind,
-    attemptNo: row.attempt_no,
+    attemptNo: normalizedAttemptNoById.get(row.id) ?? row.attempt_no,
     purpose: row.purpose === "practice" ? "practice" : "official",
     createdAt: row.created_at,
   }));

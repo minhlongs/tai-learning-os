@@ -7,13 +7,18 @@
  *
  * The states form a ladder:
  *   NOT_OBSERVED  no attempt recorded for the skill
- *   SUPPORTED     reached the answer with hints (level 1+) or after multiple tries
+ *   SUPPORTED     reached the answer with hints (level 1+), after multiple tries,
+ *                 or solved unaided within a single session awaiting confirmation
+ *                 in a second session
  *   INDEPENDENT   solved unaided on the first attempt (help_level === 0, attemptNo === 1)
+ *                 at least INDEPENDENT_MIN_CORRECT times across at least
+ *                 INDEPENDENT_MIN_DISTINCT_SESSIONS distinct sessions (Gate G6)
  *   RETAINED      solved independently again after a scheduled review
  *   TRANSFERRED   solved a transfer question independently
  *
- * A single lucky guess must not establish mastery, so INDEPENDENT requires at
- * least INDEPENDENT_MIN_CORRECT correct unassisted attempts.
+ * Neither a single lucky guess nor two solves inside the same short-term working-memory
+ * session may establish INDEPENDENT mastery: the learner must demonstrate independent
+ * retrieval across at least two distinct study sessions.
  */
 
 import type { CompetencyState, SubmissionOutcome, EvidenceKind } from "../schemas/attempt";
@@ -22,6 +27,8 @@ import type { CompetencyState, SubmissionOutcome, EvidenceKind } from "../schema
 export const COMPETENCY_CONFIG = {
   /** Correct attempts with help_level <= SMALL_HINT needed for INDEPENDENT. */
   independentMinCorrect: 2,
+  /** Distinct learning sessions carrying an independent solve required for INDEPENDENT (Gate G6). */
+  independentMinDistinctSessions: 2,
   /** Only completely unassisted attempts (help_level === 0) count as independent. */
   smallHint: 0,
   /** An independent solve after a *scheduled* review earns RETAINED. */
@@ -30,6 +37,15 @@ export const COMPETENCY_CONFIG = {
 
 export type AttemptEvidence = {
   attemptId: string;
+  /**
+   * The study session (`learning_attempts.session_id`) in which this attempt was
+   * made. Required for cross-session INDEPENDENT verification (Gate G6): two
+   * solves carrying the same `sessionId` count as 2 independent attempts in 1
+   * session (`SUPPORTED`), never `INDEPENDENT`. When omitted in legacy unit
+   * fixtures, falls back to `attempt:${attemptId}` so legacy single-attempt
+   * helpers stay explicit while any real session groups its attempts by `sessionId`.
+   */
+  sessionId?: string;
   skillId: string;
   outcome: SubmissionOutcome;
   helpLevel: number;
@@ -52,11 +68,19 @@ export type CompetencyDerivation = {
   state: CompetencyState;
   correctCount: number;
   independentCount: number;
+  /** Number of distinct sessions containing at least one independent solve. */
+  independentSessionCount: number;
   assistedCount: number;
   lastIndependentAt: number | null;
   /** Human-readable reason, shown in the parent dashboard. */
   reason_vi: string;
 };
+
+/** Resolve the session key used to count distinct sessions for Gate G6. */
+export function sessionKeyForAttempt(evidence: AttemptEvidence): string {
+  const trimmed = evidence.sessionId?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : `attempt:${evidence.attemptId}`;
+}
 
 /** A helper: is this attempt strictly unassisted on the first try? */
 export function isIndependentAttempt(evidence: AttemptEvidence): boolean {
@@ -98,6 +122,7 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
 
   const correctCount = correct.length;
   const independentCount = independent.length;
+  const independentSessionCount = new Set(independent.map(sessionKeyForAttempt)).size;
   const assistedCount = assisted.length;
 
   const lastIndependentIndependent = independent.length > 0
@@ -107,6 +132,7 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
   const base = {
     correctCount,
     independentCount,
+    independentSessionCount,
     assistedCount,
     lastIndependentAt: lastIndependentIndependent,
   };
@@ -119,17 +145,25 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
     };
   }
 
+  const meetsIndependentThreshold =
+    independentCount >= COMPETENCY_CONFIG.independentMinCorrect &&
+    independentSessionCount >= COMPETENCY_CONFIG.independentMinDistinctSessions;
+
+  const heldBackBySameSession =
+    independentCount >= COMPETENCY_CONFIG.independentMinCorrect &&
+    independentSessionCount < COMPETENCY_CONFIG.independentMinDistinctSessions;
+
   let rawState: CompetencyState = "NOT_OBSERVED";
   let rawReasonVi =
     learnerAttempts.length === 0
       ? "Chưa có bài tập nào được ghi nhận cho kỹ năng này."
       : independentCount > 0
-        ? `Em đã tự làm đúng ${independentCount} lần. Cần thêm ${COMPETENCY_CONFIG.independentMinCorrect - independentCount} lần nữa để ba mẹ thấy em đã nắm chắc.`
+        ? `Em đã tự làm đúng ${independentCount} lần. Cần thêm ${Math.max(1, COMPETENCY_CONFIG.independentMinCorrect - independentCount)} lần nữa để ba mẹ thấy em đã nắm chắc.`
         : "Em đã thử nhưng chưa làm đúng lần nào một cách độc lập.";
 
   // TRANSFERRED: an independent correct answer to a transfer question, after the
-  // skill has already been demonstrated independently at least once, and with no
-  // failed scheduled review after the latest independent transfer/review solve.
+  // skill has met the cross-session INDEPENDENT threshold, and with no failed
+  // scheduled review after the latest independent transfer/review solve.
   const transferIndependentWins = learnerAttempts.filter((a) => a.isTransfer && isIndependentAttempt(a));
   const lastTransferWinAt = transferIndependentWins.reduce(
     (max, a) => (a.createdAt > max ? a.createdAt : max),
@@ -147,12 +181,12 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
   const transferSolved =
     transferIndependentWins.length > 0 &&
     !hasLaterFailedReview &&
-    independentCount >= COMPETENCY_CONFIG.independentMinCorrect;
+    meetsIndependentThreshold;
 
   const reviewSolved =
     reviewIndependentWins.length > 0 &&
     !hasLaterFailedReview &&
-    independentCount >= COMPETENCY_CONFIG.independentMinCorrect;
+    meetsIndependentThreshold;
 
   if (transferSolved) {
     rawState = "TRANSFERRED";
@@ -160,14 +194,17 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
   } else if (reviewSolved) {
     rawState = "RETAINED";
     rawReasonVi = "Em vẫn nhớ kỹ năng này sau thời gian chờ ôn tập.";
-  } else if (independentCount >= COMPETENCY_CONFIG.independentMinCorrect) {
+  } else if (meetsIndependentThreshold) {
     rawState = "INDEPENDENT";
-    rawReasonVi = `Em tự làm đúng ${independentCount} lần (cần tối thiểu ${COMPETENCY_CONFIG.independentMinCorrect}).`;
+    rawReasonVi = `Em tự làm đúng ${independentCount} lần qua ${independentSessionCount} phiên học độc lập.`;
+  } else if (heldBackBySameSession) {
+    rawState = "SUPPORTED";
+    rawReasonVi = `Em đã tự làm đúng ${independentCount} lần trong cùng 1 phiên học. Cần xác nhận lại ở ít nhất 1 phiên học khác để công nhận tự làm chủ.`;
   } else if (assistedCount > 0) {
     rawState = "SUPPORTED";
     rawReasonVi =
       independentCount > 0
-        ? `Em đã tự làm đúng ${independentCount} lần và làm đúng có hỗ trợ ${assistedCount} lần. Cần thêm ${COMPETENCY_CONFIG.independentMinCorrect - independentCount} lần tự làm đúng nữa để ba mẹ thấy em đã nắm chắc.`
+        ? `Em đã tự làm đúng ${independentCount} lần và làm đúng có hỗ trợ ${assistedCount} lần. Cần thêm ${Math.max(1, COMPETENCY_CONFIG.independentMinCorrect - independentCount)} lần tự làm đúng nữa để ba mẹ thấy em đã nắm chắc.`
         : `Em làm đúng có hỗ trợ ${assistedCount} lần. Cần thêm bài tự luyện.`;
   }
 

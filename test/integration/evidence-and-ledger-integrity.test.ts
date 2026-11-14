@@ -611,7 +611,22 @@ describe("concurrent first-attempt uniqueness and conflict-retry derivation", ()
 
   it("prevents stale mastery overwrite when two concurrent submissions on different steps of the same skill interleave between read and batch commit", async () => {
     const lessonId = await approveFirstLesson();
-    const session = await startApprovedSession(lessonId);
+    const sessionA = await startApprovedSession(lessonId);
+    // Finalize sessionA or open a second session for Request B so the two concurrent
+    // attempts belong to two distinct in_progress sessions on the same skill (or test
+    // cross-session promotion directly). Only one in_progress session per learner is
+    // allowed by startSession, so we create a second valid in_progress session row for
+    // the concurrency harness so Request A and Request B span two distinct sessions.
+    const sessionBId = crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO learning_sessions
+         (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, status, steps_seen, purpose)
+       SELECT ?1, learner_id, lesson_id, lesson_version, school_year_id, started_at, 'in_progress', 0, purpose
+       FROM learning_sessions WHERE id = ?2`,
+    )
+      .bind(sessionBId, sessionA.sessionId)
+      .run();
+
     const stepContexts = await loadStepContexts(env.DB, lessonId);
     const step0 = stepContexts[0]!;
     const step3 = stepContexts[3]!;
@@ -623,16 +638,16 @@ describe("concurrent first-attempt uniqueness and conflict-retry derivation", ()
     const realListAttempts = repo.listAttemptsForLearner;
     let injectedConcurrentStep = false;
 
-    // Request A (on step0) reads 0 attempts for the skill; before Request A's batch commits,
-    // Request B (on step3, same skill) commits its independent attempt and derives DEVELOPING (1 independent).
+    // Request A (on step0 in sessionA) reads 0 attempts for the skill; before Request A's batch commits,
+    // Request B (on step3 in sessionB, same skill) commits its independent attempt (1 independent).
     // Request A's batch must detect that the skill attempt count changed, abort, re-read both attempts,
-    // and commit INDEPENDENT (2 independent) instead of overwriting skill_evidence with stale DEVELOPING (1 independent).
+    // and commit INDEPENDENT (2 independent across 2 distinct sessions) instead of overwriting skill_evidence with a stale state.
     vi.spyOn(repo, "listAttemptsForLearner").mockImplementation(async (db, lId) => {
       const rows = await realListAttempts(db, lId);
       if (!injectedConcurrentStep) {
         injectedConcurrentStep = true;
         await recordAttemptWithDerivation(db, {
-          sessionId: session.sessionId,
+          sessionId: sessionBId,
           learnerId: lId,
           lessonId,
           step: step3,
@@ -645,7 +660,7 @@ describe("concurrent first-attempt uniqueness and conflict-retry derivation", ()
     });
 
     const resultA = await recordAttemptWithDerivation(env.DB, {
-      sessionId: session.sessionId,
+      sessionId: sessionA.sessionId,
       learnerId,
       lessonId,
       step: step0,
@@ -786,13 +801,43 @@ describe("concurrent first-attempt uniqueness and conflict-retry derivation", ()
     expect(((await res0.json()) as SubmitAttemptResponse).attemptNo).toBe(1);
     expect(((await res3.json()) as SubmitAttemptResponse).attemptNo).toBe(1);
 
-    // Two distinct independent steps on the same skill promote competency to INDEPENDENT
+    // Gate G6: two distinct independent steps solved inside the SAME session stay SUPPORTED
+    // until confirmed in a second distinct session.
+    const sameSessionEvidence = await env.DB.prepare(
+      "SELECT state, independent_count, assisted_count FROM skill_evidence WHERE learner_id = ?1",
+    )
+      .bind(learnerId)
+      .first<{ state: string; independent_count: number; assisted_count: number }>();
+    expect(sameSessionEvidence?.independent_count).toBe(2);
+    expect(sameSessionEvidence?.assisted_count).toBe(0);
+    expect(sameSessionEvidence?.state).toBe("SUPPORTED");
+
+    // Finalize session 1 and solve another distinct step in session 2 -> promotes to INDEPENDENT
+    await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: session.sessionId },
+    });
+    const session2 = await startApprovedSession(lessonId);
+    expect(session2.sessionId).not.toBe(session.sessionId);
+    const step1 = session2.steps[1]!;
+    const choice1 = await answerKeyFor(step1.id);
+    const res1 = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: session2.sessionId,
+        stepId: step1.id,
+        submission: { kind: "choice", choiceId: choice1 },
+        helpLevel: 0,
+      },
+    });
+    expect(res1.status).toBe(200);
+
     const evidence = await env.DB.prepare(
       "SELECT state, independent_count, assisted_count FROM skill_evidence WHERE learner_id = ?1",
     )
       .bind(learnerId)
       .first<{ state: string; independent_count: number; assisted_count: number }>();
-    expect(evidence?.independent_count).toBe(2);
+    expect(evidence?.independent_count).toBe(3);
     expect(evidence?.assisted_count).toBe(0);
     expect(evidence?.state).toBe("INDEPENDENT");
   });

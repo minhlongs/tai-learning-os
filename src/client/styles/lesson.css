@@ -146,9 +146,9 @@ legend {
 /* A real radio/checkbox, sizeable and visibly labelled. */
 .choice {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--tlo-space-3);
-  min-height: 44px;
+  min-height: 48px;
   padding: var(--tlo-space-3);
   background: var(--tlo-surface);
   border: 1px solid var(--tlo-border);
@@ -445,12 +445,47 @@ legend {
 /* A submission the server refused. Same treatment as the incorrect feedback, so
    it reads as something to try again rather than as a broken page. */
 .lesson-error {
-  color: var(--tlo-incorrect-border);
+  color: var(--tlo-incorrect);
   font-size: var(--tlo-text-sm);
+  font-weight: 600;
   padding: var(--tlo-space-3);
   border: 1px solid var(--tlo-incorrect-border);
   border-radius: var(--tlo-radius);
   background: var(--tlo-incorrect-soft);
+}
+
+/* --- Gate G9: 25-minute Soft Stop rest card ------------------------------- */
+
+.lesson-rest-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tlo-space-3);
+  padding: var(--tlo-space-4);
+  background: var(--tlo-primary-soft);
+  border: 2px solid var(--tlo-primary-border);
+  border-radius: var(--tlo-radius-lg);
+}
+
+.lesson-rest-banner__title {
+  font-size: var(--tlo-text-lg);
+  font-weight: 800;
+  color: var(--tlo-primary-strong);
+}
+
+.lesson-rest-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-3);
+  align-items: center;
+}
+
+.lesson-extend-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tlo-space-2);
+  align-items: flex-end;
+  padding-top: var(--tlo-space-2);
+  border-top: 1px solid var(--tlo-primary-border);
 }
 
 /* --- Wider screens -------------------------------------------------------- */

@@ -27,24 +27,23 @@ export function LessonList({
 }): React.JSX.Element {
   return (
     <ul className="lesson-grid">
-      {lessons.map((lesson) => (
-        <li key={lesson.id}>
-          <button
-            type="button"
-            className="lesson-tile"
-            onClick={() => onPick(lesson.id)}
-            aria-label={`Mở bài học: ${lesson.titleVi}`}
-          >
-            <h3 className="lesson-tile__title">{lesson.titleVi}</h3>
-            <p className="lesson-tile__objective">{lesson.objectiveVi}</p>
-            <p className="lesson-tile__meta">
-              Lớp {lesson.gradeFrom}
-              {lesson.gradeTo > lesson.gradeFrom ? `–${lesson.gradeTo}` : ""}
-              {lesson.purpose === "practice" ? " · Luyện tập gia đình" : ""}
-            </p>
-          </button>
-        </li>
-      ))}
+      {lessons.map((lesson) => {
+        const gradeLabel = `Lớp ${lesson.gradeFrom}${lesson.gradeTo > lesson.gradeFrom ? `–${lesson.gradeTo}` : ""}${lesson.purpose === "practice" ? " · Luyện tập gia đình" : ""}`;
+        return (
+          <li key={lesson.id}>
+            <button
+              type="button"
+              className="lesson-tile"
+              onClick={() => onPick(lesson.id)}
+            >
+              <span className="sr-only">Mở bài học: </span>
+              <h3 className="lesson-tile__title">{lesson.titleVi}</h3>
+              <p className="lesson-tile__objective">{lesson.objectiveVi}</p>
+              <p className="lesson-tile__meta">{gradeLabel}</p>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }

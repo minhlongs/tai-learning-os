@@ -391,6 +391,7 @@ describe("privilege boundary — child mode (mode: 'learner') vs parent mode (mo
         json: { itemId: "any", status: "completed" },
       }),
       await call("/api/data/export", { method: "POST", json: {} }),
+      await call("/api/data/export-portability", { method: "POST", json: {} }),
       await call("/api/data/import", { method: "POST", json: {} }),
       await call("/api/data/learner", {
         method: "DELETE",
