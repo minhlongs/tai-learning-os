@@ -120,7 +120,12 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
   }
 
   let rawState: CompetencyState = "NOT_OBSERVED";
-  let rawReasonVi = `Em đã thử ${correctCount === 0 ? "nhưng chưa" : ""} làm đúng lần nào một cách độc lập.`;
+  let rawReasonVi =
+    learnerAttempts.length === 0
+      ? "Chưa có bài tập nào được ghi nhận cho kỹ năng này."
+      : independentCount > 0
+        ? `Em đã tự làm đúng ${independentCount} lần. Cần thêm ${COMPETENCY_CONFIG.independentMinCorrect - independentCount} lần nữa để ba mẹ thấy em đã nắm chắc.`
+        : "Em đã thử nhưng chưa làm đúng lần nào một cách độc lập.";
 
   // TRANSFERRED: an independent correct answer to a transfer question, after the
   // skill has already been demonstrated independently at least once, and with no
@@ -160,7 +165,10 @@ export function deriveCompetency(attempts: readonly AttemptEvidence[]): Competen
     rawReasonVi = `Em tự làm đúng ${independentCount} lần (cần tối thiểu ${COMPETENCY_CONFIG.independentMinCorrect}).`;
   } else if (assistedCount > 0) {
     rawState = "SUPPORTED";
-    rawReasonVi = `Em làm đúng khi được gợi ý ${assistedCount} lần. Cần thêm bài tự luyện.`;
+    rawReasonVi =
+      independentCount > 0
+        ? `Em đã tự làm đúng ${independentCount} lần và làm đúng có hỗ trợ ${assistedCount} lần. Cần thêm ${COMPETENCY_CONFIG.independentMinCorrect - independentCount} lần tự làm đúng nữa để ba mẹ thấy em đã nắm chắc.`
+        : `Em làm đúng có hỗ trợ ${assistedCount} lần. Cần thêm bài tự luyện.`;
   }
 
   // Fold the latest parent correction with a specified floor state: derived state

@@ -10,7 +10,7 @@
 
 ### Bối cảnh
 
-Mỗi lượt nộp bài của Tài phải ghi **ba bảng cùng lúc**:
+Mỗi lượt nộp bài của người học phải ghi **ba bảng cùng lúc**:
 
 | Bảng | Vai trò |
 |---|---|

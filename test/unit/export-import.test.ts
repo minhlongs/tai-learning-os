@@ -42,7 +42,7 @@ function validLearner(): LearnerExport {
   // no field for a full date of birth, legal name, address or photo.
   return {
     id: "lnr-0001",
-    nickname: "Tài",
+    nickname: "Bé Mẫu",
     birthYear: 2017,
     grade: 3,
     timezone: "Asia/Ho_Chi_Minh",

@@ -115,7 +115,7 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
     const learnerId = crypto.randomUUID();
     await db.prepare(
       `INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at)
-       VALUES (?1, ?2, 'Bé Nam', 2016, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)`,
+       VALUES (?1, ?2, 'Bé Nam', 2017, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)`,
     ).bind(learnerId, parentId, now).run();
 
     // 3. Create an organization and members
@@ -238,7 +238,7 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
     // 1. Parent creates learner profile
     const createLearnerRes = await callWithJar(parentJar, "/api/parent/learners", {
       method: "POST",
-      json: { nickname: "Bé An", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+      json: { nickname: "Bé An", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
     });
     expect(createLearnerRes.status).toBe(200);
     const { learner } = (await createLearnerRes.json()) as { learner: { id: string } };
@@ -425,7 +425,7 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
     // 5. GET /api/org/consented-learners: Teacher is forbidden (403); Owner/Admin see only consented learners
     const createLearnerRes = await callWithJar(parentJar, "/api/parent/learners", {
       method: "POST",
-      json: { nickname: "Bé Bình", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+      json: { nickname: "Bé Bình", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
     });
     const { learner } = (await createLearnerRes.json()) as { learner: { id: string } };
 
@@ -564,7 +564,7 @@ describe("M1: Organization & Consent Grant Boundaries", () => {
 
     await env.DB.prepare(
       `INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at)
-       VALUES (?1, ?2, 'Bé Minh', 2016, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)`,
+       VALUES (?1, ?2, 'Bé Minh', 2017, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)`,
     ).bind(learnerId, parentId, now).run();
 
     const ownerJar = await createAuthenticatedJar(ownerId, "Chủ trung tâm");

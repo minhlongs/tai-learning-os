@@ -10,7 +10,7 @@
 
 Hệ thống đánh giá đầu vào không đưa ra điểm số phán xét hay xếp loại vô căn cứ. Thay vào đó, mỗi bản đánh giá đầu vào (`baseline_assessments`) phân tách bạch rõ 4 khía cạnh:
 1. **Những gì đã quan sát được (`observedSummaryVi`):** Mô tả chính xác số bước, số câu trả lời độc lập và số lần dùng gợi ý thực tế.
-2. **Các kỹ năng có bằng chứng vững chắc (`supportedSkillIds`):** Các kỹ năng mà bé Tài đã giải quyết độc lập ngay lần đầu.
+2. **Các kỹ năng có bằng chứng vững chắc (`supportedSkillIds`):** Các kỹ năng mà người học đã giải quyết độc lập ngay lần đầu.
 3. **Các kỹ năng cần quan sát thêm (`needsObservationSkillIds`):** Các kỹ năng chưa có lượt làm bài hoặc mới chỉ dừng ở mức có gợi ý hỗ trợ.
 4. **Bài học đề xuất bắt đầu (`suggestedLessonIds`):** Danh sách bài học cụ thể phù hợp nhất để lấp lỗ hổng kiến thức.
 

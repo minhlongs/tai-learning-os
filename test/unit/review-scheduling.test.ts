@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   DAY_MS,
   REVIEW_CONFIG,
+  deriveStoredScheduleReasonVi,
   needsParentAttention,
+  replaySkillReviewDecision,
   scheduleReview,
   selectDueForReview,
   vnCalendarDate,
 } from "../../src/shared/engine/review";
+import type { RawSkillAttempt } from "../../src/shared/engine/review";
 import type { AttemptEvidence } from "../../src/shared/engine/competency";
 import type { SubmissionOutcome } from "../../src/shared/schemas/attempt";
 
@@ -272,3 +275,169 @@ describe("DAY_MS", () => {
     expect(DAY_MS).toBe(86_400_000);
   });
 });
+
+describe("replaySkillReviewDecision and deriveStoredScheduleReasonVi", () => {
+  it("distinguishes normal FSRS, failure-preceded FSRS, assisted retry, and failed-review retry reasons", () => {
+    const cleanSolve: RawSkillAttempt[] = [
+      {
+        attemptId: "r-1",
+        skillId: SKILL,
+        outcome: "correct",
+        helpLevel: 0,
+        evidenceKind: "observed",
+        attemptNo: 1,
+        isTransfer: false,
+        createdAt: NOW,
+      },
+    ];
+    const normalDecision = replaySkillReviewDecision(cleanSolve)!;
+    expect(normalDecision.intervalDays).toBe(3);
+    expect(normalDecision.reasonVi).toBe("Em làm độc lập được; FSRS tính chu kỳ 3 ngày.");
+
+    const struggledSolve: RawSkillAttempt[] = [
+      {
+        attemptId: "r-f1",
+        skillId: SKILL,
+        outcome: "incorrect",
+        helpLevel: 0,
+        evidenceKind: "assisted",
+        attemptNo: 1,
+        isTransfer: false,
+        createdAt: NOW,
+      },
+      {
+        attemptId: "r-f2",
+        skillId: SKILL,
+        outcome: "incorrect",
+        helpLevel: 0,
+        evidenceKind: "assisted",
+        attemptNo: 2,
+        isTransfer: false,
+        createdAt: NOW + 60_000,
+      },
+      {
+        attemptId: "r-s1",
+        skillId: SKILL,
+        outcome: "correct",
+        helpLevel: 0,
+        evidenceKind: "observed",
+        attemptNo: 1,
+        isTransfer: false,
+        createdAt: NOW + 120_000,
+      },
+    ];
+    const struggledDecision = replaySkillReviewDecision(struggledSolve)!;
+    expect(struggledDecision.reasonVi).toBe(
+      `Em đã vượt qua sau 2 lần chưa đạt; FSRS tính chu kỳ ${struggledDecision.intervalDays} ngày.`,
+    );
+    expect(struggledDecision.reasonVi).not.toBe(normalDecision.reasonVi);
+
+    const assistedSolve: RawSkillAttempt[] = [
+      {
+        attemptId: "r-a1",
+        skillId: SKILL,
+        outcome: "correct",
+        helpLevel: 2,
+        evidenceKind: "assisted",
+        attemptNo: 1,
+        isTransfer: false,
+        createdAt: NOW,
+      },
+    ];
+    const assistedDecision = replaySkillReviewDecision(assistedSolve)!;
+    expect(assistedDecision.intervalDays).toBe(1);
+    expect(assistedDecision.reasonVi).toBe(
+      "Em cần ôn lại sớm vì lần làm gần nhất chưa tự làm được.",
+    );
+
+    // Failed scheduled review after the prior due date passed (NOW + 3 days)
+    const failedScheduledReview: RawSkillAttempt[] = [
+      ...cleanSolve,
+      {
+        attemptId: "r-lapsed",
+        skillId: SKILL,
+        outcome: "incorrect",
+        helpLevel: 0,
+        evidenceKind: "assisted",
+        attemptNo: 1,
+        isTransfer: false,
+        createdAt: NOW + 3 * DAY_MS + 1_000,
+      },
+    ];
+    const failedReviewDecision = replaySkillReviewDecision(failedScheduledReview)!;
+    expect(failedReviewDecision.intervalDays).toBe(1);
+    expect(failedReviewDecision.reasonVi).toBe(
+      "Em chưa nhớ kỹ năng ở lần ôn tập gần nhất, cần ôn lại sau 1 ngày.",
+    );
+    expect(failedReviewDecision.reasonVi).not.toBe(normalDecision.reasonVi);
+    expect(failedReviewDecision.reasonVi).not.toBe(assistedDecision.reasonVi);
+
+    expect(
+      deriveStoredScheduleReasonVi(failedScheduledReview, {
+        intervalDays: failedReviewDecision.intervalDays,
+        lastResult: "failed",
+        failureStreak: failedReviewDecision.failureStreak,
+      }),
+    ).toBe(failedReviewDecision.reasonVi);
+  });
+
+  it("falls back to engine-consistent wording when a stored schedule row has no matching attempt history", () => {
+    expect(
+      deriveStoredScheduleReasonVi([], {
+        intervalDays: 1,
+        lastResult: "failed",
+        failureStreak: 1,
+      }),
+    ).toBe("Em chưa nhớ kỹ năng ở lần ôn tập gần nhất, cần ôn lại sau 1 ngày.");
+
+    expect(
+      deriveStoredScheduleReasonVi([], {
+        intervalDays: 1,
+        lastResult: "passed",
+        failureStreak: 1,
+      }),
+    ).toBe("Em cần ôn lại sớm vì lần làm gần nhất chưa tự làm được.");
+
+    expect(
+      deriveStoredScheduleReasonVi([], {
+        intervalDays: 6,
+        lastResult: "passed",
+        failureStreak: 0,
+      }),
+    ).toBe("Em làm độc lập được; FSRS tính chu kỳ 6 ngày.");
+
+    // Trailing non-review miss in a multi-step session (intervalDays = 3, failureStreak = 0, lastResult = "failed")
+    // must NOT be misclassified as a failed scheduled review.
+    expect(
+      deriveStoredScheduleReasonVi([], {
+        intervalDays: 3,
+        lastResult: "failed",
+        failureStreak: 0,
+      }),
+    ).toBe("Em làm độc lập được; FSRS tính chu kỳ 3 ngày.");
+
+    // Imported schedule where intervalDays === 1 collides with an assisted-solve replay,
+    // but stored dueAt/lastResult reflect a failed scheduled review on a different timeline.
+    const assistedHistory: RawSkillAttempt[] = [
+      {
+        attemptId: "a-imported-assist",
+        skillId: SKILL,
+        outcome: "correct",
+        helpLevel: 2,
+        evidenceKind: "assisted",
+        attemptNo: 1,
+        isTransfer: false,
+        createdAt: NOW,
+      },
+    ];
+    expect(
+      deriveStoredScheduleReasonVi(assistedHistory, {
+        dueAt: NOW + 10 * DAY_MS,
+        intervalDays: 1,
+        lastResult: "failed",
+        failureStreak: 2,
+      }),
+    ).toBe("Em chưa nhớ kỹ năng ở lần ôn tập gần nhất, cần ôn lại sau 1 ngày.");
+  });
+});
+

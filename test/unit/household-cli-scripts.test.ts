@@ -145,12 +145,12 @@ function seedHousehold(raw: DatabaseSync): void {
     .run(CANARY_PARENT_HASH);
   raw
     .prepare(
-      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-mau', 'parent-1', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
     )
     .run();
   raw
     .prepare(
-      "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES ('sy-2026', 'learner-tai', '2026-2027', '2026-09-01', '2027-06-30', 4, 1000)",
+      "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES ('sy-2026', 'learner-mau', '2026-2027', '2026-09-01', '2027-06-30', 4, 1000)",
     )
     .run();
   raw
@@ -245,8 +245,8 @@ describe("approveHouseholdLessons", () => {
         const first = approveHouseholdLessons(raw, {}, FIXED_NOW);
         expect(first.ok).toBe(true);
         expect(first.parentId).toBe("parent-1");
-        expect(first.learnerId).toBe("learner-tai");
-        expect(first.learnerNickname).toBe("Tài");
+        expect(first.learnerId).toBe("learner-mau");
+        expect(first.learnerNickname).toBe("Bé Mẫu");
         expect(first.targetGrade).toBe(4);
         expect(first.newlyApprovedCount).toBe(10);
         expect(first.alreadyApprovedCount).toBe(0);
@@ -255,7 +255,7 @@ describe("approveHouseholdLessons", () => {
 
         expect(countRows(raw, "review_approvals", "status = 'approved'")).toBe(10);
         expect(
-          countRows(raw, "review_approvals", "decided_by = ? AND learner_id = ?", "parent-1", "learner-tai"),
+          countRows(raw, "review_approvals", "decided_by = ? AND learner_id = ?", "parent-1", "learner-mau"),
         ).toBe(10);
         expect(countRows(raw, "audit_events", "action = 'lesson.approval.approved'")).toBe(10);
         expect(
@@ -266,7 +266,7 @@ describe("approveHouseholdLessons", () => {
           .prepare(
             `SELECT COUNT(*) AS n FROM review_approvals ra
              JOIN lessons l ON l.id = ra.lesson_id
-             WHERE ra.learner_id = 'learner-tai' AND ra.lesson_version <> l.version`,
+             WHERE ra.learner_id = 'learner-mau' AND ra.lesson_version <> l.version`,
           )
           .get();
         expect(Number(unpinned?.n ?? 0)).toBe(0);
@@ -318,7 +318,7 @@ describe("approveHouseholdLessons", () => {
           .prepare(
             `SELECT lesson_id FROM review_approvals ra
              JOIN lessons l ON l.id = ra.lesson_id
-             WHERE ra.learner_id = 'learner-tai' AND l.subject_id = 'math' ORDER BY lesson_id ASC`,
+             WHERE ra.learner_id = 'learner-mau' AND l.subject_id = 'math' ORDER BY lesson_id ASC`,
           )
           .all();
         expect(mathIds.map((r) => r.lesson_id)).toEqual(["family-mine", "math-g4-1", "math-g4-2"]);
@@ -359,7 +359,7 @@ describe("approveHouseholdLessons", () => {
           .get();
         expect(JSON.parse(String(auditDetail?.detail))).toMatchObject({
           note: "duyệt toàn bộ chương trình".length,
-          learnerId: "learner-tai",
+          learnerId: "learner-mau",
           version: 1,
         });
         const storedNote = raw
@@ -436,7 +436,7 @@ describe("approveHouseholdLessons", () => {
         seedHousehold(raw);
         raw
           .prepare(
-            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-other', 'parent-1', 'Khác', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-other', 'parent-1', 'Khác', 2017, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
           )
           .run();
         expect(() => approveHouseholdLessons(raw, {}, FIXED_NOW)).toThrow(
@@ -804,7 +804,7 @@ describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero platfo
           .run(CANARY_PARENT_HASH);
         raw
           .prepare(
-            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-mau', 'parent-1', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
           )
           .run();
       } finally {
@@ -894,7 +894,7 @@ describe("reprovision-household-db CLI script (byte-for-byte archive + clean rep
         // Simulate historical E2E pollution (extra learner + organization + audit events).
         raw
           .prepare(
-            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-polluted', 'parent-1', 'Minh', 2016, 4, 'Asia/Ho_Chi_Minh', 2000, 2000)",
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-polluted', 'parent-1', 'Minh', 2017, 4, 'Asia/Ho_Chi_Minh', 2000, 2000)",
           )
           .run();
         raw
@@ -928,7 +928,7 @@ describe("reprovision-household-db CLI script (byte-for-byte archive + clean rep
 
       expect(result.status).toBe("ok");
       expect(result.preservedParentDisplayName).toBe("Phụ huynh");
-      expect(result.preservedLearnerNickname).toBe("Tài");
+      expect(result.preservedLearnerNickname).toBe("Bé Mẫu");
       expect(result.preservedSchoolYearLabel).toBe("2026-2027");
       expect(result.lessonsInserted).toBe(50);
       expect(result.verification.schemaVersion).toBe(SHIPPED_SCHEMA_VERSION);
@@ -1197,7 +1197,7 @@ describe("dump-local-d1 CLI script (DatabaseSync readOnly: true, zero-write SQL 
     expect(formatSqlLiteral(Number.NaN)).toBe("NULL");
     expect(formatSqlLiteral(42)).toBe("42");
     expect(formatSqlLiteral(123n)).toBe("123");
-    expect(formatSqlLiteral("Tài's lesson")).toBe("'Tài''s lesson'");
+    expect(formatSqlLiteral("An's lesson")).toBe("'An''s lesson'");
     expect(formatSqlLiteral(new Uint8Array([0xde, 0xad, 0xbe, 0xef]))).toBe("X'DEADBEEF'");
   });
 
@@ -1259,7 +1259,7 @@ describe("dump-local-d1 CLI script (DatabaseSync readOnly: true, zero-write SQL 
         restored.exec(sqlText);
         expect(countRows(restored, "parents", "1 = 1")).toBe(0);
         expect(countRows(restored, "auth_throttles", "1 = 1")).toBe(0);
-        expect(countRows(restored, "learners", "id = 'learner-tai'")).toBe(1);
+        expect(countRows(restored, "learners", "id = 'learner-mau'")).toBe(1);
         expect(countRows(restored, "lessons", "1 = 1")).toBe(15);
         expect(countRows(restored, "audit_events", "1 = 1")).toBeGreaterThan(0);
 

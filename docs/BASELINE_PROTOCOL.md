@@ -2,7 +2,7 @@
 ## BASELINE + DELAYED-RETENTION MEASUREMENT PROTOCOL
 
 **Dự án:** TAI LEARNING OS
-**Mục tiêu:** Thay những con số đang là **giả định** (0.95 xác suất nhớ, 30 ngày trần ôn tập) bằng **bằng chứng đo được** trên chính bé Tài.
+**Mục tiêu:** Thay những con số đang là **giả định** (0.95 xác suất nhớ, 30 ngày trần ôn tập) bằng **bằng chứng đo được** trên chính người học.
 
 > **Bilingual guide / Hướng dẫn song ngữ.** Phần tiếng Việt ở trên, phần English ở dưới mỗi mục.
 
@@ -10,7 +10,7 @@
 
 ## 0. Vì sao phải có tài liệu này (Why this document exists)
 
-Bộ lập lịch ôn tập (FSRS-6) được chỉnh để một kỹ năng còn **95% khả năng nhớ** đúng vào ngày đến hạn ôn. Con số 0.95 đó **không phải** kết quả đo bé Tài — nó là một giả định khởi đầu có lý lẽ, lấy từ nghiên cứu chung. Giao thức này là cách biến giả định đó thành phép đo: **trong số những kỹ năng bé đã tự giải được, bao nhiêu kỹ năng bé vẫn tự giải được sau khi khoảng cách thời gian thật sự trôi qua?**
+Bộ lập lịch ôn tập (FSRS-6) được chỉnh để một kỹ năng còn **95% khả năng nhớ** đúng vào ngày đến hạn ôn. Con số 0.95 đó **không phải** kết quả đo trên người học — nó là một giả định khởi đầu có lý lẽ, lấy từ nghiên cứu chung. Giao thức này là cách biến giả định đó thành phép đo: **trong số những kỹ năng bé đã tự giải được, bao nhiêu kỹ năng bé vẫn tự giải được sau khi khoảng cách thời gian thật sự trôi qua?**
 
 > The FSRS-6 scheduler is tuned so a skill sits at **0.95 recall** on its due date. That 0.95 is an assumption about this child, not a measurement of her. This protocol turns the assumption into a measurement: **of the skills she solved unaided, how many can she still solve unaided once the interval has actually elapsed?**
 
@@ -170,7 +170,7 @@ npm run retention:drill
 }
 ```
 
-Bài diễn tập chạy trong một thư mục tạm, **không bao giờ mở** `.wrangler/state`, **không chạm** `.dev.vars`, **không ghi** vào cơ sở dữ liệu của bé Tài. Nó cũng chứng minh kết nối đọc của báo cáo **thật sự không ghi được** (`writeRefused: true`).
+Bài diễn tập chạy trong một thư mục tạm, **không bao giờ mở** `.wrangler/state`, **không chạm** `.dev.vars`, **không ghi** vào cơ sở dữ liệu hộ gia đình. Nó cũng chứng minh kết nối đọc của báo cáo **thật sự không ghi được** (`writeRefused: true`).
 
 > The drill builds a timeline whose answer is known in advance and asserts it, in a fresh temp directory that never opens `.wrangler/state` and never touches `.dev.vars`. It also proves the report's reader cannot write.
 
@@ -204,8 +204,8 @@ Cho đến khi bước 3 xảy ra, **mọi con số ghi nhớ đều là giả �
 
 ## 6. Những gì giao thức này **không** khẳng định (What this protocol does **not** claim)
 
-- **Không** khẳng định 0.95 là đúng cho bé Tài. Ngược lại: nó tồn tại để kiểm tra điều đó.
-- **Không** khẳng định 30 ngày là trần đúng cho bé Tài. Đó là chính sách của dự án, chưa được đo.
+- **Không** khẳng định 0.95 là đúng cho người học cụ thể. Ngược lại: nó tồn tại để kiểm tra điều đó.
+- **Không** khẳng định 30 ngày là trần đúng cho người học cụ thể. Đó là chính sách của dự án, chưa được đo.
 - **Không** dự đoán tương lai và không dùng mô hình ngôn ngữ. Nó chỉ đếm lại những gì sổ ghi bài đã ghi.
 - **Không** dùng bảng `review_schedule` làm nguồn, vì bảng đó chỉ giữ **ngày đến hạn hiện tại**, không giữ lịch sử. Một lần kiểm tra suy ra từ bảng đó sẽ **không thể tính lại và đối chiếu** về sau. `learning_attempts` là sổ chỉ-thêm (*append-only*), nên một lần kiểm tra suy ra từ nó **có thể tính lại** bất cứ lúc nào.
 

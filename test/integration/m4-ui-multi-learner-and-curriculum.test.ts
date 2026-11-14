@@ -121,17 +121,17 @@ describe("M4 UI Closure, Multi-Learner Header Scoping & Grade 4 Curriculum Expan
       .prepare(
         "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
       )
-      .bind("parent-1", "Mẹ Tài & Na", passHash, now)
+      .bind("parent-1", "Mẹ Mẫu & Na", passHash, now)
       .run();
 
     await env.DB
       .prepare(
         "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 4, ?4, ?4)",
       )
-      .bind("learner-tai", "parent-1", "Tài", now)
+      .bind("learner-mau", "parent-1", "Bé Mẫu", now)
       .run();
 
-    const parentJar = await createAuthenticatedJar("parent-1", "Mẹ Tài & Na", "parent");
+    const parentJar = await createAuthenticatedJar("parent-1", "Mẹ Mẫu & Na", "parent");
 
     // Enrol a second learner via POST /api/parent/learners
     const createRes = await callWithJar(parentJar, "/api/parent/learners", {
@@ -147,7 +147,7 @@ describe("M4 UI Closure, Multi-Learner Header Scoping & Grade 4 Curriculum Expan
     const sessionDefaultRes = await callWithJar(parentJar, "/api/session");
     const sessionDefault = (await sessionDefaultRes.json()) as SessionInfo;
     expect(sessionDefault.learners).toHaveLength(2);
-    expect(sessionDefault.learner?.id).toBe("learner-tai");
+    expect(sessionDefault.learner?.id).toBe("learner-mau");
 
     const sessionNaRes = await callWithJar(parentJar, "/api/session", {
       learnerIdHeader: naId,
@@ -164,22 +164,22 @@ describe("M4 UI Closure, Multi-Learner Header Scoping & Grade 4 Curriculum Expan
     });
     expect(approveRes.status).toBe(200);
 
-    // Check lesson list for Bé Na vs Tài
+    // Check lesson list for Bé Na vs Bé Mẫu
     const lessonsNa = (await (
       await callWithJar(parentJar, "/api/parent/lessons", { learnerIdHeader: naId })
     ).json()) as LessonListResponse;
-    const lessonsTai = (await (
-      await callWithJar(parentJar, "/api/parent/lessons", { learnerIdHeader: "learner-tai" })
+    const lessonsMau = (await (
+      await callWithJar(parentJar, "/api/parent/lessons", { learnerIdHeader: "learner-mau" })
     ).json()) as LessonListResponse;
 
     expect(
       lessonsNa.lessons.find((l) => l.id === "math-fractions-compare")?.approvalStatus,
     ).toBe("approved");
     expect(
-      lessonsTai.lessons.find((l) => l.id === "math-fractions-compare")?.approvalStatus,
+      lessonsMau.lessons.find((l) => l.id === "math-fractions-compare")?.approvalStatus,
     ).toBe("draft");
 
-    // Correct a skill for Bé Na via x-tlo-learner-id and verify Tài's dashboard is untouched
+    // Correct a skill for Bé Na via x-tlo-learner-id and verify Bé Mẫu's dashboard is untouched
     const correctRes = await callWithJar(parentJar, "/api/parent/skills/correct", {
       method: "POST",
       learnerIdHeader: naId,
@@ -194,16 +194,16 @@ describe("M4 UI Closure, Multi-Learner Header Scoping & Grade 4 Curriculum Expan
     const dashNa = (await (
       await callWithJar(parentJar, "/api/parent/dashboard", { learnerIdHeader: naId })
     ).json()) as ParentDashboardResponse;
-    const dashTai = (await (
-      await callWithJar(parentJar, "/api/parent/dashboard", { learnerIdHeader: "learner-tai" })
+    const dashMau = (await (
+      await callWithJar(parentJar, "/api/parent/dashboard", { learnerIdHeader: "learner-mau" })
     ).json()) as ParentDashboardResponse;
 
     expect(dashNa.learner?.id).toBe(naId);
     expect(dashNa.skillEvidence.find((s) => s.skillId === "math-frac-compare")?.state).toBe(
       "INDEPENDENT",
     );
-    expect(dashTai.learner?.id).toBe("learner-tai");
-    expect(dashTai.skillEvidence).toHaveLength(0);
+    expect(dashMau.learner?.id).toBe("learner-mau");
+    expect(dashMau.skillEvidence).toHaveLength(0);
 
     // Export scoped to Bé Na via x-tlo-learner-id
     const exportNa = (await (
@@ -283,17 +283,17 @@ describe("M4 UI Closure, Multi-Learner Header Scoping & Grade 4 Curriculum Expan
       .prepare(
         "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
       )
-      .bind("parent-2", "Bố Tài", passHash, now)
+      .bind("parent-2", "Bố Mẫu", passHash, now)
       .run();
 
     await env.DB
       .prepare(
         "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 4, ?4, ?4)",
       )
-      .bind("learner-2", "parent-2", "Tài", now)
+      .bind("learner-2", "parent-2", "Bé Mẫu", now)
       .run();
 
-    const parentJar = await createAuthenticatedJar("parent-2", "Bố Tài", "parent");
+    const parentJar = await createAuthenticatedJar("parent-2", "Bố Mẫu", "parent");
 
     // Approve the 3 new Grade 4 lessons (`math-fractions-compare`, `eng-home-vocabulary`, `vie-story-lesson`)
     for (const lessonId of ["math-fractions-compare", "eng-home-vocabulary", "vie-story-lesson"]) {
@@ -314,7 +314,7 @@ describe("M4 UI Closure, Multi-Learner Header Scoping & Grade 4 Curriculum Expan
       .bind("rev-1", "learner-2", "vie-story-lesson", now - 86_400_000, now - 172_800_000)
       .run();
 
-    const learnerJar = await createAuthenticatedJar("parent-2", "Bố Tài", "learner");
+    const learnerJar = await createAuthenticatedJar("parent-2", "Bố Mẫu", "learner");
     const homeRes = await callWithJar(learnerJar, "/api/learner/home");
     expect(homeRes.status).toBe(200);
     const home = (await homeRes.json()) as LearnerHomeResponse;

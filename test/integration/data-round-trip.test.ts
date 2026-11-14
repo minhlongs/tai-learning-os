@@ -24,7 +24,7 @@ import { TRANSFER_FORMAT_VERSION } from "../../src/shared/schemas/transfer";
 const ORIGIN = "http://localhost";
 const PASSWORD = "MatKhauBiMat2026";
 const DISPLAY_NAME = "Phụ huynh";
-const LEARNER_NICKNAME = "Tài";
+const LEARNER_NICKNAME = "Bé Mẫu";
 /** Test-only signing secret; never read from disk, never deployed. */
 const TEST_SECRET = "integration-only-not-a-real-secret-value";
 
@@ -101,7 +101,7 @@ async function login(): Promise<void> {
 async function enrol(): Promise<string> {
   const response = await call("/api/parent/learners", {
     method: "POST",
-    json: { nickname: LEARNER_NICKNAME, birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+    json: { nickname: LEARNER_NICKNAME, birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
   });
   expect(response.status, "enrol fixture").toBe(200);
   const body = (await response.json()) as { learner: { id: string } };
@@ -397,7 +397,7 @@ describe("export/import round trip restores the record from the file", () => {
       .bind(otherParentId, now)
       .run();
     await env.DB.prepare(
-      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES (?1, ?2, 'Bé Khác', 2016, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)",
+      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES (?1, ?2, 'Bé Khác', 2017, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)",
     )
       .bind(otherLearnerId, otherParentId, now)
       .run();

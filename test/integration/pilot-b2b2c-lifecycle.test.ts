@@ -12,13 +12,13 @@
  *      - Center Owner (Cô Mai) approves the lesson (`review_status: 'org_approved'`).
  *      - Teacher assigns the approved lesson to Lớp Toán 4A.
  *   4. Parent Approval & Child Access Gate:
- *      - Enrolled learner (Bé Tài) cannot start the classroom lesson before parent approval (403).
+ *      - Enrolled learner (Bé An) cannot start the classroom lesson before parent approval (403).
  *      - Parent (Ba Minh) views classroom-assigned lessons (`GET /api/parent/classroom-lessons`) and approves the lesson (`POST /api/parent/lessons/approval`).
- *      - Learner (Bé Tài) starts the lesson (`POST /api/learner/sessions`), submits a correct answer (`POST /api/learner/attempts`), and finalizes the session (`POST /api/learner/sessions/finalize`).
+ *      - Learner (Bé An) starts the lesson (`POST /api/learner/sessions`), submits a correct answer (`POST /api/learner/attempts`), and finalizes the session (`POST /api/learner/sessions/finalize`).
  *      - Unenrolled learner (Bé Duy, who is in Anh-Việt 4B, not Toán 4A) is blocked (403) from starting the Toán 4A lesson even though it is approved!
  *   5. Revocation & Cascade Erasure:
  *      - Revoking consent for Bé Bảo immediately removes Bé Bảo from Thầy Quang's classroom learner list (`GET /api/org/classrooms/learners`).
- *      - Deleting Bé Tài (`DELETE /api/data/learner`) cascades across all tables while preserving PII-free immutable audit proof.
+ *      - Deleting Bé An (`DELETE /api/data/learner`) cascades across all tables while preserving PII-free immutable audit proof.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
@@ -244,7 +244,7 @@ describe("M2 & M3 Pilot Lifecycle: 1 Center, 2 Teachers, 5 Learners E2E", () => 
     );
     expect(mathLearnersRes.status).toBe(200);
     const mathLearners = (await mathLearnersRes.json()) as ClassroomLearnersResponse;
-    expect(mathLearners.learners.map((l) => l.nickname).sort()).toEqual(["Bé Bảo", "Bé Châu", "Bé Tài"]);
+    expect(mathLearners.learners.map((l) => l.nickname).sort()).toEqual(["Bé An", "Bé Bảo", "Bé Châu"]);
 
     const langLearnersRes = await callWithJar(
       teacherHuongJar,
@@ -328,20 +328,20 @@ describe("M2 & M3 Pilot Lifecycle: 1 Center, 2 Teachers, 5 Learners E2E", () => 
     const assignBody = (await assignRes.json()) as AssignClassroomLessonResponse;
     expect(assignBody.success).toBe(true);
 
-    // 12. Before Parent approves, Bé Tài (enrolled in Toán 4A) CANNOT start the lesson (403)
-    const taiParent = PILOT_LEARNERS[0]!;
-    const taiLearnerJar = await createAuthenticatedJar(taiParent.parentId, taiParent.parentName, "learner");
-    const blockedStartRes = await callWithJar(taiLearnerJar, "/api/learner/sessions", {
+    // 12. Before Parent approves, Bé An (enrolled in Toán 4A) CANNOT start the lesson (403)
+    const anParent = PILOT_LEARNERS[0]!;
+    const anLearnerJar = await createAuthenticatedJar(anParent.parentId, anParent.parentName, "learner");
+    const blockedStartRes = await callWithJar(anLearnerJar, "/api/learner/sessions", {
       method: "POST",
       json: { lessonId: authoredLessonId },
     });
     expect(blockedStartRes.status).toBe(403);
 
     // 13. Parent (Ba Minh) inspects classroom lessons and approves the lesson
-    const taiParentJar = await createAuthenticatedJar(taiParent.parentId, taiParent.parentName, "parent");
+    const anParentJar = await createAuthenticatedJar(anParent.parentId, anParent.parentName, "parent");
     const parentClassroomLessonsRes = await callWithJar(
-      taiParentJar,
-      `/api/parent/classroom-lessons?learnerId=${taiParent.learnerId}`,
+      anParentJar,
+      `/api/parent/classroom-lessons?learnerId=${anParent.learnerId}`,
     );
     expect(parentClassroomLessonsRes.status).toBe(200);
     const classroomLessons = (await parentClassroomLessonsRes.json()) as ClassroomLessonListResponse;
@@ -349,7 +349,7 @@ describe("M2 & M3 Pilot Lifecycle: 1 Center, 2 Teachers, 5 Learners E2E", () => 
     expect(classroomLessons.lessons[0]?.lessonId).toBe(authoredLessonId);
     expect(classroomLessons.lessons[0]?.isParentApproved).toBe(false);
 
-    const parentApproveRes = await callWithJar(taiParentJar, "/api/parent/lessons/approval", {
+    const parentApproveRes = await callWithJar(anParentJar, "/api/parent/lessons/approval", {
       method: "POST",
       json: { lessonId: authoredLessonId, status: "approved", note: "Ba đồng ý cho con học bài này." },
     });
@@ -364,8 +364,8 @@ describe("M2 & M3 Pilot Lifecycle: 1 Center, 2 Teachers, 5 Learners E2E", () => 
     });
     expect(duyBlockedRes.status).toBe(403);
 
-    // 15. Enrolled learner (Bé Tài in Toán 4A) starts the session, submits a correct answer, and finalizes
-    const startRes = await callWithJar(taiLearnerJar, "/api/learner/sessions", {
+    // 15. Enrolled learner (Bé An in Toán 4A) starts the session, submits a correct answer, and finalizes
+    const startRes = await callWithJar(anLearnerJar, "/api/learner/sessions", {
       method: "POST",
       json: { lessonId: authoredLessonId },
     });
@@ -377,7 +377,7 @@ describe("M2 & M3 Pilot Lifecycle: 1 Center, 2 Teachers, 5 Learners E2E", () => 
     // Answer key must never leak to learner payload
     expect(JSON.stringify(startBody.steps[0]!.content)).not.toContain('"correct"');
 
-    const attemptRes = await callWithJar(taiLearnerJar, "/api/learner/attempts", {
+    const attemptRes = await callWithJar(anLearnerJar, "/api/learner/attempts", {
       method: "POST",
       json: {
         sessionId: startBody.sessionId,
@@ -390,7 +390,7 @@ describe("M2 & M3 Pilot Lifecycle: 1 Center, 2 Teachers, 5 Learners E2E", () => 
     const attemptBody = (await attemptRes.json()) as SubmitAttemptResponse;
     expect(attemptBody.outcome).toBe("correct");
 
-    const finalizeRes = await callWithJar(taiLearnerJar, "/api/learner/sessions/finalize", {
+    const finalizeRes = await callWithJar(anLearnerJar, "/api/learner/sessions/finalize", {
       method: "POST",
       json: { sessionId: startBody.sessionId },
     });
@@ -411,14 +411,14 @@ describe("M2 & M3 Pilot Lifecycle: 1 Center, 2 Teachers, 5 Learners E2E", () => 
     );
     expect(mathLearnersAfterRevoke.status).toBe(200);
     const mathLearnersAfterRevokeBody = (await mathLearnersAfterRevoke.json()) as ClassroomLearnersResponse;
-    expect(mathLearnersAfterRevokeBody.learners.map((l) => l.nickname).sort()).toEqual(["Bé Châu", "Bé Tài"]);
+    expect(mathLearnersAfterRevokeBody.learners.map((l) => l.nickname).sort()).toEqual(["Bé An", "Bé Châu"]);
 
-    // 17. Cascade Erasure: Ba Minh deletes Bé Tài -> all child records cascade, audit remains PII-free
-    const deleteTaiRes = await callWithJar(taiParentJar, "/api/data/learner", {
+    // 17. Cascade Erasure: Ba Minh deletes Bé An -> all child records cascade, audit remains PII-free
+    const deleteAnRes = await callWithJar(anParentJar, "/api/data/learner", {
       method: "DELETE",
-      json: { learnerId: taiParent.learnerId, confirmation: `XOA ${taiParent.nickname}` },
+      json: { learnerId: anParent.learnerId, confirmation: `XOA ${anParent.nickname}` },
     });
-    expect(deleteTaiRes.status).toBe(200);
+    expect(deleteAnRes.status).toBe(200);
 
     const mathLearnersAfterDelete = await callWithJar(
       teacherQuangJar,
@@ -431,7 +431,7 @@ describe("M2 & M3 Pilot Lifecycle: 1 Center, 2 Teachers, 5 Learners E2E", () => 
     // Verify audit_events has no nickname PII
     const audits = await env.DB.prepare("SELECT detail FROM audit_events").all<{ detail: string | null }>();
     for (const row of audits.results ?? []) {
-      expect(row.detail ?? "").not.toContain("Bé Tài");
+      expect(row.detail ?? "").not.toContain("Bé An");
     }
   });
 });

@@ -6,7 +6,7 @@
  *   - 1 Center Owner: Cô Hiệu Trưởng Mai
  *   - 2 Teachers: Thầy Quang (Toán 4A), Cô Hương (Anh-Việt 4B)
  *   - 2 Classrooms: Lớp Toán 4A, Lớp Anh-Việt 4B
- *   - 5 Grade-4 Learners & Parents: Bé Tài, Bé Bảo, Bé Châu, Bé Duy, Bé Em
+ *   - 5 Grade-4 Learners & Parents: Bé An, Bé Bảo, Bé Châu, Bé Duy, Bé Em
  *   - 5 Active Consent Grants & Classroom Enrollments
  *   - 1 Approved & Assigned Center Lesson
  *

@@ -16,8 +16,8 @@ that even if the local database file were copied or inspected, no personally ide
 
 | Category | Stored in Database? | Technical Enforcement |
 |---|---|---|
-| Legal full name | **NO** | `learners.nickname` only (e.g., `"Tài"`). |
-| Exact date of birth | **NO** | `learners.birth_year` (integer year, e.g., `2016`, optional). |
+| Legal full name | **NO** | `learners.nickname` only (e.g., `"Bé Mẫu"`). |
+| Exact date of birth | **NO** | `learners.birth_year` (integer year, e.g., `2017`, optional). |
 | School name or class | **NO** | No column exists. `school_years.label` is a generic calendar span (`"2026-2027"`). |
 | Home address or GPS | **NO** | No column exists. Only `timezone` (`"Asia/Ho_Chi_Minh"`) is stored for day-boundary calculation. |
 | Email / Phone number | **NO** | Neither parent nor learner has an email or phone field. |
@@ -65,7 +65,7 @@ that even if the local database file were copied or inspected, no personally ide
 
 | Requirement Area | Engineering Control (Implemented in Local MVP) | Unresolved Legal Obligation (Blocks Hosted / Production Release) |
 |---|---|---|
-| **Child Data Protection (Under 13 / Children's Personal Data)** | Zero collection of full legal name, full DOB, school, address, phone, or photo. Only `nickname` (`"Tài"`) and `birth_year` (`2016`) are stored locally. | Formal verification of parent/guardian legal status and recorded written/electronic consent compliant with Law 91/2025/QH15 and Decree 356/2025/NĐ-CP before any hosted processing. |
+| **Child Data Protection (Under 13 / Children's Personal Data)** | Zero collection of full legal name, full DOB, school, address, phone, or photo. Only `nickname` (e.g., `"Bé Mẫu"`) and `birth_year` (e.g., `2017`) are stored locally. | Formal verification of parent/guardian legal status and recorded written/electronic consent compliant with Law 91/2025/QH15 and Decree 356/2025/NĐ-CP before any hosted processing. |
 | **Parental Consent & Governance** | Fail-closed parent authentication (`tlo_session`), parent lesson approval gate (`review_approvals`), and parent-only data controls. | Legally binding privacy notice, consent withdrawal procedure, and audit retention policy for hosted services. |
 | **Right to Access, Portability & Erasure** | Full JSON export (`tai-learning-os-export@v1`), schema-validated import, and confirmed cascade deletion (`DELETE /api/data/learner` with `XOA <Nickname>`). | Statutory SLA and formal verification workflow for data subject requests if operated as a hosted service. |
 | **Data Processing Impact Assessment (DPIA) & Cross-Border Transfer** | Local-only SQLite (`.wrangler/state/v3/d1`); zero external network calls, zero third-party analytics, zero cloud transfers. | Filing of DPIA (Hồ sơ đánh giá tác động xử lý dữ liệu cá nhân) and Cross-Border Transfer Impact Assessment (nếu dùng hạ tầng đám mây ngoài lãnh thổ Việt Nam) with Bộ Công an (A05). |

@@ -114,7 +114,7 @@ try {
   await db
     .prepare(
       `INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at)
-       VALUES ('l-drill', 'p-drill', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)`,
+       VALUES ('l-drill', 'p-drill', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)`,
     )
     .bind(now)
     .run();

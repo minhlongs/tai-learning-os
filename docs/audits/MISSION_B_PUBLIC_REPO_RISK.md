@@ -3,8 +3,8 @@
 ## PUBLIC REPOSITORY RISK ASSESSMENT — MISSION-B (COMMERCIAL)
 
 **Dự án:** TAI LEARNING OS
-**Ngày đo:** 2026-11-13
-**Nhánh:** `feat/mission-a-2036-foundation`
+**Ngày đo:** 2026-11-14
+**Nhánh:** `fix/followup-issues-58-63`
 **Trạng thái Mission-B:** **CHƯA KÍCH HOẠT** — cấu hình firewall tồn tại, không có đường chạy nào dùng nó.
 
 > **Bilingual guide / Hướng dẫn song ngữ.** Phần tiếng Việt ở trên, phần English ở dưới mỗi mục.
@@ -15,9 +15,9 @@
 
 Mission-B là nhánh thương mại của sản phẩm. Nó **chưa được xây**. Nhưng repo này đang **công khai**, nghĩa là bất kỳ ai cũng đọc được toàn bộ chương trình học, toàn bộ luật chấm điểm, và toàn bộ danh sách điểm yếu mà chính dự án tự ghi ra. Quyết định giữ repo công khai là quyết định của chủ sở hữu và tài liệu này **không** đề nghị đảo ngược nó. Việc của tài liệu này là **đếm** xem cái gì đang phơi ra ngoài, và nói rõ cái gì đáng lo, cái gì không.
 
-Mọi con số dưới đây được đo trên HEAD ngày 2026-11-13 bằng lệnh ghi kèm. Không có con số nào là ước lượng.
+Mọi con số dưới đây được đo trên HEAD ngày 2026-11-14 bằng lệnh ghi kèm. Không có con số nào là ước lượng.
 
-> Mission-B is the commercial branch of the product. It is not built. But this repository is public, which means anyone can read the whole curriculum, the whole grading rule set, and the project's own list of weaknesses. Keeping the repository public is the owner's decision and this document does not argue against it. Its job is to **count** what is exposed, and to say plainly what matters and what does not. Every number below was measured on HEAD, 2026-11-13, with the command shown. None is an estimate.
+> Mission-B is the commercial branch of the product. It is not built. But this repository is public, which means anyone can read the whole curriculum, the whole grading rule set, and the project's own list of weaknesses. Keeping the repository public is the owner's decision and this document does not argue against it. Its job is to **count** what is exposed, and to say plainly what matters and what does not. Every number below was measured on HEAD, 2026-11-14, with the command shown. None is an estimate.
 
 ---
 
@@ -26,13 +26,13 @@ Mọi con số dưới đây được đo trên HEAD ngày 2026-11-13 bằng l�
 | Thuộc tính | Giá trị đo được | Lệnh đo |
 |---|---|---|
 | Chế độ hiển thị | `PUBLIC`, `isPrivate: false` | `gh repo view --json visibility,isPrivate` |
-| Số tệp được theo dõi | **272** | `git ls-files \| wc -l` |
-| Số commit | **58** | `git rev-list --count --all` |
+| Số tệp được theo dõi | **302** | `git ls-files \| wc -l` |
+| Số commit | **59** | `git rev-list --count --all` |
 | Giấy phép | **không có tệp `LICENSE` nào** | `git ls-files \| grep -ci LICENSE` → 0 |
 | Tuyên bố "open source" | **0 lần** trong README và `docs/*.md` | `grep -ri "open source" README.md docs/*.md \| wc -l` |
-| Mã nguồn `src/` | **35.300 dòng** | `find src -name "*.ts*" \| xargs wc -l` |
-| Kiểm thử `test/` | **19.389 dòng** (21 unit, 19 integration, 2 e2e) | `git ls-files -z 'test/*' \| xargs -0 wc -l` |
-| Tài liệu `docs/` | **2.124 dòng** | `git ls-files -z 'docs/*' \| xargs -0 wc -l` |
+| Mã nguồn `src/` | **35.459 dòng** | `find src -name "*.ts*" \| xargs wc -l` |
+| Kiểm thử `test/` | **23.080 dòng** (24 unit, 19 integration, 2 e2e) | `git ls-files -z 'test/*' \| xargs -0 wc -l` |
+| Tài liệu `docs/` | **4.060 dòng** | `git ls-files -z 'docs/*' \| xargs -0 wc -l` |
 
 **Điểm quan trọng nhất: không có giấy phép.** Không có `LICENSE` nghĩa là luật bản quyền mặc định áp dụng — **không** có quyền sao chép, sửa, hay dùng thương mại nào được cấp. Repo công khai cho người ta **đọc**, không cho người ta **dùng**. Đây là khác biệt pháp lý lớn giữa "công khai" và "mã nguồn mở", và hiện tại dự án đứng ở phía an toàn hơn.
 
@@ -49,7 +49,7 @@ Mọi con số dưới đây được đo trên HEAD ngày 2026-11-13 bằng l�
 | Bài học | **50** |
 | Bước học (step) | **257** |
 | Dòng mã nội dung | **7.813** dòng trong `src/shared/content/**` |
-| Bản sao seed trong test | 26.575 byte tại `test/integration/lesson-seed.ts` |
+| Bản sao seed trong test | 25.867 byte tại `test/integration/lesson-seed.ts` |
 
 Bất kỳ ai cũng tải được toàn bộ 50 bài, ở dạng có cấu trúc, kèm bản sao thứ hai trong thư mục test.
 
@@ -95,30 +95,30 @@ Bất kỳ ai cũng tải được toàn bộ 50 bài, ở dạng có cấu trú
 | Trường `school_name` / `home_address` / `phone_number` trong `src/`, `test/` | **0** |
 | Tên bí mật trong mã | `SESSION_SECRET`, `PARENT_PASSWORD_HASH` chỉ xuất hiện **dưới dạng tên biến**, không có giá trị |
 
-`.gitignore` chặn `.wrangler/`, `.dev.vars`, `.dev.vars.*`, `*.sqlite`, `dist/` — và `.dev.vars.example` được whitelist có chủ đích.
+`.gitignore` chặn `.wrangler/`, `.dev.vars`, `.dev.vars.*`, `*.sqlite`, `dist/` — và `.dev.vars.example` được whitelist có chủ đích. Ngoài ra, `vite.config.ts` xoá `workerConfig.configPath` khi chạy `vite build` và lọc bỏ mọi mục `.dev.vars*` trong `generateBundle`, đồng thời `test/unit/build-no-secrets.test.ts` kiểm chứng rằng `npm run build` không bao giờ phát sinh `.dev.vars` hay `.dev.vars.*` vào `dist/worker/` hoặc `dist/client/`.
 
-> **Nothing secret is in the tree, and nothing secret has ever been in its 58-commit history.** Zero credential-shaped strings, zero tracked database files, zero school/address/phone fields. The two secret *names* appear only as identifiers. `.gitignore` blocks the state directory, the real `.dev.vars`, and every SQLite file, with the example file deliberately whitelisted.
+> **Nothing secret is in the tree, and nothing secret has ever been in its 59-commit history.** Zero credential-shaped strings, zero tracked database files, zero school/address/phone fields. The two secret *names* appear only as identifiers. `.gitignore` blocks the state directory, the real `.dev.vars`, and every SQLite file, with the example file deliberately whitelisted. Furthermore, `vite.config.ts` strips `workerConfig.configPath` during `vite build` and removes any `.dev.vars*` bundle entries in `generateBundle`, and `test/unit/build-no-secrets.test.ts` asserts that `npm run build` never emits `.dev.vars` or `.dev.vars.*` into `dist/worker/` or `dist/client/`.
 
 ---
 
 ## 4. Rủi ro tồn dư: định danh đứa trẻ (Residual risk: the child's identifier)
 
-Đây là mục duy nhất mà tôi không thể nói "không sao".
+Cây mã hiện hành (working tree) đã được làm sạch theo Issue `#62`, và được canh giữ tự động bởi `test/unit/no-child-identifier-fixtures.test.ts`; tuy nhiên lịch sử git cũ vẫn giữ các phiên bản trước đó (vì việc viết lại lịch sử git là thao tác không thể đảo ngược và không được thực hiện tự động).
 
-| Số đo | Giá trị |
+| Số đo trên cây mã hiện hành (sau Issue #62) | Giá trị |
 |---|---|
-| Tệp được theo dõi có chứa biệt danh `Tài` | **54** trong 272 (20%) |
-| Phân bố | 19 `test/`, 11 `src/`, 10 `docs/`, 7 `plans/`, 3 `scripts/`, 1 `README.md`, 1 `index.html`, 1 `CLAUDE.md`, 1 `AGENTS.md` |
-| Fixture nguyên văn `nickname: "Tài"` | **11** lần trong **7** tệp kiểm thử |
-| Trong đó | `learner-journey.spec.ts` 1, `m4-browser-verification.spec.ts` 4, `api.test.ts` 1, `backup-cipher.test.ts` 1, `export-import.test.ts` 1, `household-preflight.test.ts` 2, `reprovision-household-db.test.ts` 1 |
-| Mỗi fixture đi kèm | `birthYear: 2016`, `grade: 4`, `timezone: "Asia/Ho_Chi_Minh"` |
-| Tên tệp sao lưu mẫu `backup-tai` | **7** tệp |
+| Fixture nguyên văn `nickname: "Tài"` trong `test/` và `scripts/` | **0** (giảm từ 11 lần trong 7 tệp kiểm thử; đã thay bằng `"Bé Mẫu"`) |
+| Fixture `birthYear: 2016` / `birth_year = 2016` trong `test/` và `scripts/` | **0** ngoài chính tệp canh giữ `test/unit/no-child-identifier-fixtures.test.ts` (đã thay bằng `2017`) |
+| Tên tệp sao lưu mẫu `backup-tai` trong mã, kịch bản và tài liệu hoạt động | **0** ngoài tệp canh giữ và chính báo cáo kiểm toán này (đã thay bằng `backup-mau`) |
+| Biệt danh học sinh trong `CLAUDE.md`, `AGENTS.md`, `docs/PARENT_*.md`, `docs/CHILD_PRIVACY_REVIEW.md`, `docs/SECURITY.md`, `docs/BASELINE_*.md`, `docs/adr/*.md` | **0** (đã mô tả trung tính là người học lớp 4 / `"Bé Mẫu"`) |
+| Tổng số tệp được theo dõi còn chứa chuỗi `"Tài"` | **36** trong 302 (giảm từ 54; bao gồm từ vựng tiếng Việt như `"Tài liệu"`, `"Tài khoản"`, `"Tài Năng"`, văn bản UI sản phẩm nội bộ hộ gia đình trong `src/`, và các tệp lịch sử `plans/` + `docs/audits/`) |
+| Tệp kiểm thử canh giữ | `test/unit/no-child-identifier-fixtures.test.ts` (quét toàn bộ tệp được git theo dõi ngoài `plans/` và `docs/audits/`) |
 
-**Đánh giá thẳng:** đây **không** phải dữ liệu cá nhân đầy đủ theo chính sách "vắng mặt" của dự án — không có họ tên, không ngày sinh đầy đủ, không trường học, không địa chỉ, không số điện thoại. Nhưng **biệt danh + năm sinh + lớp + múi giờ** là một bộ bốn trường đủ để thu hẹp về một đứa trẻ cụ thể trong một nhóm nhỏ, nếu biệt danh đó khớp với một người thật. Rủi ro không nằm ở chỗ "lộ dữ liệu" mà ở chỗ "lộ một cái tên gắn với một hồ sơ học tập".
+**Đánh giá thẳng:** trên nhánh hiện tại, toàn bộ bộ bốn trường fixture (`nickname: "Tài"` + `birthYear: 2016` + `grade: 4` + `timezone: "Asia/Ho_Chi_Minh"`), các định danh phụ huynh (`Mẹ Tài`, `Bố Tài`, `XOA Tài`, `learner-tai`) và tên tệp mẫu `backup-tai` đã được gỡ khỏi kiểm thử, kịch bản CLI và tài liệu vận hành. Rủi ro còn lại của R4 chỉ nằm ở hai chỗ: (1) **lịch sử commit git công khai trước Issue `#62`** vẫn chứa các dòng cũ, và (2) một số nhãn UI tiếng Việt của chế độ hộ gia đình trong `src/` cùng tên thương hiệu `TAI LEARNING OS`.
 
-Mức độ: **thấp đến trung bình**, phụ thuộc hoàn toàn vào việc biệt danh có nhận dạng được ngoài đời hay không — điều tôi không thể kiểm tra và chủ sở hữu thì biết.
+Mức độ tồn dư: **thấp**, phụ thuộc vào việc chủ sở hữu có muốn giữ nguyên lịch sử git hay thực hiện quy trình xoá lịch sử riêng trước khi quảng bá rộng rãi cho Mission-B.
 
-> **This is the one section I cannot call clean.** Forty-one test files mention the nickname; eleven literal `nickname: "Tài"` fixtures across seven test files each carry `birthYear: 2016`, `grade: 4`, and `timezone: "Asia/Ho_Chi_Minh"`. That is not full personal data under the project's own absence policy — no legal name, no full date of birth, no school, no address, no phone. But nickname plus birth year plus grade plus timezone is a four-field set that narrows to one specific child in a small population. The risk is not "data leak"; it is "a name attached to a learning record". Severity: **low to moderate**, entirely dependent on whether the nickname is recognizable off-line — which I cannot check and the owner can.
+> **Working-tree fixtures are now clean (Issue #62), while git history remains untouched by design.** Literal `nickname: "Tài"` test fixtures dropped from 11 across 7 files to **0**, `birthYear: 2016` fixtures dropped to **0**, and `backup-tai` operational examples dropped to **0**, guarded on every test run by `test/unit/no-child-identifier-fixtures.test.ts`. Total tracked files matching the substring `"Tài"` dropped from 54 to **36** (Vietnamese vocabulary like `"Tài liệu"` / `"Tài khoản"` / `"Tài Năng"`, household UI copy in `src/`, and historical `plans/` + `docs/audits/` records). Residual R4 exposure is limited to pre-#62 public git commit history and product naming, which only the owner can decide whether to rewrite before promoting Mission-B.
 
 ---
 
@@ -129,12 +129,12 @@ Mức độ: **thấp đến trung bình**, phụ thuộc hoàn toàn vào việ
 | R1 | Đối thủ sao chép 50 bài học + đáp án | Chắc chắn | Trung bình | **Chấp nhận** — xem §6 |
 | R2 | Đối thủ sao chép luật chấm điểm / tham số FSRS | Chắc chắn | Thấp | **Chấp nhận** — luật chấm điểm không phải bí mật cạnh tranh |
 | R3 | Kẻ tấn công dùng danh sách HOLD trong audit matrix để dò | Chắc chắn | Thấp | **Chấp nhận** — server chưa chạy công khai, nên chưa có gì để dò |
-| R4 | Biệt danh + năm sinh + lớp đủ để nhận dạng một đứa trẻ | Thấp | Trung bình–cao | **Mở** — §4 |
+| R4 | Biệt danh + năm sinh + lớp trong lịch sử git cũ đủ để nhận dạng một đứa trẻ | Thấp | Thấp–trung bình | **Đã giảm thiểu trên HEAD** (0 fixture trong cây mã + guard test; chỉ còn lịch sử git trước #62) — §4 |
 | R5 | Người khác dùng mã mà không có giấy phép rồi tranh chấp | Thấp | Trung bình | **Chấp nhận** — không có LICENSE nghĩa là không có quyền dùng |
-| R6 | Rò rỉ tương lai qua commit (bí mật, dữ liệu thật) | Thấp | Cao | **Đã kiểm soát** — `.gitignore` + 0 chuỗi bí mật trong 58 commit |
+| R6 | Rò rỉ tương lai qua commit hoặc gói build (bí mật, dữ liệu thật) | Thấp | Cao | **Đã kiểm soát** — `.gitignore` + `build-no-secrets.test.ts` + 0 chuỗi bí mật trong 59 commit |
 | R7 | Mission-B bị kích hoạt nhầm qua cấu hình công khai | Rất thấp | Cao | **Đã đóng** — firewall + guard test, xem §7 |
 
-> **R4 is the only row still open.** Everything else is either accepted with a stated reason or already closed by a mechanism. R7 in particular is closed by construction: the commercial config points at an entry point that does not exist and names a binding no household code declares.
+> **R4 is mitigated on HEAD and bounded to pre-#62 git history.** Working-tree test fixtures, CLI scripts, and active docs no longer carry the household nickname + 2016 birth-year tuple, and `no-child-identifier-fixtures.test.ts` blocks regressions. R6 additionally guards `npm run build` output via `build-no-secrets.test.ts`, and R7 remains closed by construction.
 
 ---
 
@@ -162,7 +162,7 @@ Mission-B **chưa kích hoạt**. Cơ chế giữ nó như vậy:
 | 3 | Binding tên `MISSION_B_DB`, khác `DB`; không mã nào trong `src/` bind nó | `wrangler.mission-b.jsonc:43` |
 | 4 | `database_id: "unprovisioned-mission-b"` — không phải UUID Cloudflare, không thể resolve | `wrangler.mission-b.jsonc:45` |
 | 5 | `keep_vars: false` — không thừa hưởng biến dashboard của Worker gia đình | `wrangler.mission-b.jsonc:40` |
-| 6 | 13 test tĩnh canh giữ cả 5 lớp trên | `test/unit/mission-b-firewall.test.ts` |
+| 6 | 19 test tĩnh canh giữ cả 5 lớp trên | `test/unit/mission-b-firewall.test.ts` |
 
 Ba điều kiện tiên quyết để kích hoạt, ghi tại `docs/ROADMAP_90_DAYS.md:56-62`: (1) chủ sở hữu ký văn bản thu hồi ràng buộc `LOCAL ONLY`; (2) ký duyệt pháp lý về quyền riêng tư trẻ em; (3) cấp phát bí mật production qua Worker secrets. Cho tới khi cả ba được ký, tệp cấu hình này **trơ**.
 
@@ -172,24 +172,22 @@ Ba điều kiện tiên quyết để kích hoạt, ghi tại `docs/ROADMAP_90_D
 
 ## 8. Khuyến nghị (Recommendations)
 
-**Khuyến nghị chính: giữ nguyên hiện trạng trong đợt này.** Không đổi biệt danh trong 7 tệp kiểm thử bây giờ, vì:
+**Trạng thái sau Issue `#62`: Lựa chọn A đã được thực thi trên cây mã hiện hành.**
 
-- Việc đổi là thao tác cơ học 7 tệp, làm được bất cứ lúc nào trong vài phút, không phụ thuộc gì.
-- Làm bây giờ sẽ đụng vào 7 tệp kiểm thử đang xanh ngay trước khi mở PR — rủi ro nhiễu cao hơn lợi ích.
-- Thời điểm lợi ích xuất hiện là **trước khi repo được quảng bá cho Mission-B**, không phải hôm nay.
+- Toàn bộ fixture kiểm thử, kịch bản CLI và tài liệu vận hành đã chuyển sang `"Bé Mẫu"`, `birthYear: 2017` và `backup-mau`, có kiểm thử tự động `test/unit/no-child-identifier-fixtures.test.ts` chặn tái phát.
+- **Không** tự động viết lại lịch sử git công khai (vì thao tác force-push/filter-repo là bất khả hồi và thuộc quyền quyết định riêng của chủ sở hữu).
 
-**Điều kiện đổi ý:** nếu chủ sở hữu xác nhận biệt danh `Tài` nhận dạng được ngoài đời (tên thật, tên ở trường, tên trên mạng xã hội), thì việc đổi phải làm **trước** bất kỳ bước nào dưới đây, và tôi khuyến nghị đổi ngay.
-
-Hai lựa chọn nếu cần đổi, xếp theo chi phí:
+Hai quyết định còn lại trước khi quảng bá rộng rãi cho Mission-B, xếp theo chi phí:
 
 | Lựa chọn | Việc phải làm | Chi phí | Ghi chú |
 |---|---|---|---|
-| **A. Đổi biệt danh fixture** (khuyến nghị nếu cần) | Thay `"Tài"` → `"Bé Mẫu"` trong 7 tệp kiểm thử và `backup-tai` → `backup-mau` trong 7 tệp tài liệu/kịch bản | ~15 phút, cơ học, không đổi hành vi | Giữ nguyên `birthYear`/`grade`/`timezone` — ba trường đó không nhận dạng ai |
+| **A1. Giữ nguyên lịch sử git hiện tại** (mặc định nếu biệt danh không nhạy cảm ngoài đời) | Không cần thao tác thêm trên git | 0 phút | Cây mã HEAD đã sạch fixture; guard test giữ cho các commit mới sạch |
+| **A2. Làm sạch lịch sử git hoặc chuyển sang repo mới khi tách Mission-B** | Chạy quy trình viết lại lịch sử / tạo repo thương mại mới từ snapshot sạch khi chủ sở hữu yêu cầu | Quyết định một chiều của chủ sở hữu | Chỉ thực hiện khi chủ sở hữu phê duyệt tường minh |
 | **B. Chuyển repo sang private** | Đổi `visibility` qua `gh` | 1 lệnh, nhưng **đảo ngược quyết định của chủ sở hữu** | Chỉ làm khi chủ sở hữu yêu cầu; tài liệu này không đề nghị |
 
 Việc **không** nên làm: thêm `LICENSE` kiểu MIT/Apache "cho đẹp". Hiện tại không có giấy phép nghĩa là không ai có quyền dùng; thêm giấy phép mở sẽ **trao** quyền đó, đúng ngược lại mục tiêu thương mại của Mission-B.
 
-> **Recommendation: leave it as is for this run.** The fixture rename is a seven-file mechanical edit that can happen any time in fifteen minutes; doing it now would touch seven currently-green test files immediately before a pull request, trading real risk of noise for a benefit that only materialises when the repository is promoted for Mission-B. The one thing not to do is add an MIT or Apache licence "to look proper" — today the absence of a licence means nobody may use the code; adding one would grant that right, which is the opposite of Mission-B's commercial intent.
+> **Post-Issue #62 status: Option A is complete on HEAD.** All test fixtures, CLI scripts, and active operational docs now use neutral placeholders (`"Bé Mẫu"`, `birthYear: 2017`, `backup-mau`), enforced by `test/unit/no-child-identifier-fixtures.test.ts`. Git history was intentionally left unrewritten; rewriting history or starting Mission-B from a clean snapshot remains an explicit owner decision. Do not add an MIT or Apache licence "to look proper" — the absence of a licence preserves all rights by default.
 
 ---
 

@@ -205,6 +205,104 @@ export function scheduleReview(
 }
 
 /**
+ * Raw attempt fields needed to reconstruct `ReviewDecision` at read time from
+ * the append-only `learning_attempts` ledger without adding a mutable reason
+ * column to `review_schedule`.
+ */
+export type RawSkillAttempt = {
+  attemptId: string;
+  skillId: string;
+  outcome: AttemptEvidence["outcome"];
+  helpLevel: number;
+  evidenceKind: AttemptEvidence["evidenceKind"];
+  attemptNo?: number;
+  isTransfer: boolean;
+  createdAt: number;
+};
+
+/**
+ * Replays a skill's chronological official attempts step-by-step, tracking
+ * `priorDue` before each attempt exactly as `recordAttemptWithDerivation` did
+ * when writing `review_schedule`, and returns the resulting `ReviewDecision`.
+ */
+export function replaySkillReviewDecision(
+  rawAttempts: readonly RawSkillAttempt[],
+): ReviewDecision | null {
+  if (rawAttempts.length === 0) return null;
+
+  const ordered = [...rawAttempts].sort((a, b) => a.createdAt - b.createdAt);
+  let priorDue: number | null = null;
+  let lastDecision: ReviewDecision | null = null;
+
+  for (let i = 0; i < ordered.length; i += 1) {
+    const current = ordered[i]!;
+    const windowEvidence: AttemptEvidence[] = ordered.slice(0, i + 1).map((a) => ({
+      attemptId: a.attemptId,
+      skillId: a.skillId,
+      outcome: a.outcome,
+      helpLevel: a.helpLevel,
+      evidenceKind: a.evidenceKind,
+      attemptNo: a.attemptNo,
+      isTransfer: a.isTransfer,
+      isReview: priorDue !== null && a.createdAt >= priorDue,
+      createdAt: a.createdAt,
+    }));
+
+    const decision = scheduleReview(windowEvidence, current.createdAt);
+    if (decision) {
+      priorDue = decision.dueAt;
+      lastDecision = decision;
+    }
+  }
+
+  return lastDecision;
+}
+
+/**
+ * Single owner for turning a stored `review_schedule` row plus the learner's
+ * attempt history into a Vietnamese explanation (`reasonVi`) for read routes.
+ *
+ * When a matching `ReviewDecision` can be replayed from `learning_attempts`, its
+ * exact `reasonVi` is returned. If a schedule row was imported or seeded
+ * without matching correct attempts, falls back to the stored `lastResult` and
+ * `failureStreak` fields using the same engine wording rules.
+ */
+export function deriveStoredScheduleReasonVi(
+  rawAttempts: readonly RawSkillAttempt[],
+  stored: {
+    dueAt?: number;
+    intervalDays: number;
+    lastResult: "passed" | "failed" | null;
+    failureStreak: number;
+  },
+): string {
+  const replayed = replaySkillReviewDecision(rawAttempts);
+  if (
+    replayed &&
+    replayed.intervalDays === stored.intervalDays &&
+    replayed.failureStreak === stored.failureStreak &&
+    (stored.dueAt === undefined || replayed.dueAt === stored.dueAt)
+  ) {
+    return replayed.reasonVi;
+  }
+
+  if (
+    stored.lastResult === "failed" &&
+    stored.intervalDays === REVIEW_CONFIG.failureRetryDays &&
+    stored.failureStreak > 0
+  ) {
+    return `Em chưa nhớ kỹ năng ở lần ôn tập gần nhất, cần ôn lại sau ${stored.intervalDays} ngày.`;
+  }
+  if (stored.intervalDays === REVIEW_CONFIG.failureRetryDays && stored.failureStreak > 0) {
+    return "Em cần ôn lại sớm vì lần làm gần nhất chưa tự làm được.";
+  }
+  if (stored.failureStreak > 0) {
+    return `Em đã vượt qua sau ${stored.failureStreak} lần chưa đạt; FSRS tính chu kỳ ${stored.intervalDays} ngày.`;
+  }
+  return `Em làm độc lập được; FSRS tính chu kỳ ${stored.intervalDays} ngày.`;
+}
+
+/**
  * The stored form of the memory estimate (layer 3 of the four-layer model).
  *
  * Every field here is a number FSRS computed from `learning_attempts`; the two

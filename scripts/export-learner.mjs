@@ -15,9 +15,9 @@
  *
  * Usage:
  *   npm run export:learner
- *   npm run export:learner -- ./backup-tai.json
- *   npm run export:learner -- ./backup-tai.enc.json --passphrase "<secret>"
- *   npm run export:learner -- ./backup-tai.json --target-root <dir>
+ *   npm run export:learner -- ./backup-mau.json
+ *   npm run export:learner -- ./backup-mau.enc.json --passphrase "<secret>"
+ *   npm run export:learner -- ./backup-mau.json --target-root <dir>
  *     (read <dir>/.wrangler/state/v3/d1/miniflare-D1DatabaseObject instead of the current working directory)
  */
 import { existsSync, readdirSync, realpathSync, writeFileSync } from "node:fs";

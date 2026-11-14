@@ -46,7 +46,7 @@ here even though the SQL for them appears twice in `migrations/`.
 | Table | Purpose | Notable columns |
 |---|---|---|
 | `parents` | The adult account. **One row in the local MVP.** | `password_hash` (PBKDF2-SHA256 record — see §6), `display_name`, `created_at`, `updated_at` |
-| `learners` | The child. **Display name only.** | `nickname` (e.g. "Tai"), `birth_year` (year only, optional), `grade` (optional), `timezone` DEFAULT `'Asia/Ho_Chi_Minh'`, `archived_at` (null = active; soft delete) |
+| `learners` | The child. **Display name only.** | `nickname` (e.g. "Bé Mẫu"), `birth_year` (year only, optional), `grade` (optional), `timezone` DEFAULT `'Asia/Ho_Chi_Minh'`, `archived_at` (null = active; soft delete) |
 | `school_years` | Groups a record by school year so it stays meaningful across years. | `label` (e.g. "2026-2027"), `starts_on` / `ends_on` (ISO `YYYY-MM-DD`), UNIQUE `(learner_id, label)` |
 
 ### Security & trust (`0003`, `0005`)

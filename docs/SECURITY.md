@@ -47,7 +47,7 @@ TAI LEARNING OS operates as a local-first system serving a household. Its threat
 
 1. **Zero High-Risk Child Identifiers**:
    - No legal names, phone numbers, email addresses, or physical addresses are stored.
-   - Child profile only contains a friendly nickname (e.g., "Tài"), birth year (for age-appropriate grade defaults), and timezone.
+   - Child profile only contains a friendly nickname (e.g., "Bé Mẫu"), birth year (for age-appropriate grade defaults), and timezone.
 2. **Local Storage Only**:
    - Database lives in local Cloudflare D1 (SQLite) under the user's local operating system profile.
    - No remote analytics, telemetry beacons, crash reporting pings, or AI training pipelines exist.

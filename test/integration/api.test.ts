@@ -365,7 +365,7 @@ describe("privilege boundary — child mode (mode: 'learner') vs parent mode (mo
       }),
       await call("/api/parent/learners", {
         method: "POST",
-        json: { nickname: "Bé 2", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+        json: { nickname: "Bé 2", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
       }),
       await call("/api/parent/learners/profile", {
         method: "PATCH",
@@ -394,7 +394,7 @@ describe("privilege boundary — child mode (mode: 'learner') vs parent mode (mo
       await call("/api/data/import", { method: "POST", json: {} }),
       await call("/api/data/learner", {
         method: "DELETE",
-        json: { learnerId: "any", confirmation: "XOA Tài" },
+        json: { learnerId: "any", confirmation: "XOA Bé Mẫu" },
       }),
     ];
 
@@ -445,7 +445,7 @@ describe("curriculum, baseline and 4-week planner API contracts", () => {
     // Enroll learner
     await call("/api/parent/learners", {
       method: "POST",
-      json: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+      json: { nickname: "Bé Mẫu", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
     });
 
     const getRes = await call("/api/parent/curriculum");

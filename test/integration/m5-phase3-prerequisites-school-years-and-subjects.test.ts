@@ -131,18 +131,18 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
       .prepare(
         "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
       )
-      .bind("parent-m5", "Mẹ Tài", passHash, now)
+      .bind("parent-m5", "Mẹ Mẫu", passHash, now)
       .run();
 
     await env.DB
       .prepare(
         "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 4, ?4, ?4)",
       )
-      .bind("learner-tai", "parent-m5", "Tài", now)
+      .bind("learner-mau", "parent-m5", "Bé Mẫu", now)
       .run();
 
-    const parentJar = await createAuthenticatedJar("parent-m5", "Mẹ Tài", "parent");
-    const learnerJar = await createAuthenticatedJar("parent-m5", "Mẹ Tài", "learner");
+    const parentJar = await createAuthenticatedJar("parent-m5", "Mẹ Mẫu", "parent");
+    const learnerJar = await createAuthenticatedJar("parent-m5", "Mẹ Mẫu", "learner");
 
     // 1. Verify initial prerequisite recommendations include foundational roots (sci-water-cycle / deb-claim-reason)
     // and do NOT prematurely recommend locked downstream skills (sci-plant-needs / deb-fact-opinion)
@@ -258,14 +258,14 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
       .prepare(
         "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
       )
-      .bind("parent-sy", "Bố Tài", passHash, now)
+      .bind("parent-sy", "Bố Mẫu", passHash, now)
       .run();
 
     await env.DB
       .prepare(
         "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 4, ?4, ?4)",
       )
-      .bind("learner-sy", "parent-sy", "Tài", now)
+      .bind("learner-sy", "parent-sy", "Bé Mẫu", now)
       .run();
 
     // Seed an active 2026-2027 school year (Grade 4)
@@ -277,8 +277,8 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
       .bind(now - 10_000)
       .run();
 
-    const parentJar = await createAuthenticatedJar("parent-sy", "Bố Tài", "parent");
-    const learnerJar = await createAuthenticatedJar("parent-sy", "Bố Tài", "learner");
+    const parentJar = await createAuthenticatedJar("parent-sy", "Bố Mẫu", "parent");
+    const learnerJar = await createAuthenticatedJar("parent-sy", "Bố Mẫu", "learner");
 
     // Approve sci-water-cycle and complete a session in 2026-2027
     await callWithJar(parentJar, "/api/parent/lessons/approval", {
@@ -418,14 +418,14 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
     const passHash = await hashPassword("ParentPass123!", 100_000);
     await env.DB
       .prepare(
-        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-m6', 'Mẹ Tài', ?1, ?2, ?2)",
+        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-m6', 'Mẹ Mẫu', ?1, ?2, ?2)",
       )
       .bind(passHash, now)
       .run();
 
     await env.DB
       .prepare(
-        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m6-1', 'parent-m6', 'Tài', 4, ?1, ?1)",
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m6-1', 'parent-m6', 'Bé Mẫu', 4, ?1, ?1)",
       )
       .bind(now - 5_000)
       .run();
@@ -456,7 +456,7 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
       .bind(now)
       .run();
 
-    const parentJar = await createAuthenticatedJar("parent-m6", "Mẹ Tài", "parent");
+    const parentJar = await createAuthenticatedJar("parent-m6", "Mẹ Mẫu", "parent");
 
     // 1. GET /api/parent/baseline returns both Grade 4 and Grade 5 diagnostics across all subjects
     const baseGetRes = await callWithJar(parentJar, "/api/parent/baseline");
@@ -562,13 +562,13 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
     const passHash = await hashPassword("ParentPass123!", 100_000);
     await env.DB
       .prepare(
-        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-m7', 'Mẹ Tài', ?1, ?2, ?2)",
+        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-m7', 'Mẹ Mẫu', ?1, ?2, ?2)",
       )
       .bind(passHash, now)
       .run();
     await env.DB
       .prepare(
-        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m7-a', 'parent-m7', 'Tài', 4, ?1, ?1)",
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-m7-a', 'parent-m7', 'Bé Mẫu', 4, ?1, ?1)",
       )
       .bind(now - 5_000)
       .run();
@@ -593,8 +593,8 @@ describe("M5 Phase 3: Prerequisite Recommendations, School-Year Continuity & Sci
       .bind(now)
       .run();
 
-    const parentJar = await createAuthenticatedJar("parent-m7", "Mẹ Tài", "parent");
-    const learnerJar = await createAuthenticatedJar("parent-m7", "Mẹ Tài", "learner");
+    const parentJar = await createAuthenticatedJar("parent-m7", "Mẹ Mẫu", "parent");
+    const learnerJar = await createAuthenticatedJar("parent-m7", "Mẹ Mẫu", "learner");
 
     // 1. Create a learning goal for Sibling A (`learner-m7-a`)
     const createRes = await callWithJar(parentJar, "/api/parent/goals", {

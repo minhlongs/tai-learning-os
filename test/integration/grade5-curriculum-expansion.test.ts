@@ -215,17 +215,17 @@ describe("Grade 5 curriculum expansion", () => {
       .prepare(
         "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
       )
-      .bind("parent-g5", "Mẹ Tài", passHash, now)
+      .bind("parent-g5", "Mẹ Mẫu", passHash, now)
       .run();
     await env.DB
       .prepare(
         "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 5, ?4, ?4)",
       )
-      .bind("learner-g5", "parent-g5", "Tài", now)
+      .bind("learner-g5", "parent-g5", "Bé Mẫu", now)
       .run();
 
-    const parentJar = await createAuthenticatedJar("parent-g5", "Mẹ Tài", "parent");
-    const learnerJar = await createAuthenticatedJar("parent-g5", "Mẹ Tài", "learner");
+    const parentJar = await createAuthenticatedJar("parent-g5", "Mẹ Mẫu", "parent");
+    const learnerJar = await createAuthenticatedJar("parent-g5", "Mẹ Mẫu", "learner");
 
     const approvalRes = await callWithJar(parentJar, "/api/parent/lessons/approval", {
       method: "POST",

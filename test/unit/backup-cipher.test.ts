@@ -24,8 +24,8 @@ function sampleEnvelope(): ExportEnvelope {
       learners: [
         {
           id: "lnr-backup-1",
-          nickname: "Tài",
-          birthYear: 2016,
+          nickname: "Bé Mẫu",
+          birthYear: 2017,
           grade: 4,
           timezone: "Asia/Ho_Chi_Minh",
           createdAt: 1_700_000_000_000,

@@ -8,7 +8,7 @@
  *
  * By default (when no `--all`, `--grade`, `--subject`, or `--lesson` filter is
  * passed), approves all lessons matching the learner's enrolled grade (e.g.
- * Grade 4 for Tài). Records both `review_approvals` and `audit_events`
+ * Grade 4 for the enrolled learner). Records both `review_approvals` and `audit_events`
  * (`lesson.approval.approved` attributed to `parent:<parentId>`) atomically in
  * a single transaction, skipping lessons already approved at their live version.
  *

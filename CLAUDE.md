@@ -12,7 +12,7 @@
 ## 1. Mission & Non-Negotiable Invariants
 
 1. **Vietnamese-First Child Learning OS**:
-   - Designed for a 4th-grade learner (`"Tài"`, age under 13, timezone `Asia/Ho_Chi_Minh`).
+   - Designed for a 4th-grade learner (age under 13, timezone `Asia/Ho_Chi_Minh`).
    - All learner-facing UI, instructions, feedback, and explanations are in Vietnamese (`Tiếng Việt`).
 2. **Zero Answer Keys in Browser**:
    - `StartSessionResponse` uses `LearnerExerciseSpec` via `toLearnerExercise()` (`src/shared/schemas/exercise.ts`), stripping all answer fields (`correct`, `correctNumerator`, `correctDenominator`, `correctChoiceId`, `evidenceSentence_vi`, `sentenceAcceptedWords`).
@@ -53,19 +53,19 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (21 files, 356 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (19 files, 202 tests)
+npm run test               # Vitest unit tests (24 files, 364 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (19 files, 203 tests)
 npm run test:e2e           # Playwright E2E browser tests (54 tests, Desktop, Tablet, Mobile)
 npm run verify             # Full typecheck + lint + unit test + validate:lessons + build
 
 # Data & Security operations (local only)
-npm run export:learner -- ./backup-tai.json
-npm run export:learner -- ./backup-tai.enc.json --passphrase "mat-khau-sao-luu"
+npm run export:learner -- ./backup-mau.json
+npm run export:learner -- ./backup-mau.enc.json --passphrase "mat-khau-sao-luu"
 npm run backup:drill       # Isolated AES-256-GCM encrypted backup & restore drill
 npm run unlock:parent      # Clear auth_throttles after accidental lockout
 npm run db:reset-data
 npm run db:reprovision-household  # Archive the current D1 files into backups/, then provision a clean household database (keeps parent, learner, school-year, and 50 lessons)
-npm run household:preflight       # Read-only preflight check of .dev.vars key presence, D1 integrity, clean-room state, and approved-lesson readiness for Tài
+npm run household:preflight       # Read-only preflight check of .dev.vars key presence, D1 integrity, clean-room state, and approved-lesson readiness for the household learner
 npm run household:approve-lessons # Idempotently approve catalogue/family lessons for the household learner (defaults to enrolled grade)
 ```
 

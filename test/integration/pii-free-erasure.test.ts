@@ -125,7 +125,7 @@ beforeEach(async () => {
 
   const enrolRes = await call("/api/parent/learners", {
     method: "POST",
-    json: { nickname: LEARNER_NICKNAME, birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+    json: { nickname: LEARNER_NICKNAME, birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
   });
   expect(enrolRes.status).toBe(200);
   const enrolled = (await enrolRes.json()) as { learner: { id: string } };

@@ -26,7 +26,7 @@ npm run household:preflight
 Lệnh sẽ trả về báo cáo JSON xác nhận:
 - Tệp cấu hình `.dev.vars` đã có đầy đủ khóa bảo mật phiên và mật khẩu phụ huynh.
 - Cơ sở dữ liệu D1 cục bộ nguyên vẹn (`integrityCheck: "ok"`), đúng phiên bản lược đồ mới nhất (`schemaVersion` ≥ 15) và đủ 50 bài học trong danh mục.
-- Hồ sơ hộ gia đình sạch tuyệt đối (chỉ có 1 phụ huynh, 1 học sinh `"Tài"`, 0 trung tâm/lớp học mô phỏng).
+- Hồ sơ hộ gia đình sạch tuyệt đối (chỉ có 1 phụ huynh, 1 học sinh đã đăng ký, 0 trung tâm/lớp học mô phỏng).
 - Trạng thái `readyForLearnerSession: true` (đã có bài học được phụ huynh duyệt cho bé).
 
 ### 1.2 Nếu lệnh kiểm tra báo "schemaVersion" quá cũ (If preflight refuses on schemaVersion)
@@ -45,7 +45,7 @@ npm run household:preflight   # chạy lại để xác nhận đã sẵn sàng
 
 ## 2. Quản Trị Bài Học & Phê Duyệt Nội Dung (Lesson Approval)
 
-Mặc định, khi bài học mới được đưa vào hệ thống, bài học ở trạng thái **Bản nháp (Draft)** hoặc **Chưa duyệt**. Bé Tài sẽ **không nhìn thấy** bài học này trong danh sách môn học cho đến khi phụ huynh duyệt.
+Mặc định, khi bài học mới được đưa vào hệ thống, bài học ở trạng thái **Bản nháp (Draft)** hoặc **Chưa duyệt**. Con sẽ **không nhìn thấy** bài học này trong danh sách môn học cho đến khi phụ huynh duyệt.
 
 ### Các bước phê duyệt trên giao diện web:
 1. Đăng nhập vào hệ thống và nhấn vào menu **"Quản lý bài học"** (`/parent/lessons`).
@@ -56,7 +56,7 @@ Mặc định, khi bài học mới được đưa vào hệ thống, bài học
 ### Phê duyệt nhanh hàng loạt từ Terminal (`npm run household:approve-lessons`):
 Nếu phụ huynh muốn duyệt nhanh toàn bộ các bài học theo khối lớp của bé (mặc định là **Lớp 4** với 25 bài học thuộc 5 môn học) mà không cần bấm từng bài trên giao diện web:
 ```bash
-# Duyệt toàn bộ bài học thuộc khối lớp của bé Tài (mặc định Lớp 4)
+# Duyệt toàn bộ bài học thuộc khối lớp của con (mặc định Lớp 4)
 npm run household:approve-lessons
 
 # Hoặc duyệt theo bộ lọc cụ thể (theo khối lớp, môn học, mã bài học, hoặc toàn bộ 50 bài Lớp 4–5)
@@ -100,8 +100,8 @@ Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
 - Nhấn nút **"Tải tệp sao lưu"** trên giao diện (`/parent/data`), hoặc nhập mật khẩu bảo vệ (tối thiểu 8 ký tự) vào ô **"Mật khẩu mã hóa bản sao lưu"** rồi nhấn **"Tải tệp sao lưu mã hóa AES-256-GCM"** (`PBKDF2-SHA256` 600.000 vòng + `AES-256-GCM`).
 - Từ terminal, phụ huynh có thể xuất bản sao lưu JSON tiêu chuẩn hoặc bản mã hóa:
   ```bash
-  npm run export:learner -- ./backup-tai-$(date +%Y%m%d).json
-  npm run export:learner -- ./backup-tai-$(date +%Y%m%d).enc.json --passphrase "mat-khau-sao-luu"
+  npm run export:learner -- ./backup-mau-$(date +%Y%m%d).json
+  npm run export:learner -- ./backup-mau-$(date +%Y%m%d).enc.json --passphrase "mat-khau-sao-luu"
   ```
 - **Khác biệt cần biết về nhật ký kiểm toán:** bản sao lưu tải từ giao diện (`/parent/data`) được ghi lại một dòng `data.exported` trong nhật ký kiểm toán. Bản sao lưu chạy từ terminal (`npm run export:learner`) **không** ghi dòng này, vì lệnh terminal được thiết kế chỉ đọc tuyệt đối — nó không thay đổi một byte nào trong cơ sở dữ liệu. Việc sao lưu từ terminal vẫn tạo ra đúng một tệp như lúc tải từ giao diện; chỉ có dấu vết trong nhật ký là khác. Nếu phụ huynh cần dấu vết trong nhật ký, hãy xuất bản sao lưu từ trang "Quản lý dữ liệu".
 - Để kiểm tra định kỳ quy trình sao lưu, giải mã, chống giả mạo và khôi phục dữ liệu trong cơ sở dữ liệu cô lập:
@@ -116,7 +116,7 @@ Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
 
 ### 3. Xóa vĩnh viễn hồ sơ (Hard Delete)
 - Nếu muốn xóa sạch toàn bộ lịch sử học tập của bé để bắt đầu lại:
-  - Nhập chính xác chuỗi xác nhận: `XOA Tài`
+  - Nhập chính xác chuỗi xác nhận: `XOA <biệt danh>` (ví dụ: `XOA Bé Mẫu`)
   - Nhấn **"Xác nhận xóa vĩnh viễn"**.
   - Toàn bộ dữ liệu phiên học, câu trả lời và năng lực sẽ được dọn dẹp sạch sẽ khỏi máy.
 
@@ -124,10 +124,10 @@ Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
 - Do bảng nhật ký kiểm toán `audit_events` được bảo vệ chỉ-ghi-thêm (append-only) bởi trigger SQLite, lệnh xóa dữ liệu thông thường (`npm run db:reset-data`) sẽ chủ động từ chối chạy khi đã có dòng nhật ký trong cơ sở dữ liệu.
 - Nếu cơ sở dữ liệu cục bộ vô tình bị lẫn dữ liệu thử nghiệm hoặc phụ huynh muốn làm mới hoàn toàn môi trường học tập mà vẫn giữ lại hồ sơ định danh của gia đình:
   ```bash
-  # Lưu trữ nguyên vẹn tệp SQLite hiện tại vào thư mục backups/ và cấp phát lại DB sạch (giữ lại Phụ huynh, bé Tài, Năm học và 50 bài học)
+  # Lưu trữ nguyên vẹn tệp SQLite hiện tại vào thư mục backups/ và cấp phát lại DB sạch (giữ lại Phụ huynh, học sinh đã đăng ký, Năm học và 50 bài học)
   npm run db:reprovision-household
 
-  # Hoặc cấp phát lại DB sạch kèm duyệt sẵn toàn bộ bài học theo khối lớp của bé Tài
+  # Hoặc cấp phát lại DB sạch kèm duyệt sẵn toàn bộ bài học theo khối lớp của con
   npm run db:reprovision-household -- --approve-grade-lessons
   ```
 - **Cam kết bảo toàn bằng chứng:** Bước 1 của lệnh này mở tệp SQLite cũ ở chế độ **chỉ-đọc tuyệt đối (`readOnly: true`)** để trích xuất thông tin định danh trước khi di chuyển toàn bộ tệp sang `backups/household-db-archive-<timestamp>/`, đảm bảo mã băm SHA-256 của bản lưu trữ không thay đổi một byte nào.

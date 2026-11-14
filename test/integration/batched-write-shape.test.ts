@@ -58,7 +58,7 @@ import { openTestDatabase, type TestProxy } from "./test-db";
 const ORIGIN = "http://localhost";
 const PASSWORD = "MatKhauBiMat2026";
 const DISPLAY_NAME = "Phụ huynh";
-const LEARNER_NICKNAME = "Tài";
+const LEARNER_NICKNAME = "Bé Mẫu";
 const TEST_SECRET = "integration-only-not-a-real-secret-value";
 
 /**
@@ -319,7 +319,7 @@ beforeEach(async () => {
 
   const enrolRes = await call("/api/parent/learners", {
     method: "POST",
-    json: { nickname: LEARNER_NICKNAME, birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+    json: { nickname: LEARNER_NICKNAME, birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
   });
   expect(enrolRes.status).toBe(200);
   learnerId = ((await enrolRes.json()) as { learner: { id: string } }).learner.id;
