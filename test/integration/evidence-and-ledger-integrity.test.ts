@@ -52,7 +52,7 @@ const MIGRATIONS_DIR = join(HERE, "..", "..", "migrations");
 const ORIGIN = "http://localhost";
 const PASSWORD = "MatKhauBiMat2026";
 const DISPLAY_NAME = "Phụ huynh";
-const LEARNER_NICKNAME = "Tài";
+const LEARNER_NICKNAME = "Bé Mẫu";
 const TEST_SECRET = "integration-only-not-a-real-secret-value";
 
 type Env = { DB: D1Database; SESSION_SECRET: string; ENVIRONMENT?: string };
@@ -190,7 +190,7 @@ beforeEach(async () => {
 
   const enrolRes = await call("/api/parent/learners", {
     method: "POST",
-    json: { nickname: LEARNER_NICKNAME, birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+    json: { nickname: LEARNER_NICKNAME, birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
   });
   expect(enrolRes.status).toBe(200);
   const enrolled = (await enrolRes.json()) as { learner: { id: string } };
@@ -899,7 +899,7 @@ describe("cross-session hint disclosure floor and session-scoped hint validation
       id: otherLearnerId,
       parentId: otherParentId,
       nickname: "Bé B",
-      birthYear: 2016,
+      birthYear: 2017,
       grade: 4,
       timezone: "Asia/Ho_Chi_Minh",
       now: Date.now(),
@@ -1338,7 +1338,7 @@ describe("schema v3 to v4 migration upgrade compatibility", () => {
       .bind(now)
       .run();
     await env.DB.prepare(
-      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('l1', 'p1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)",
+      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('l1', 'p1', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)",
     )
       .bind(now)
       .run();
@@ -1395,7 +1395,7 @@ describe("schema v3 to v4 migration upgrade compatibility", () => {
       .bind(now)
       .run();
     await env.DB.prepare(
-      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('l1', 'p1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)",
+      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('l1', 'p1', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)",
     )
       .bind(now)
       .run();

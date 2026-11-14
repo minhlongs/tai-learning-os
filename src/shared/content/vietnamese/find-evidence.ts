@@ -88,7 +88,7 @@ export const findEvidence: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
-        "Câu này có tên “cả lớp” và kể đủ các việc đào hố, cắm cây, lấp đất, tưới nước, nên nó chứng minh mọi người cùng làm với nhau. Câu a nói về việc cô phát đồ, còn câu d nói về việc chăm sóc sau này, cả hai chỉ là một phần của hoạt động.",
+        "Câu “Cả lớp đào hố, cắm cây rồi lấp đất và tưới nước.” nêu rõ “cả lớp” và kể đủ các việc cùng làm với nhau. Câu nói cô giáo chia cây giống chỉ kể lúc phát dụng cụ, còn câu hứa chăm sóc cây nói về dự định sau này.",
     },
     {
       position: 4,
@@ -109,7 +109,7 @@ export const findEvidence: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Câu b mô tả chính hành động chứng minh sự kiên nhẫn: Lan ngồi im và làm quen dần với con thỏ. Câu a và c chỉ nói về tính nhút nhát của con thỏ, còn câu d là câu kết luận của tác giả, không cho thấy Lan đã làm gì.",
+        "Câu “Lan ngồi im bên chuồng đọc truyện để con thỏ quen với mình.” mô tả chính hành động chứng minh sự kiên nhẫn của Lan. Hai câu tả con thỏ nhút nhát thu mình trong góc chuồng chỉ nói về con thỏ, còn câu kết bài chỉ nêu kết quả chứ không cho thấy Lan đã làm gì.",
     },
     {
       position: 5,
@@ -130,7 +130,7 @@ export const findEvidence: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
-        "Câu này có đủ hai phần: Bin định bỏ về và các bạn động viên Bin tiếp tục chơi, nên nó chứng minh đúng điều được hỏi. Câu a kể kết quả sau này, câu c chỉ nói về chấn thương của Bin, còn câu b nói về tinh thần thể thao giữa hai đội.",
+        "Câu “Bin định bỏ về nhưng các bạn trong đội động viên Bin đứng dậy tiếp tục chơi.” nêu rõ việc các bạn động viên Bin, nên chứng minh đúng điều được hỏi. Câu ghi bàn ở hiệp hai kể kết quả sau này, câu Bin ngã chảy máu đầu gối chỉ nói về chấn thương, còn câu hai đội bắt tay nhau nói về tinh thần thể thao cuối trận.",
     },
     {
       position: 6,
@@ -151,7 +151,7 @@ export const findEvidence: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
-        "Câu này nói rõ mọi người trong phố khen ngợi khi thấy các em giúp đỡ, nên nó chứng minh công việc được ghi nhận. Câu cũng là một tín hiệu, nhưng nó cho thấy kết quả kéo theo, không nói trực tiếp về lời khen; nếu em chọn c, em cần nối thêm một bước suy luận của riêng mình.",
+        "Câu “Thấy mấy cháu nhỏ giúp đỡ, mọi người trong phố đều tấm tắc khen.” nói rõ mọi người khen ngợi khi thấy các em giúp đỡ, nên chứng minh trực tiếp việc được ghi nhận. Câu kể có thêm nhiều em tham gia dọn dẹp mỗi cuối tuần chỉ cho thấy kết quả kéo theo, chưa nói trực tiếp về lời khen nên cần nối thêm một bước suy luận.",
     },
   ],
 };

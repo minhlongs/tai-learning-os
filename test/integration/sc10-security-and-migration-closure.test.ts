@@ -137,13 +137,13 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
         .prepare(
           "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
         )
-        .bind("parent-1", "Mẹ Tài", passHash, dbStartNow)
+        .bind("parent-1", "Mẹ Mẫu", passHash, dbStartNow)
         .run();
       await env.DB
         .prepare(
           "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 4, ?4, ?4)",
         )
-        .bind("learner-1", "parent-1", "Tài", dbStartNow)
+        .bind("learner-1", "parent-1", "Bé Mẫu", dbStartNow)
         .run();
 
       await env.DB.batch([
@@ -325,13 +325,13 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
         .prepare(
           "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
         )
-        .bind("parent-b", "Bố Tài", passHash, now)
+        .bind("parent-b", "Bố Mẫu", passHash, now)
         .run();
       await env.DB
         .prepare(
           "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 4, ?4, ?4)",
         )
-        .bind("learner-b", "parent-b", "Tài", now)
+        .bind("learner-b", "parent-b", "Bé Mẫu", now)
         .run();
 
       const stepContexts = await loadStepContexts(env.DB, "math-fractions-equivalent", 1);
@@ -446,7 +446,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
         .bind(cutoffNow)
         .run();
 
-      const learnerJar = await createAuthenticatedJar("parent-b", "Bố Tài", "learner");
+      const learnerJar = await createAuthenticatedJar("parent-b", "Bố Mẫu", "learner");
 
       const hintRes = await callWithJar(learnerJar, "/api/learner/hints", {
         method: "POST",
@@ -532,19 +532,19 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const passHash = await hashPassword("ParentPass123!", 100_000);
       await env.DB
         .prepare(
-          "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-c', 'Mẹ Tài', ?1, ?2, ?2)",
+          "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-c', 'Mẹ Mẫu', ?1, ?2, ?2)",
         )
         .bind(passHash, now)
         .run();
       await env.DB
         .prepare(
-          "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-c', 'parent-c', 'Tài', 4, ?1, ?1)",
+          "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-c', 'parent-c', 'Bé Mẫu', 4, ?1, ?1)",
         )
         .bind(now)
         .run();
 
-      const parentJar = await createAuthenticatedJar("parent-c", "Mẹ Tài", "parent");
-      const learnerJar = await createAuthenticatedJar("parent-c", "Mẹ Tài", "learner");
+      const parentJar = await createAuthenticatedJar("parent-c", "Mẹ Mẫu", "parent");
+      const learnerJar = await createAuthenticatedJar("parent-c", "Mẹ Mẫu", "learner");
 
       // Order 1: Approve -> Revoke -> Start (Revoke commits before Start)
       await callWithJar(parentJar, "/api/parent/lessons/approval", {
@@ -612,19 +612,19 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const passHash = await hashPassword("ParentPass123!", 100_000);
       await env.DB
         .prepare(
-          "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-v', 'Mẹ Tài', ?1, ?2, ?2)",
+          "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-v', 'Mẹ Mẫu', ?1, ?2, ?2)",
         )
         .bind(passHash, now)
         .run();
       await env.DB
         .prepare(
-          "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-v', 'parent-v', 'Tài', 4, ?1, ?1)",
+          "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-v', 'parent-v', 'Bé Mẫu', 4, ?1, ?1)",
         )
         .bind(now)
         .run();
 
-      const parentJar = await createAuthenticatedJar("parent-v", "Mẹ Tài", "parent");
-      const learnerJar = await createAuthenticatedJar("parent-v", "Mẹ Tài", "learner");
+      const parentJar = await createAuthenticatedJar("parent-v", "Mẹ Mẫu", "parent");
+      const learnerJar = await createAuthenticatedJar("parent-v", "Mẹ Mẫu", "learner");
 
       // Fork catalogue lesson into a family practice lesson so parent can edit versions
       const forkRes = await callWithJar(parentJar, "/api/parent/lessons/fork", {
@@ -762,19 +762,19 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       const passHash = await hashPassword("ParentPass123!", 100_000);
       await env.DB
         .prepare(
-          "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-imp', 'Mẹ Tài', ?1, ?2, ?2)",
+          "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES ('parent-imp', 'Mẹ Mẫu', ?1, ?2, ?2)",
         )
         .bind(passHash, now)
         .run();
       await env.DB
         .prepare(
-          "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-imp', 'parent-imp', 'Tài', 4, ?1, ?1)",
+          "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('learner-imp', 'parent-imp', 'Bé Mẫu', 4, ?1, ?1)",
         )
         .bind(now)
         .run();
 
-      const parentJar = await createAuthenticatedJar("parent-imp", "Mẹ Tài", "parent");
-      const learnerJar = await createAuthenticatedJar("parent-imp", "Mẹ Tài", "learner");
+      const parentJar = await createAuthenticatedJar("parent-imp", "Mẹ Mẫu", "parent");
+      const learnerJar = await createAuthenticatedJar("parent-imp", "Mẹ Mẫu", "learner");
 
       // Export baseline envelope
       const exportRes = await callWithJar(parentJar, "/api/data/export", { method: "POST" });
@@ -836,10 +836,10 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
         },
       ];
 
-      // Delete existing learner first with exact confirmation nickname ("XOA Tài") so we import cleanly
+      // Delete existing learner first with exact confirmation nickname ("XOA Bé Mẫu") so we import cleanly
       const delRes = await callWithJar(parentJar, "/api/data/learner", {
         method: "DELETE",
-        json: { learnerId: "learner-imp", confirmation: "XOA Tài" },
+        json: { learnerId: "learner-imp", confirmation: "XOA Bé Mẫu" },
       });
       expect(delRes.status).toBe(200);
 
@@ -891,7 +891,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       expect(currentLearner).not.toBeNull();
       const del2Res = await callWithJar(parentJar, "/api/data/learner", {
         method: "DELETE",
-        json: { learnerId: currentLearner!.id, confirmation: "XOA Tài" },
+        json: { learnerId: currentLearner!.id, confirmation: "XOA Bé Mẫu" },
       });
       expect(del2Res.status).toBe(200);
 
@@ -943,7 +943,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
       expect(currentLearner3).not.toBeNull();
       const del3Res = await callWithJar(parentJar, "/api/data/learner", {
         method: "DELETE",
-        json: { learnerId: currentLearner3!.id, confirmation: "XOA Tài" },
+        json: { learnerId: currentLearner3!.id, confirmation: "XOA Bé Mẫu" },
       });
       expect(del3Res.status).toBe(200);
 
@@ -1049,7 +1049,7 @@ describe("Supreme Command #10 — Write-Boundary Cutoff, Atomic Version Publicat
         .run();
       await env.DB
         .prepare(
-          "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('l-v6', 'p-v6', 'Tài v6', 4, ?1, ?1)",
+          "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES ('l-v6', 'p-v6', 'Bé Mẫu v6', 4, ?1, ?1)",
         )
         .bind(now)
         .run();

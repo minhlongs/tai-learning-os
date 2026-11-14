@@ -27,6 +27,7 @@ import type {
 } from "../../shared/api-contract";
 import type { Submission } from "../../shared/schemas/answer";
 import { clampHelp, hintFor } from "../../shared/schemas/answer";
+import { deriveStoredScheduleReasonVi } from "../../shared/engine/review";
 import { parseExercise } from "../../shared/schemas/exercise";
 import { toLearnerExercise } from "../../shared/schemas/exercise";
 import type { LearnerRow } from "../db/schema";
@@ -660,6 +661,14 @@ export const finalizeSession: Handler = async (context) => {
   const sessionPurpose: "official" | "practice" =
     session.purpose === "practice" ? "practice" : "official";
   const skillIds = [...new Set(attempts.map((a) => a.skill_id).filter((id): id is string => !!id))];
+  const [learnerAttempts, transferStepIds] =
+    sessionPurpose === "official" && skillIds.length > 0
+      ? await Promise.all([
+          repo.listAttemptsForLearner(context.env.DB, learner.id),
+          repo.listTransferStepIds(context.env.DB),
+        ])
+      : [[], new Set<string>()];
+
   for (const skillId of skillIds) {
     const skill = await repo.findSkill(context.env.DB, skillId);
     if (!skill) continue;
@@ -667,12 +676,29 @@ export const finalizeSession: Handler = async (context) => {
     if (sessionPurpose === "official") {
       const row = reviewRows.find((r) => r.skill_id === skillId);
       if (row) {
+        const officialSkillAttempts = learnerAttempts
+          .filter((a) => a.skill_id === skillId && (a.purpose ?? "official") === "official")
+          .map((a) => ({
+            attemptId: a.id,
+            skillId,
+            outcome: a.outcome,
+            helpLevel: a.help_level,
+            evidenceKind: a.evidence_kind,
+            attemptNo: a.attempt_no,
+            isTransfer: transferStepIds.has(a.step_id) && a.outcome === "correct",
+            createdAt: a.created_at,
+          }));
         nextReview.push({
           skillId,
           skillNameVi: skill.name_vi,
           dueAt: row.due_at,
           intervalDays: row.interval_days,
-          reasonVi: `Ôn lại sau ${row.interval_days} ngày.`,
+          reasonVi: deriveStoredScheduleReasonVi(officialSkillAttempts, {
+            dueAt: row.due_at,
+            intervalDays: row.interval_days,
+            lastResult: row.last_result,
+            failureStreak: row.failure_streak,
+          }),
         });
       }
     }

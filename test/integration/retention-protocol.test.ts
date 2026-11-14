@@ -85,7 +85,7 @@ beforeEach(async () => {
     .bind(now)
     .run();
   await env.DB.prepare(
-    "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('l-retention', 'p-retention', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)",
+    "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('l-retention', 'p-retention', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)",
   )
     .bind(now)
     .run();
@@ -270,7 +270,7 @@ describe("selectRetentionAttempts", () => {
 
   it("scopes to the learner it was given", async () => {
     await env.DB.prepare(
-      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('l-other', 'p-retention', 'Khác', 2016, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)",
+      "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('l-other', 'p-retention', 'Khác', 2017, 4, 'Asia/Ho_Chi_Minh', ?1, ?1)",
     )
       .bind(Date.now())
       .run();

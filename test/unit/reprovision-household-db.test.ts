@@ -131,12 +131,12 @@ describe("household D1 database clean reprovisioning", () => {
       .prepare(
         "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("learner-tai", "parent-1", "Tài", 2016, 4, "Asia/Ho_Chi_Minh", 1793468880199, 1793468880199);
+      .run("learner-mau", "parent-1", "Bé Mẫu", 2017, 4, "Asia/Ho_Chi_Minh", 1793468880199, 1793468880199);
     raw
       .prepare(
         "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("sy-2026", "learner-tai", "2026-2027", "2026-09-01", "2027-06-30", 4, 1793468888533);
+      .run("sy-2026", "learner-mau", "2026-2027", "2026-09-01", "2027-06-30", 4, 1793468888533);
 
     // Pollute with simulated organization + audit rows
     raw
@@ -157,10 +157,10 @@ describe("household D1 database clean reprovisioning", () => {
       updated_at: 1793275985198,
     });
     expect(snapshot.learner).toEqual({
-      id: "learner-tai",
+      id: "learner-mau",
       parent_id: "parent-1",
-      nickname: "Tài",
-      birth_year: 2016,
+      nickname: "Bé Mẫu",
+      birth_year: 2017,
       grade: 4,
       timezone: "Asia/Ho_Chi_Minh",
       created_at: 1793468880199,
@@ -168,7 +168,7 @@ describe("household D1 database clean reprovisioning", () => {
     });
     expect(snapshot.schoolYear).toEqual({
       id: "sy-2026",
-      learner_id: "learner-tai",
+      learner_id: "learner-mau",
       label: "2026-2027",
       starts_on: "2026-09-01",
       ends_on: "2027-06-30",
@@ -190,12 +190,12 @@ describe("household D1 database clean reprovisioning", () => {
       .prepare(
         "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("learner-tai", "parent-1", "Tài", 2016, 4, "Asia/Ho_Chi_Minh", 1793468880199, 1793468880199);
+      .run("learner-mau", "parent-1", "Bé Mẫu", 2017, 4, "Asia/Ho_Chi_Minh", 1793468880199, 1793468880199);
     pollutedRaw
       .prepare(
         "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("sy-2026", "learner-tai", "2026-2027", "2026-09-01", "2027-06-30", 4, 1793468888533);
+      .run("sy-2026", "learner-mau", "2026-2027", "2026-09-01", "2027-06-30", 4, 1793468888533);
 
     const snapshot = await extractHouseholdIdentity(pollutedDb);
 

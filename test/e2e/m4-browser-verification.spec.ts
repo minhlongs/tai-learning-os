@@ -48,20 +48,20 @@ test.describe("M4 Browser Verification Flows", () => {
     const csrf = await signInAsParent(page);
     const withCsrf = { headers: { "x-tlo-csrf": csrf } };
 
-    // Ensure two active learners exist: "Tài" and "An"
+    // Ensure two active learners exist: "Bé Mẫu" and "An"
     const sessionRes = await page.request.get("/api/session");
     const sessionInfo = (await sessionRes.json()) as { learners?: { id: string; nickname: string }[] };
     const learners = sessionInfo.learners ?? [];
 
-    let tai = learners.find((l) => l.nickname === "Tài");
-    if (!tai) {
+    let mau = learners.find((l) => l.nickname === "Bé Mẫu");
+    if (!mau) {
       const res = await page.request.post("/api/parent/learners", {
         ...withCsrf,
-        data: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+        data: { nickname: "Bé Mẫu", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
       });
       expect(res.ok()).toBe(true);
       const body = (await res.json()) as { learner: { id: string; nickname: string } };
-      tai = body.learner;
+      mau = body.learner;
     }
 
     let an = learners.find((l) => l.nickname === "An");
@@ -81,8 +81,8 @@ test.describe("M4 Browser Verification Flows", () => {
     // Assert learner selector exists unconditionally and switch between learners
     const switcher = page.getByTestId("learner-switcher");
     await expect(switcher).toBeVisible();
-    await switcher.selectOption(tai.id);
-    await expect(page.locator(".topbar__who")).toContainText("Bé: Tài");
+    await switcher.selectOption(mau.id);
+    await expect(page.locator(".topbar__who")).toContainText("Bé: Bé Mẫu");
 
     await switcher.selectOption(an.id);
     await expect(page.locator(".topbar__who")).toContainText("Bé: An");
@@ -715,7 +715,7 @@ test.describe("M4 Browser Verification Flows", () => {
     if (!learner) {
       const createRes = await page.request.post("/api/parent/learners", {
         ...withCsrf,
-        data: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+        data: { nickname: "Bé Mẫu", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
       });
       expect(createRes.ok()).toBe(true);
       const created = (await createRes.json()) as { learner: { id: string; nickname: string } };
@@ -826,7 +826,7 @@ test.describe("M4 Browser Verification Flows", () => {
     if (!sessionInfo.learner && (!sessionInfo.learners || sessionInfo.learners.length === 0)) {
       const createRes = await page.request.post("/api/parent/learners", {
         ...withCsrf,
-        data: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+        data: { nickname: "Bé Mẫu", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
       });
       expect(createRes.ok()).toBe(true);
     }
@@ -836,16 +836,16 @@ test.describe("M4 Browser Verification Flows", () => {
     const profileSection = page.getByTestId("learner-profile-section");
     await expect(profileSection).toBeVisible();
 
-    await page.getByTestId("learner-profile-nickname-input").fill("Tài Chăm Ngoan");
+    await page.getByTestId("learner-profile-nickname-input").fill("Bé Mẫu Chăm Ngoan");
     await page.getByTestId("learner-profile-grade-select").selectOption("5");
     await page.getByTestId("learner-profile-save-btn").click();
-    await expect(page.getByTestId("learner-profile-notice")).toContainText("Tài Chăm Ngoan");
+    await expect(page.getByTestId("learner-profile-notice")).toContainText("Bé Mẫu Chăm Ngoan");
 
     // Restore original nickname & grade so downstream state stays consistent
-    await page.getByTestId("learner-profile-nickname-input").fill("Tài");
+    await page.getByTestId("learner-profile-nickname-input").fill("Bé Mẫu");
     await page.getByTestId("learner-profile-grade-select").selectOption("4");
     await page.getByTestId("learner-profile-save-btn").click();
-    await expect(page.getByTestId("learner-profile-notice")).toContainText("Tài");
+    await expect(page.getByTestId("learner-profile-notice")).toContainText("Bé Mẫu");
 
     // 2. Version-pinned lesson content editing on `/parent/lessons` (via family practice copy fork)
     await page.goto("/parent/lessons");
@@ -922,7 +922,7 @@ test.describe("M4 Browser Verification Flows", () => {
     if (!learner) {
       const createRes = await page.request.post("/api/parent/learners", {
         ...withCsrf,
-        data: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+        data: { nickname: "Bé Mẫu", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
       });
       expect(createRes.ok()).toBe(true);
       const created = (await createRes.json()) as { learner: { id: string; nickname: string } };

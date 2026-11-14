@@ -121,22 +121,22 @@ function seedHouseholdParentAndLearner(sqlitePath: string, canaryHash: string): 
       .run(canaryHash);
     raw
       .prepare(
-        "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+        "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-mau', 'parent-1', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
       )
       .run();
     raw
       .prepare(
-        "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES ('sy-2026', 'learner-tai', '2026-2027', '2026-09-01', '2027-06-30', 4, 1000)",
+        "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES ('sy-2026', 'learner-mau', '2026-2027', '2026-09-01', '2027-06-30', 4, 1000)",
       )
       .run();
     raw
       .prepare(
-        "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'learner.created', 'learner-tai', NULL, 1000), ('au-2', 'learner:learner-tai', 'session.started', 'sess-1', NULL, 1001)",
+        "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'learner.created', 'learner-mau', NULL, 1000), ('au-2', 'learner:learner-mau', 'session.started', 'sess-1', NULL, 1001)",
       )
       .run();
     raw
       .prepare(
-        "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at) VALUES ('ra-1', 'learner-tai', 'lesson-1', 1, 'approved', 'parent-1', 1001)",
+        "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at) VALUES ('ra-1', 'learner-mau', 'lesson-1', 1, 'approved', 'parent-1', 1001)",
       )
       .run();
   } finally {
@@ -164,11 +164,11 @@ describe("read-only learner export helper and CLI (scripts/export-learner.mjs)",
         const result = await buildLearnerExportEnvelope(db, "parent-1");
         expect(result.ok).toBe(true);
         if (!result.ok) throw new Error("expected ok export envelope");
-        expect(result.learnerId).toBe("learner-tai");
+        expect(result.learnerId).toBe("learner-mau");
         expect(result.envelope.formatVersion).toBe(TRANSFER_FORMAT_VERSION);
         expect(result.envelope.source).toBe("manual_export");
         expect(result.envelope.data.learners).toHaveLength(1);
-        expect(result.envelope.data.learners[0]?.nickname).toBe("Tài");
+        expect(result.envelope.data.learners[0]?.nickname).toBe("Bé Mẫu");
         expect(result.envelope.data.auditEvents).toHaveLength(2);
         expect(
           result.envelope.data.auditEvents.some((ev) => ev.action === "data.exported"),
@@ -210,15 +210,15 @@ describe("read-only learner export helper and CLI (scripts/export-learner.mjs)",
 
       const stdoutEnvelope = JSON.parse(stdoutRun.stdout) as ExportResponse;
       expect(stdoutEnvelope.formatVersion).toBe(TRANSFER_FORMAT_VERSION);
-      expect(stdoutEnvelope.data.learners[0]?.nickname).toBe("Tài");
+      expect(stdoutEnvelope.data.learners[0]?.nickname).toBe("Bé Mẫu");
       expect(stdoutEnvelope.data.auditEvents).toHaveLength(2);
 
       const afterStdoutSnapshot = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);
       expectLearnerDatabaseUnchanged(beforeSnapshot, afterStdoutSnapshot);
 
       // 2. Plain JSON to file + Encrypted AES-256-GCM export to file
-      const plainBackupPath = join(fixture.tmpRoot, "backup-tai.json");
-      const encBackupPath = join(fixture.tmpRoot, "backup-tai.enc.json");
+      const plainBackupPath = join(fixture.tmpRoot, "backup-mau.json");
+      const encBackupPath = join(fixture.tmpRoot, "backup-mau.enc.json");
       const passphrase = "mat-khau-sao-luu-kiem-dinh";
 
       const fileRun = spawnSync(
@@ -255,7 +255,7 @@ describe("read-only learner export helper and CLI (scripts/export-learner.mjs)",
         throw new Error(`decrypt failed: ${decryptedResult.errors.join(", ")}`);
       }
       expect(decryptedResult.envelope.formatVersion).toBe(TRANSFER_FORMAT_VERSION);
-      expect(decryptedResult.envelope.data.learners[0]?.id).toBe("learner-tai");
+      expect(decryptedResult.envelope.data.learners[0]?.id).toBe("learner-mau");
       expect(decryptedResult.envelope.data.auditEvents).toHaveLength(2);
 
       const afterAllRunsSnapshot = snapshotSqliteFileState(fixture.d1StateDir, fixture.sqlitePath);

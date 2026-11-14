@@ -122,11 +122,11 @@ export const simpleSentences: LessonDefinition = {
         ],
         hint1_vi: "Em hãy nhớ: ai làm việc gì, rồi mới đến đồ vật.",
         hint2_vi: "Chữ cái đầu tiên của câu cần viết hoa và cuối câu cần dấu chấm.",
-        hint3_vi: "Đáp án c thiếu chữ hoa ở đầu, em hãy xem lại.",
+        hint3_vi: "“he plays soccer” thiếu chữ hoa ở đầu và dấu chấm ở cuối, em hãy xem lại.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "“He plays soccer.” có đủ thứ tự đúng, chữ hoa đầu câu và dấu chấm cuối câu. Đáp án c đúng thứ tự nhưng thiếu chữ hoa, còn hai đáp án kia xếp sai vị trí.",
+        "“He plays soccer.” có đủ thứ tự đúng, chữ hoa đầu câu và dấu chấm cuối câu. “he plays soccer” đúng thứ tự từ nhưng thiếu chữ hoa và dấu chấm, còn hai câu kia xếp sai vị trí.",
     },
     {
       position: 6,

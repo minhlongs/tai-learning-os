@@ -10,7 +10,7 @@
 **TAI LEARNING OS** là nền tảng học tập được thiết kế riêng cho học sinh tiểu học (lớp 4), ưu tiên giao diện và nội dung hoàn toàn bằng tiếng Việt (**Vietnamese-first**). Hệ thống được phát triển với triết lý:
 
 1. **Local-First & Data Sovereignty**: Chạy hoàn toàn cục bộ trên máy tính của gia đình (`workerd` + SQLite D1). Không gửi dữ liệu lên máy chủ đám mây, không gắn mã theo dõi bên thứ ba, không phụ thuộc vào kết nối Internet khi học tập.
-2. **Tuyệt Đối Không Lưu Trữ Thông Tin Nhạy Cảm**: Không lưu họ tên đầy đủ, ngày sinh cụ thể, trường học, số điện thoại, địa chỉ hay ảnh đại diện. Chỉ sử dụng biệt danh ("Tài") và năm sinh để xác định lứa tuổi.
+2. **Tuyệt Đối Không Lưu Trữ Thông Tin Nhạy Cảm**: Không lưu họ tên đầy đủ, ngày sinh cụ thể, trường học, số điện thoại, địa chỉ hay ảnh đại diện. Chỉ sử dụng biệt danh (ví dụ: `"Bé Mẫu"`) và năm sinh để xác định lứa tuổi.
 3. **Phụ Huynh Giám Sát Chủ Động**: Mọi bài học phải được phụ huynh phê duyệt (`review_approvals`) mới hiển thị cho người học. Phụ huynh có toàn quyền xem nhật ký bằng chứng học tập, xuất dữ liệu (`export`), khôi phục (`import`) hoặc xóa sạch vĩnh viễn (`delete cascade`).
 4. **Bảo Mật & Minh Bạch Tuyệt Đối**: Toàn bộ logic chấm điểm và đáp án (`answer_key`) được lưu và xử lý tại backend Worker. Trình duyệt không bao giờ nắm giữ đáp án trước khi học sinh trả lời đúng.
 
@@ -72,10 +72,10 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (356 tests across 21 files)
+# Chạy toàn bộ Unit Tests (364 tests across 24 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (202 tests across 19 files)
+# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (203 tests across 19 files)
 npm run test:integration
 
 # Chạy Playwright End-to-End Tests (54 tests, Desktop + Tablet + Mobile)
@@ -88,8 +88,8 @@ npm run verify
 npm run backup:drill
 
 # Xuất hồ sơ học tập ra tập tin JSON dự phòng (hoặc mã hóa AES-256-GCM với --passphrase)
-npm run export:learner -- ./backup-tai.json
-npm run export:learner -- ./backup-tai.enc.json --passphrase "mat-khau-sao-luu"
+npm run export:learner -- ./backup-mau.json
+npm run export:learner -- ./backup-mau.enc.json --passphrase "mat-khau-sao-luu"
 
 # Mở khóa tạm thời tài khoản phụ huynh khi nhập sai mật khẩu quá 5 lần
 npm run unlock:parent
@@ -97,11 +97,11 @@ npm run unlock:parent
 # Lưu trữ DB cục bộ hiện tại vào backups/ và cấp phát lại DB hộ gia đình sạch 100%
 npm run db:reprovision-household
 
-# Kiểm tra sẵn sàng chỉ-đọc (read-only preflight) của DB hộ gia đình và số bài học đã duyệt cho Tài
+# Kiểm tra sẵn sàng chỉ-đọc (read-only preflight) của DB hộ gia đình và số bài học đã duyệt cho học sinh hộ gia đình
 # (nếu báo "expected schemaVersion >= 15", chạy `npm run db:migrate` một lần rồi chạy lại)
 npm run household:preflight
 
-# Duyệt bài học hộ gia đình cho Tài một cách nguyên tử và idempotent (mặc định theo lớp đã đăng ký)
+# Duyệt bài học hộ gia đình cho học sinh đã đăng ký một cách nguyên tử và idempotent (mặc định theo lớp đã đăng ký)
 npm run household:approve-lessons
 ```
 

@@ -11,7 +11,7 @@
 Bản gốc dùng một thang dãn cách viết cứng: **1 → 3 → 7 → 14 ngày**, rồi lặp lại 14.
 Thang này có ba khuyết điểm không sửa được bằng cách chỉnh số:
 
-1. **Nó phớt lờ chính lịch sử làm bài của Tài.** Em làm đúng một kỹ năng khó lần đầu, hay phải vật lộn ba lần rồi mới qua sau khi được gợi ý — cả hai trường hợp nhận đúng cùng một khoảng cách, vì thang chỉ đếm số lần, không đọc chất lượng từng lần.
+1. **Nó phớt lờ chính lịch sử làm bài của người học.** Em làm đúng một kỹ năng khó lần đầu, hay phải vật lộn ba lần rồi mới qua sau khi được gợi ý — cả hai trường hợp nhận đúng cùng một khoảng cách, vì thang chỉ đếm số lần, không đọc chất lượng từng lần.
 2. **Nó trần cứng ở 14 ngày vĩnh viễn.** Một kỹ năng đã nhớ rất vững vẫn bị gọi ôn lại mỗi hai tuần, tốn thời gian của trẻ vào thứ trẻ đã biết.
 3. **Nó không có mô hình nào phía sau.** Con số `14` không xuất phát từ dữ liệu nào cả — nó là một quy ước được chép lại.
 
@@ -34,7 +34,7 @@ Bốn quyết định trong bốn tham số đó, mỗi cái có lý do riêng:
 
 ### `request_retention: 0.95`
 
-Đây là xác suất Tài còn nhớ đúng vào ngày đến hạn. FSRS mặc định 0.90 (dành cho người lớn tự học). Một học sinh lớp 4 mất nhiều hơn người lớn khi quên: mất niềm tin, phải học lại từ đầu một bước, và phụ huynh phải ngồi vào dạy lại. Đo thực tế trên HEAD, cùng trần 30 ngày, 6 lần `Good` liên tiếp:
+Đây là xác suất người học còn nhớ đúng vào ngày đến hạn. FSRS mặc định 0.90 (dành cho người lớn tự học). Một học sinh lớp 4 mất nhiều hơn người lớn khi quên: mất niềm tin, phải học lại từ đầu một bước, và phụ huynh phải ngồi vào dạy lại. Đo thực tế trên HEAD, cùng trần 30 ngày, 6 lần `Good` liên tiếp:
 
 | `request_retention` | Lịch thu được (ngày) |
 |---|---|
@@ -117,4 +117,4 @@ Lưu ý: FSRS coi `Hard` là **thành công nhưng khó**, nên nó vẫn có th
 
 ## Điều ADR này **không** khẳng định
 
-Các con số 0.95 và 30 ngày là **giả định khởi đầu có lý lẽ, chưa được kiểm chứng trên chính Tài**. Chưa có dữ liệu ôn tập thật nào để nói 0.95 là đúng cho em. Giao thức đo lường (baseline + retention đo lại sau 14/30 ngày) là cách để thay giả định bằng bằng chứng, và nó được mô tả trong `docs/BASELINE_PROTOCOL.md`.
+Các con số 0.95 và 30 ngày là **giả định khởi đầu có lý lẽ, chưa được kiểm chứng trên dữ liệu thực tế của người học**. Chưa có dữ liệu ôn tập thật nào để nói 0.95 là đúng cho em. Giao thức đo lường (baseline + retention đo lại sau 14/30 ngày) là cách để thay giả định bằng bằng chứng, và nó được mô tả trong `docs/BASELINE_PROTOCOL.md`.

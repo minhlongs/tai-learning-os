@@ -1,7 +1,7 @@
 # HƯỚNG DẪN DÀNH CHO PHỤ HUYNH VẬN HÀNH THỬ NGHIỆM
 ## PARENT PILOT & OPERATION GUIDE
 
-**Dành cho:** Phụ huynh của bé Tài (Học sinh lớp 4)  
+**Dành cho:** Phụ huynh học sinh tiểu học (Lớp 4)  
 **Mục đích:** Hướng dẫn chi tiết từng bước vận hành hệ thống học tập cục bộ an toàn, khoa học và minh bạch.
 
 ---
@@ -30,7 +30,7 @@
 #### Bước 3: Phê duyệt bài học (`/parent/lessons` hoặc từ Terminal)
 - Vào mục **Quản lý bài học**.
 - Xem danh sách bài học và nhấn **Duyệt bài học** cho những bài con sẽ học (phê duyệt được tách riêng cho từng bé và từng phiên bản bài học).
-- **Mẹo nhanh trên Terminal:** Ba mẹ có thể duyệt một lần toàn bộ 25 bài học Lớp 4 cho bé Tài bằng lệnh:
+- **Mẹo nhanh trên Terminal:** Ba mẹ có thể duyệt một lần toàn bộ 25 bài học Lớp 4 cho con bằng lệnh:
   ```bash
   npm run household:approve-lessons
   ```
@@ -54,17 +54,17 @@
 2. **Sao lưu dữ liệu định kỳ:**
    - Để lưu giữ toàn bộ nhật ký học tập của con ra file an toàn (hoặc mã hóa AES-256-GCM với `--passphrase`):
      ```bash
-     npm run export:learner -- ./backup-tai-2026.json
-     npm run export:learner -- ./backup-tai-2026.enc.json --passphrase "mat-khau-sao-luu"
+     npm run export:learner -- ./backup-mau-2026.json
+     npm run export:learner -- ./backup-mau-2026.enc.json --passphrase "mat-khau-sao-luu"
      ```
 3. **Kiểm tra trạng thái sẵn sàng trước buổi học (`household:preflight`):**
-   - Để kiểm tra nhanh (chỉ-đọc 100%, không ghi đĩa) xem cơ sở dữ liệu gia đình và danh sách bài học đã duyệt cho bé Tài đã sẵn sàng chưa:
+   - Để kiểm tra nhanh (chỉ-đọc 100%, không ghi đĩa) xem cơ sở dữ liệu gia đình và danh sách bài học đã duyệt cho con đã sẵn sàng chưa:
      ```bash
      npm run household:preflight
      ```
    - Nếu lệnh dừng với dòng `expected schemaVersion >= 15, found 14`: cơ sở dữ liệu trên máy đang cũ hơn mã nguồn trong kho, đây không phải lỗi và không mất dữ liệu. Chạy `npm run db:migrate` một lần rồi chạy lại `npm run household:preflight`. *(English: if preflight refuses on `schemaVersion`, run `npm run db:migrate` once and retry.)*
 4. **Làm mới cơ sở dữ liệu hộ gia đình sạch (`db:reprovision-household`):**
-   - Khi cần lưu trữ nguyên vẹn cơ sở dữ liệu hiện tại vào `backups/` và khởi tạo lại cơ sở dữ liệu gia đình sạch 100% (giữ nguyên tài khoản Phụ huynh, hồ sơ bé Tài, năm học và 50 bài học mẫu, kèm duyệt sẵn bài học theo khối lớp của con):
+   - Khi cần lưu trữ nguyên vẹn cơ sở dữ liệu hiện tại vào `backups/` và khởi tạo lại cơ sở dữ liệu gia đình sạch 100% (giữ nguyên tài khoản Phụ huynh, hồ sơ học sinh đã đăng ký, năm học và 50 bài học mẫu, kèm duyệt sẵn bài học theo khối lớp của con):
      ```bash
      npm run db:reprovision-household -- --approve-grade-lessons
      ```

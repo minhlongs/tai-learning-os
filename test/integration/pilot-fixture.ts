@@ -11,7 +11,7 @@
  *       1. "Lớp Toán 4A - Tư Duy Phân Số"
  *       2. "Lớp Anh - Việt 4B - Giao Tiếp & Đọc Hiểu"
  *   - 5 Grade-4 Learners under 5 distinct Parent accounts (B2B2C boundary):
- *       1. Bé Tài (Parent: Ba Tài) -> Enrolled in Lớp Toán 4A
+ *       1. Bé An (Parent: Ba An) -> Enrolled in Lớp Toán 4A
  *       2. Bé Bảo (Parent: Mẹ Bảo) -> Enrolled in Lớp Toán 4A
  *       3. Bé Châu (Parent: Ba Châu) -> Enrolled in Lớp Toán 4A
  *       4. Bé Duy (Parent: Mẹ Duy) -> Enrolled in Lớp Anh - Việt 4B
@@ -88,11 +88,11 @@ export const PILOT_CLASSROOMS = {
 
 export const PILOT_LEARNERS: PilotLearnerConfig[] = [
   {
-    parentId: "parent-ba-tai",
-    parentName: "Ba Minh (Phụ huynh bé Tài)",
-    learnerId: "learner-tai-01",
-    nickname: "Bé Tài",
-    birthYear: 2016,
+    parentId: "parent-ba-an",
+    parentName: "Ba Minh (Phụ huynh bé An)",
+    learnerId: "learner-an-01",
+    nickname: "Bé An",
+    birthYear: 2017,
     grade: 4,
     classroomName: "math4a",
   },
@@ -101,7 +101,7 @@ export const PILOT_LEARNERS: PilotLearnerConfig[] = [
     parentName: "Mẹ Lan (Phụ huynh bé Bảo)",
     learnerId: "learner-bao-02",
     nickname: "Bé Bảo",
-    birthYear: 2016,
+    birthYear: 2017,
     grade: 4,
     classroomName: "math4a",
   },
@@ -110,7 +110,7 @@ export const PILOT_LEARNERS: PilotLearnerConfig[] = [
     parentName: "Ba Hùng (Phụ huynh bé Châu)",
     learnerId: "learner-chau-03",
     nickname: "Bé Châu",
-    birthYear: 2016,
+    birthYear: 2017,
     grade: 4,
     classroomName: "math4a",
   },
@@ -119,7 +119,7 @@ export const PILOT_LEARNERS: PilotLearnerConfig[] = [
     parentName: "Mẹ Trang (Phụ huynh bé Duy)",
     learnerId: "learner-duy-04",
     nickname: "Bé Duy",
-    birthYear: 2016,
+    birthYear: 2017,
     grade: 4,
     classroomName: "lang4b",
   },
@@ -128,7 +128,7 @@ export const PILOT_LEARNERS: PilotLearnerConfig[] = [
     parentName: "Ba Đức (Phụ huynh bé Em)",
     learnerId: "learner-em-05",
     nickname: "Bé Em",
-    birthYear: 2016,
+    birthYear: 2017,
     grade: 4,
     classroomName: "lang4b",
   },
@@ -342,7 +342,7 @@ export async function seedPilotFixture(db: D1Database): Promise<{
     )
     .run();
 
-  // Pre-approve for Ba Minh (Bé Tài)
+  // Pre-approve for Ba Minh (Bé An)
   await db
     .prepare(
       `INSERT OR REPLACE INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)

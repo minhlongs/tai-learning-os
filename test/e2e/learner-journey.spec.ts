@@ -174,7 +174,7 @@ async function signInWithFreshLearner(page: Page): Promise<void> {
 
   const enrolled = await page.request.post("/api/parent/learners", {
     ...withCsrf,
-    data: { nickname: "Tài", birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+    data: { nickname: "Bé Mẫu", birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
   });
   expect(enrolled.status(), "enrol learner").toBe(200);
 
@@ -197,7 +197,7 @@ async function signInWithFreshLearner(page: Page): Promise<void> {
   }
 
   await page.reload();
-  await expect(page.getByText("Bé: Tài")).toBeVisible();
+  await expect(page.getByText("Bé: Bé Mẫu")).toBeVisible();
 }
 
 test.describe("learner journey", () => {
@@ -209,7 +209,7 @@ test.describe("learner journey", () => {
     await signInWithFreshLearner(page);
 
     // ── Learner home: the honest empty state, before anything is taught ────
-    await expect(page.getByText("Chào Tài!")).toBeVisible();
+    await expect(page.getByText("Chào Bé Mẫu!")).toBeVisible();
     // No sessions yet, so this must say so rather than render a fake chart.
     await expect(page.getByText(/Chưa có bài học nào được ghi nhận/i)).toBeVisible();
 
@@ -304,7 +304,7 @@ test.describe("learner journey", () => {
     // The dashboard previously said nothing was recorded; it must now carry a
     // number that came from the session just finished.
     await expect(page.getByRole("heading", { name: "Bảng theo dõi" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Tài — tổng quan ghi nhận/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Bé Mẫu — tổng quan ghi nhận/ })).toBeVisible();
     await expect(page.getByText(/Chưa có dữ liệu nào được ghi nhận/i)).toBeHidden();
   });
 

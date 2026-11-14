@@ -291,10 +291,10 @@ describe("read-only household preflight check", () => {
           updated_at: 1793275985198,
         },
         learner: {
-          id: "learner-tai",
+          id: "learner-mau",
           parent_id: "parent-household",
-          nickname: "Tài",
-          birth_year: 2016,
+          nickname: "Bé Mẫu",
+          birth_year: 2017,
           grade: 4,
           timezone: "Asia/Ho_Chi_Minh",
           created_at: 1793468880199,
@@ -302,7 +302,7 @@ describe("read-only household preflight check", () => {
         },
         schoolYear: {
           id: "sy-2026-2027",
-          learner_id: "learner-tai",
+          learner_id: "learner-mau",
           label: "2026-2027",
           starts_on: "2026-09-01",
           ends_on: "2027-06-30",
@@ -343,7 +343,7 @@ describe("read-only household preflight check", () => {
       hasParent: true,
       parentDisplayName: "Phụ huynh",
       hasLearner: true,
-      learnerNickname: "Tài",
+      learnerNickname: "Bé Mẫu",
       learnerGrade: 4,
       schoolYearLabel: "2026-2027",
     });
@@ -354,7 +354,7 @@ describe("read-only household preflight check", () => {
     expect(serialized).not.toContain("pbkdf2-sha256");
     expect(serialized).not.toContain("password_hash");
 
-    // Approve 2 lessons for Tài (including real session.login + lesson.approval.approved audit rows
+    // Approve 2 lessons for Bé Mẫu (including real session.login + lesson.approval.approved audit rows
     // and one stale version approval on a bumped lesson that must NOT be counted) and re-run preflight
     raw
       .prepare(
@@ -365,7 +365,7 @@ describe("read-only household preflight check", () => {
       .prepare(
         "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note) VALUES (?, ?, ?, 1, 'approved', ?, 2000, NULL)",
       )
-      .run("ra-1", "learner-tai", "lesson-1", "parent-household");
+      .run("ra-1", "learner-mau", "lesson-1", "parent-household");
     raw
       .prepare(
         "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES (?, ?, 'lesson.approval.approved', 'lesson-1', '{}', 2000)",
@@ -375,7 +375,7 @@ describe("read-only household preflight check", () => {
       .prepare(
         "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note) VALUES (?, ?, ?, 1, 'approved', ?, 2001, NULL)",
       )
-      .run("ra-2", "learner-tai", "lesson-2", "parent-household");
+      .run("ra-2", "learner-mau", "lesson-2", "parent-household");
     raw
       .prepare(
         "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES (?, ?, 'lesson.approval.approved', 'lesson-2', '{}', 2001)",
@@ -387,7 +387,7 @@ describe("read-only household preflight check", () => {
       .prepare(
         "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note) VALUES (?, ?, ?, 1, 'approved', ?, 2002, NULL)",
       )
-      .run("ra-stale-v1", "learner-tai", "lesson-3", "parent-household");
+      .run("ra-stale-v1", "learner-mau", "lesson-3", "parent-household");
 
     const readyReport = await inspectHouseholdPreflight(db, {
       devVarsPresent: true,
@@ -454,10 +454,10 @@ describe("read-only household preflight check", () => {
           updated_at: 1793275985198,
         },
         learner: {
-          id: "learner-tai",
+          id: "learner-mau",
           parent_id: "parent-household",
-          nickname: "Tài",
-          birth_year: 2016,
+          nickname: "Bé Mẫu",
+          birth_year: 2017,
           grade: 4,
           timezone: "Asia/Ho_Chi_Minh",
           created_at: 1793468880199,
@@ -493,7 +493,7 @@ describe("read-only household preflight check", () => {
     });
     expect(report.integrityCheck).toContain("skipped");
     expect(report.household.hasParent).toBe(true);
-    expect(report.household.learnerNickname).toBe("Tài");
+    expect(report.household.learnerNickname).toBe("Bé Mẫu");
     expect(report.approvedLessonsCount).toBe(0);
   });
 
@@ -658,28 +658,28 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
           .run(CANARY_DB_HASH);
         setupDb
           .prepare(
-            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-mau', 'parent-1', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
           )
           .run();
         setupDb
           .prepare(
-            "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES ('sy-2026', 'learner-tai', '2026-2027', '2026-09-01', '2027-06-30', 4, 1000)",
+            "INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at) VALUES ('sy-2026', 'learner-mau', '2026-2027', '2026-09-01', '2027-06-30', 4, 1000)",
           )
           .run();
         setupDb
           .prepare(
-            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'parent.created', 'parent-1', NULL, 1000), ('au-2', 'parent:parent-1', 'learner.enrolled', 'learner-tai', NULL, 1000)",
+            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'parent.created', 'parent-1', NULL, 1000), ('au-2', 'parent:parent-1', 'learner.enrolled', 'learner-mau', NULL, 1000)",
           )
           .run();
         setupDb
           .prepare(
-            "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at) VALUES ('ra-1', 'learner-tai', 'lesson-1', 1, 'approved', 'parent-1', 1001), ('ra-2', 'learner-tai', 'lesson-2', 1, 'approved', 'parent-1', 1002)",
+            "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at) VALUES ('ra-1', 'learner-mau', 'lesson-1', 1, 'approved', 'parent-1', 1001), ('ra-2', 'learner-mau', 'lesson-2', 1, 'approved', 'parent-1', 1002)",
           )
           .run();
         setupDb.prepare("UPDATE lessons SET version = 2 WHERE id = 'lesson-3'").run();
         setupDb
           .prepare(
-            "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at) VALUES ('ra-stale', 'learner-tai', 'lesson-3', 1, 'approved', 'parent-1', 1003)",
+            "INSERT INTO review_approvals (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at) VALUES ('ra-stale', 'learner-mau', 'lesson-3', 1, 'approved', 'parent-1', 1003)",
           )
           .run();
       } finally {
@@ -711,7 +711,7 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
       expect(provisionedJson.integrityCheck).toBe("ok");
       expect(provisionedJson.approvedLessonsCount).toBe(2);
       expect(provisionedJson.readyForLearnerSession).toBe(true);
-      expect(provisionedJson.household.learnerNickname).toBe("Tài");
+      expect(provisionedJson.household.learnerNickname).toBe("Bé Mẫu");
       expect(provisionedJson.household.schoolYearLabel).toBe("2026-2027");
     } finally {
       fixture.cleanup();
@@ -734,12 +734,12 @@ describe("household-preflight CLI & read-only D1 adapter", () => {
           .run(CANARY_DB_HASH);
         setupDb
           .prepare(
-            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-tai', 'parent-1', 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
+            "INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at) VALUES ('learner-mau', 'parent-1', 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', 1000, 1000)",
           )
           .run();
         setupDb
           .prepare(
-            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'parent.created', 'parent-1', NULL, 1000), ('au-2', 'parent:parent-1', 'learner.enrolled', 'learner-tai', NULL, 1000)",
+            "INSERT INTO audit_events (id, actor, action, subject, detail, created_at) VALUES ('au-1', 'parent:parent-1', 'parent.created', 'parent-1', NULL, 1000), ('au-2', 'parent:parent-1', 'learner.enrolled', 'learner-mau', NULL, 1000)",
           )
           .run();
       } finally {

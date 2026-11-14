@@ -72,15 +72,9 @@ export interface SeedProblem {
   stage: SeedStage;
   message: string;
   /**
-   * `blocking` fails the CLI; `advisory` is printed and counted but does not.
-   *
-   * Only three defect classes are contractually blocking — missing rights,
-   * answer leakage, and a broken exercise schema. A letter citation in an
-   * explanation or hint ("Câu b", "nếu em chọn c") is a real learner-facing
-   * defect, but the learner never sees a choice letter, so it cannot leak an
-   * answer; it just makes the text unactionable. It is reported as advisory so
-   * the 50 shipped lessons pass the CLI while the defect stays visible and
-   * counted instead of being silently dropped.
+   * `blocking` fails the CLI and `seedLessons()`; `advisory` is printed and
+   * counted without failing the run. All nine stages — including choice-letter
+   * citations in explanations or hints — emit `blocking` findings.
    */
   severity: "blocking" | "advisory";
 }
@@ -115,18 +109,16 @@ const PROVENANCE_VALUES: readonly CurriculumProvenance[] = [
 ];
 
 /**
- * A choice cited by letter: "Câu a", "câu b:", "nếu em chọn c".
+ * A choice cited by letter: "Câu a", "câu b:", "nếu em chọn c", "Đáp án c",
+ * "phương án b", or "lựa chọn a".
  *
  * The learner's payload renders `label_vi` and never a letter, so any of these
  * is a reference the child cannot follow. Matching is Unicode-aware so it does
  * not read "câus" or swallow a following word, and it is case-insensitive
- * because the shipped content contains both "Câu b" and "nếu em chọn c".
- *
- * Measured on the shipped 50: this matches 10 strings across 2 lessons. The
- * narrower `/Câu [abcd]/` matches 9 and misses the lowercase "chọn c" entirely,
- * which is why the rule is written this way.
+ * across all Vietnamese option-referencing prefixes.
  */
-const CHOICE_LETTER = /(?<![\p{L}\p{N}])(?:câu|chọn)\s*[abcd](?![\p{L}\p{N}])/iu;
+const CHOICE_LETTER =
+  /(?<![\p{L}\p{N}])(?:câu|chọn|đáp\s+án|phương\s+án|lựa\s+chọn)\s*[abcd](?![\p{L}\p{N}])/iu;
 
 /**
  * Every string on a step that is shown to the child, paired with its field name
@@ -317,12 +309,7 @@ export function validateAuthoringStages(
       // is withheld, so "Câu b" and "nếu em chọn c" name nothing the child can
       // see: the text is unactionable and, once options are reordered, points at
       // the wrong one. Both an explanation and a hint reach the child (hints via
-      // `hintFor()`), so both are checked here.
-      //
-      // Advisory, not blocking: a letter cannot leak an answer, so this is a
-      // quality defect rather than an integrity one, and the shipped content
-      // carries a measured residue of these that the gate must report without
-      // pretending the registry is clean or refusing to seed it.
+      // `hintFor()`), so both are checked here and block the gate.
       //
       // The check reads only string fields, so it still runs when the exercise
       // itself is malformed and is reported once, by stage 4, below.
@@ -331,7 +318,6 @@ export function validateAuthoringStages(
           fail(
             "explanation",
             `step ${step.position}: ${field} must describe the option by its text, not cite a choice letter ("Câu b", "chọn c")`,
-            "advisory",
           );
         }
       }
@@ -451,10 +437,13 @@ export async function seedLessons(
     const objectiveRows = await db
       .prepare("select id from curriculum_objectives")
       .all<{ id: string }>();
-    const problems = validateRegistry({
-      skills: (skillRows.results ?? []).map((row) => row.id),
-      objectives: (objectiveRows.results ?? []).map((row) => row.id),
-    });
+    const problems = [
+      ...validateRegistry({
+        skills: (skillRows.results ?? []).map((row) => row.id),
+        objectives: (objectiveRows.results ?? []).map((row) => row.id),
+      }),
+      ...validateAuthoringStages(),
+    ].filter((problem) => problem.severity === "blocking");
     if (problems.length > 0) {
       const rendered = problems
         .map((p) => `  - ${p.lessonId} [${p.stage}]: ${p.message}`)

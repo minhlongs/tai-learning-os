@@ -8,7 +8,7 @@
 
 ## Bối cảnh
 
-Hệ thống phải trả lời một câu duy nhất, lặp đi lặp lại, cho mỗi lượt làm bài của Tài:
+Hệ thống phải trả lời một câu duy nhất, lặp đi lặp lại, cho mỗi lượt làm bài của người học:
 **"Lần làm này có được tính là em tự làm độc lập không?"**
 
 Câu trả lời này quyết định ba thứ khác nhau:
@@ -48,7 +48,7 @@ Quy tắc đầy đủ, một câu: **một lượt làm là độc lập khi v�
 - `BaselineDiagnosticInput.attempts[].evidenceKind` mặc định là `"observed"` khi thiếu, để không phá các fixture cũ. Cùng loại nợ: một caller mới quên truyền sẽ **thiên về phía tin tưởng** (nhận nhầm là độc lập). Đây là hướng sai nguy hiểm nhất và phải sửa thành `"assisted"` nếu có caller thứ hai.
 
 **Không thay đổi:**
-- `COMPETENCY_CONFIG.independentMinCorrect = 2` vẫn giữ nguyên: một lần đúng may mắn không đủ lập `INDEPENDENT`. Đây là **giả định khởi đầu, chưa được kiểm chứng** cho Tài, và được ghi đúng như vậy trong `docs/LEARNING_ENGINE.md`.
+- `COMPETENCY_CONFIG.independentMinCorrect = 2` vẫn giữ nguyên: một lần đúng may mắn không đủ lập `INDEPENDENT`. Đây là **giả định khởi đầu, chưa được kiểm chứng** trên người học, và được ghi đúng như vậy trong `docs/LEARNING_ENGINE.md`.
 
 ## Ghi chú về tài liệu sai
 

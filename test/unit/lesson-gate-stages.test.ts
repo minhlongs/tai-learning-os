@@ -306,20 +306,24 @@ describe("content gate — every stage can refuse", () => {
     expect(problems).toEqual([]);
   });
 
-  it("stage 8 explanation — reports a letter citation as advisory, not blocking", () => {
-    // Severity is what decides whether the CLI exits 1. A letter cannot leak an
-    // answer, so it must never be able to block the seed of sound lessons.
+  it("stage 8 explanation — reports a letter citation in an explanation or hint as blocking, including 'Đáp án c'", () => {
+    const letteredHint = choiceStep(2, "independent");
+    letteredHint.content = {
+      ...letteredHint.content,
+      hint3_vi: "Đáp án c thiếu chữ hoa ở đầu, em hãy xem lại.",
+    } as ExerciseSpec;
+
     const problems = validateAuthoringStages([
       soundLesson({
         steps: [
-          choiceStep(1, "concept", { explanationVi: "Câu a là đáp án đúng." }),
-          choiceStep(2, "independent"),
+          choiceStep(1, "concept", { explanationVi: "Phương án a là đáp án đúng." }),
+          letteredHint,
           choiceStep(3, "transfer"),
         ],
       }),
     ]);
 
-    expect(problems.map((problem) => problem.severity)).toEqual(["advisory"]);
+    expect(problems.map((problem) => problem.severity)).toEqual(["blocking", "blocking"]);
   });
 
   it("stage 9 answer-leak — refuses a payload whose extra key survives toLearnerExercise()", () => {
@@ -394,11 +398,11 @@ describe("content gate — every stage can refuse", () => {
     ]);
   });
 
-  it("classifies integrity defects as blocking and quality defects as advisory", () => {
-    // The CLI's exit code is driven by severity alone. If a rights or schema or
-    // answer-leak finding ever became advisory, the gate would print it and
-    // still exit 0 — a check that reports but never refuses. This pins the
-    // split at its source so that cannot happen by editing a default.
+  it("classifies integrity and learner-facing explanation/hint defects as blocking", () => {
+    // The CLI's exit code is driven by severity alone. If a rights, schema,
+    // answer-key, or explanation/hint finding ever became advisory, the gate
+    // would print it and still exit 0 — a check that reports but never refuses.
+    // This pins every stage's blocking severity at its source.
     const cases: readonly (readonly [string, LessonDefinition])[] = [
       ["rights", soundLesson({ provenance: undefined })],
       ["schema", soundLesson({ steps: [{ ...choiceStep(1, "concept"), content: {} as ExerciseSpec }, choiceStep(2, "independent"), choiceStep(3, "transfer")] })],
@@ -409,8 +413,7 @@ describe("content gate — every stage can refuse", () => {
     for (const [stage, lesson] of cases) {
       const found = problemsFor(lesson).find((problem) => problem.stage === stage);
       expect(found, `expected a ${stage} finding`).toBeDefined();
-      const expected = stage === "explanation" ? "advisory" : "blocking";
-      expect(found?.severity, `${stage} severity`).toBe(expected);
+      expect(found?.severity, `${stage} severity`).toBe("blocking");
     }
   });
 });
@@ -431,25 +434,7 @@ describe("content gate — the shipped registry passes", () => {
     expect(validateRegistry({ skills, objectives })).toEqual([]);
   });
 
-  it("carries a measured advisory residue, so the gate reports what it cannot yet refuse", () => {
-    // The shipped content has learner-facing strings that cite a choice by
-    // letter — text the child cannot follow, because the exercise body renders
-    // `label_vi` and never a letter. Editing the 50 seeded lessons is out of
-    // scope for this run, so the gate reports the residue instead of pretending
-    // it is clean, and this assertion pins the exact measured set. If content is
-    // fixed, this test fails and the residue shrinks; if a new lesson adds one,
-    // it fails and the residue grows. Either way the number is a fact, not a
-    // hope that nothing is wrong.
-    const advisory = validateAuthoringStages().filter(
-      (problem) => problem.severity === "advisory",
-    );
-
-    expect(advisory).toHaveLength(10);
-    expect(advisory.every((problem) => problem.stage === "explanation")).toBe(true);
-    expect(new Set(advisory.map((problem) => problem.lessonId))).toEqual(
-      new Set(["vie-sentence-clarity", "vie-find-evidence"]),
-    );
-    expect(advisory.filter((problem) => problem.lessonId === "vie-sentence-clarity")).toHaveLength(6);
-    expect(advisory.filter((problem) => problem.lessonId === "vie-find-evidence")).toHaveLength(4);
+  it("reports zero total problems (blocking or advisory) across all 50 shipped lessons", () => {
+    expect(validateAuthoringStages()).toEqual([]);
   });
 });

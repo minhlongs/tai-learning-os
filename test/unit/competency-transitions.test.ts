@@ -72,6 +72,40 @@ describe("deriveCompetency — a single correct guess is not mastery", () => {
     // The critical assertion: one attempt can never establish mastery.
     expect(result.state).not.toBe("INDEPENDENT");
     expect(["NOT_OBSERVED", "SUPPORTED"]).toContain(result.state);
+    expect(result.reason_vi).toBe(
+      "Em đã tự làm đúng 1 lần. Cần thêm 1 lần nữa để ba mẹ thấy em đã nắm chắc.",
+    );
+    expect(result.reason_vi).not.toContain("chưa làm đúng lần nào");
+  });
+
+  it("reserves 'chưa làm đúng lần nào' strictly for zero correct attempts", () => {
+    const zeroCorrect = deriveCompetency([incorrect(), incorrect()]);
+    expect(zeroCorrect.correctCount).toBe(0);
+    expect(zeroCorrect.state).toBe("NOT_OBSERVED");
+    expect(zeroCorrect.reason_vi).toBe(
+      "Em đã thử nhưng chưa làm đúng lần nào một cách độc lập.",
+    );
+  });
+
+  it("preserves the unaided-solve acknowledgment when one independent solve coexists with an assisted solve", () => {
+    const mixed = deriveCompetency([
+      correct({ helpLevel: 1, evidenceKind: "assisted" }),
+      correct({ helpLevel: 0, attemptNo: 1, evidenceKind: "observed" }),
+    ]);
+    expect(mixed.state).toBe("SUPPORTED");
+    expect(mixed.independentCount).toBe(1);
+    expect(mixed.assistedCount).toBe(1);
+    expect(mixed.reason_vi).toBe(
+      "Em đã tự làm đúng 1 lần và làm đúng có hỗ trợ 1 lần. Cần thêm 1 lần tự làm đúng nữa để ba mẹ thấy em đã nắm chắc.",
+    );
+  });
+
+  it("reports zero-attempt wording when only a NOT_OBSERVED parent correction exists", () => {
+    const onlyCorrection = deriveCompetency([
+      correct({ evidenceKind: "parent_correction", correctedState: "NOT_OBSERVED" }),
+    ]);
+    expect(onlyCorrection.state).toBe("NOT_OBSERVED");
+    expect(onlyCorrection.reason_vi).toBe("Chưa có bài tập nào được ghi nhận cho kỹ năng này.");
   });
 
   it("does not promote ONE correct attempt with a small hint", () => {

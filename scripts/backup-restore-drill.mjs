@@ -156,7 +156,7 @@ try {
   await db
     .prepare(
       `INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at)
-       VALUES (?1, ?2, 'Tài', 2016, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)`,
+       VALUES (?1, ?2, 'Bé Mẫu', 2017, 4, 'Asia/Ho_Chi_Minh', ?3, ?3)`,
     )
     .bind(learnerId, parentId, now)
     .run();
@@ -435,7 +435,7 @@ try {
     request: new Request(deleteUrl.toString(), {
       method: "DELETE",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ learnerId, confirmation: "XOA Tài" }),
+      body: JSON.stringify({ learnerId, confirmation: "XOA Bé Mẫu" }),
     }),
     url: deleteUrl,
     env: proxy.env,

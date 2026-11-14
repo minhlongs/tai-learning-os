@@ -82,8 +82,8 @@ export const sentenceClarity: LessonDefinition = {
           { id: "d", label_vi: "Và rồi sau đó.", correct: false },
         ],
         hint1_vi: "Em hãy kiểm tra từng câu: câu đó nói về ai, về cái gì?",
-        hint2_vi: "Câu a chỉ gọi tên một đối tượng, chưa nói đối tượng đó làm gì.",
-        hint3_vi: "Câu b kể một việc xảy ra nhưng không cho biết ai làm việc đó.",
+        hint2_vi: "Câu chỉ nhắc “Chú mèo con của nhà hàng xóm.” mới gọi tên đối tượng, chưa nói đối tượng đó làm gì.",
+        hint3_vi: "Câu “Ngủ say trên giường.” kể một việc xảy ra nhưng không cho biết ai làm việc đó.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -104,7 +104,7 @@ export const sentenceClarity: LessonDefinition = {
         ],
         hint1_vi: "Đầu câu cần viết hoa chữ cái đầu tiên để người đọc biết câu bắt đầu.",
         hint2_vi: "Cuối câu cần dấu chấm để người đọc biết câu đã kết thúc.",
-        hint3_vi: "Em hãy xem lại câu b: câu đó còn thiếu dấu ở cuối.",
+        hint3_vi: "Em hãy xem kỹ dòng viết hoa chữ “Mẹ” ở đầu câu nhưng chưa có dấu chấm ở cuối câu.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -124,8 +124,8 @@ export const sentenceClarity: LessonDefinition = {
           { id: "d", label_vi: "Cả lớp cùng.", correct: false },
         ],
         hint1_vi: "Em hãy chọn câu vừa nói rõ ai làm vừa nói rõ việc gì.",
-        hint2_vi: "Câu b không cho biết ai trồng cây và trồng ở đâu.",
-        hint3_vi: "Câu c chỉ là một cụm từ, câu d mới chỉ có một nửa của câu.",
+        hint2_vi: "Câu “Trồng cây ở đâu đó.” không cho biết ai trồng cây và trồng ở nơi cụ thể nào.",
+        hint3_vi: "Cụm “cây xanh.” chỉ là từ ngữ rời rạc, còn “Cả lớp cùng.” mới nói dở một nửa ý.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -149,7 +149,7 @@ export const sentenceClarity: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Câu b vừa có chủ ngữ là Bin vừa có vị ngữ là “thiếp đi trên vai bà”, nên nói đủ ai làm gì. Các câu khác đều mô tả cảnh hoặc kể một việc chung chung, em cần kiểm tra xem câu đó có chủ ngữ rõ ràng hay không trước khi chọn.",
+        "Câu “Nghe tiếng bà kể chuyện ngày xưa, Bin thiếp đi trên vai bà.” vừa có chủ ngữ là Bin vừa có vị ngữ là “thiếp đi trên vai bà”, nên nói đủ ai làm gì. Các câu khác mô tả mặt hồ phẳng lặng hoặc nhắc thêm các nhân vật khác, em cần kiểm tra xem câu nào gắn trực tiếp chủ ngữ với hành động được hỏi.",
     },
   ],
 };

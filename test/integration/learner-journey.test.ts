@@ -21,7 +21,7 @@ const ORIGIN = "http://localhost";
 const PASSWORD = "MatKhauBiMat2026";
 const DISPLAY_NAME = "Phụ huynh";
 /** The learner this suite enrols and then teaches. */
-const LEARNER_NICKNAME = "Tài";
+const LEARNER_NICKNAME = "Bé Mẫu";
 /** Test-only signing secret; never read from disk, never deployed. */
 const TEST_SECRET = "integration-only-not-a-real-secret-value";
 
@@ -123,7 +123,7 @@ beforeEach(async () => {
   // you cannot teach a child who has not been added.
   const enrolled = await call("/api/parent/learners", {
     method: "POST",
-    json: { nickname: LEARNER_NICKNAME, birthYear: 2016, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
+    json: { nickname: LEARNER_NICKNAME, birthYear: 2017, grade: 4, timezone: "Asia/Ho_Chi_Minh" },
   });
   expect(enrolled.status, "enrol fixture").toBe(200);
 });
@@ -627,6 +627,111 @@ describe("lesson version bump, session reflections, and transparent password reh
       .bind(DISPLAY_NAME)
       .first<{ password_hash: string }>();
     expect(afterRow?.password_hash.startsWith(`pbkdf2-sha256:${PBKDF2_ITERATIONS}$`)).toBe(true);
+  });
+
+  it("returns engine ReviewDecision.reasonVi in finalizeSession instead of a flat interval template, distinguishing normal FSRS from assisted/failure retry", async () => {
+    const lessons = (await (await call("/api/parent/lessons")).json()) as {
+      lessons: { id: string; subjectId: string }[];
+    };
+    const firstLesson = lessons.lessons[0]!;
+    const secondLesson = lessons.lessons.find((l) => l.id !== firstLesson.id)!;
+
+    await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId: firstLesson.id, status: "approved" },
+    });
+    await call("/api/parent/lessons/approval", {
+      method: "POST",
+      json: { lessonId: secondLesson.id, status: "approved" },
+    });
+
+    // Path A: Normal unaided solve on firstLesson -> FSRS schedule reason
+    const normalSession = (await (
+      await call("/api/learner/sessions", {
+        method: "POST",
+        json: { lessonId: firstLesson.id },
+      })
+    ).json()) as StartSessionResponse;
+    const normalStep = normalSession.steps[0]!;
+    const normalKey = await answerKeyFor(normalStep.id);
+
+    const normalAttemptRes = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: normalSession.sessionId,
+        stepId: normalStep.id,
+        submission: { kind: "choice", choiceId: normalKey! },
+        helpLevel: 0,
+      },
+    });
+    expect(normalAttemptRes.status).toBe(200);
+
+    const normalFinalizeRes = await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: normalSession.sessionId },
+    });
+    expect(normalFinalizeRes.status).toBe(200);
+    const normalFinalizeBody = (await normalFinalizeRes.json()) as {
+      summary: {
+        nextReview: { skillId: string; intervalDays: number; reasonVi: string }[];
+      };
+    };
+
+    expect(normalFinalizeBody.summary.nextReview).toHaveLength(1);
+    const normalReview = normalFinalizeBody.summary.nextReview[0]!;
+    expect(normalReview.reasonVi).toBe(
+      `Em làm độc lập được; FSRS tính chu kỳ ${normalReview.intervalDays} ngày.`,
+    );
+    expect(normalReview.reasonVi).not.toMatch(/^Ôn lại sau \d+ ngày\.$/);
+
+    // Path B: Retry after failure on secondLesson -> assisted/retry schedule reason
+    const retrySession = (await (
+      await call("/api/learner/sessions", {
+        method: "POST",
+        json: { lessonId: secondLesson.id },
+      })
+    ).json()) as StartSessionResponse;
+    const retryStep = retrySession.steps[0]!;
+    const retryKey = await answerKeyFor(retryStep.id);
+    const retryOptions = choicesOf(retryStep.content);
+
+    await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: retrySession.sessionId,
+        stepId: retryStep.id,
+        submission: { kind: "choice", choiceId: wrongChoice(retryOptions, retryKey!) },
+        helpLevel: 0,
+      },
+    });
+    const retrySolveRes = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: retrySession.sessionId,
+        stepId: retryStep.id,
+        submission: { kind: "choice", choiceId: retryKey! },
+        helpLevel: 0,
+      },
+    });
+    expect(retrySolveRes.status).toBe(200);
+
+    const retryFinalizeRes = await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: retrySession.sessionId },
+    });
+    expect(retryFinalizeRes.status).toBe(200);
+    const retryFinalizeBody = (await retryFinalizeRes.json()) as {
+      summary: {
+        nextReview: { skillId: string; intervalDays: number; reasonVi: string }[];
+      };
+    };
+
+    expect(retryFinalizeBody.summary.nextReview).toHaveLength(1);
+    const retryReview = retryFinalizeBody.summary.nextReview[0]!;
+    expect(retryReview.intervalDays).toBe(1);
+    expect(retryReview.reasonVi).toBe("Em cần ôn lại sớm vì lần làm gần nhất chưa tự làm được.");
+    expect(retryReview.reasonVi).not.toBe(normalReview.reasonVi);
+    expect(retryReview.reasonVi).not.toMatch(/^Ôn lại sau \d+ ngày\.$/);
   });
 });
 
