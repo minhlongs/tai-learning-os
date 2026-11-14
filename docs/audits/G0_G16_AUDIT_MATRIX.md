@@ -1,7 +1,7 @@
 # Ma trận kiểm chứng G0–G16
 
 **Ngày đo:** 2026-11-10 (khởi tạo G0–G16); 2026-11-13 (mục MB, mục OPS); **2026-11-15 (đo lại toàn diện G0–G16, MB, OPS và bộ xuất di sản 10 năm sau khi đóng G2, G6, G9, G10, G13, G15)**
-**HEAD:** `f88b8d7ab296379db73c3be3e105fc0f4071ae04` — đây là nơi các phép đo dưới đây được chạy, trên một cây làm việc sạch. (Commit ngay sau đó chỉ cập nhật chính tài liệu này; xem G0.)
+**HEAD:** `659008ff35cb6ed18084581e6e9b0d64aab3fa09` — đây là nơi các phép đo dưới đây được chạy, trên một cây làm việc sạch. (Commit ngay sau đó chỉ cập nhật chính tài liệu này; xem G0.)
 **Nhánh:** `feat/issue-68-mission-a-phase2-gates`
 **Máy:** macOS, Node v26.7.0, npm 11.x
 
@@ -27,7 +27,7 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 hoặc G16 �
 
 | Cổng | Tên | Phán quyết | Số đo chính |
 |---|---|---|---|
-| G0 | Baseline & môi trường | **PASS** | HEAD `f88b8d7ab2963…`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (`exit=0`) |
+| G0 | Baseline & môi trường | **PASS** | HEAD `659008ff35cb6…`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (`exit=0`) |
 | G1 | Nhất quán mô hình năng lực | **PASS** | `src/` + `test/`: **0** `EMERGING`; 5 trạng thái khớp `COMPETENCY_STATES` |
 | G2 | Kiểm thử không phụ thuộc mạng | **PASS** | `context.route("**/*", …)` chủ động chặn mọi URL ngoài localhost (**8** điểm gắn `attachZeroOutboundGuard`, **0** request ra ngoài trên **60/60** test E2E + mở `viewer.html` qua `file://` khi offline) |
 | G3 | Bí mật & mặc định an toàn | **PASS** | 0 bí mật mặc định; **14** test `config-guard` + **6** test `deployment-lock` |
@@ -62,12 +62,12 @@ git merge-base --is-ancestor bff5c9d HEAD; echo "exit=$?"
 
 **Kết quả nguyên văn (đo lại 2026-11-15):**
 ```
-f88b8d7ab296379db73c3be3e105fc0f4071ae04
+659008ff35cb6ed18084581e6e9b0d64aab3fa09
 0
 exit=0
 ```
 
-**Đo được:** HEAD của toàn bộ mã nguồn, kiểm thử, script và ADR là `f88b8d7ab296379db73c3be3e105fc0f4071ae04`; baseline `bff5c9d` là tổ tiên của HEAD (`exit=0`); cây làm việc có **0 tệp** thay đổi. (Commit ngay sau `f88b8d7` chỉ cập nhật chính tài liệu kiểm chứng này để không tự làm cũ SHA ghim.)
+**Đo được:** HEAD của toàn bộ mã nguồn, kiểm thử, script và ADR là `659008ff35cb6ed18084581e6e9b0d64aab3fa09`; baseline `bff5c9d` là tổ tiên của HEAD (`exit=0`); cây làm việc có **0 tệp** thay đổi. (Commit ngay sau `659008f` chỉ cập nhật chính tài liệu kiểm chứng này để không tự làm cũ SHA ghim.)
 
 **Phán quyết: PASS.**
 
@@ -120,9 +120,9 @@ npx playwright test
 ```
 
 **Đo được:**
-- `test/e2e/network-guard.ts` đăng ký `context.route("**/*", ...)` ở cấp BrowserContext và được gắn tại **8** điểm trong `test/e2e/learner-journey.spec.ts` và `test/e2e/g2-g10-and-portability.spec.ts`.
+- `test/e2e/network-guard.ts` đăng ký `context.route("**/*", ...)` ở cấp BrowserContext và được gắn tại **8** điểm trải đều trên cả ba tệp E2E (`test/e2e/learner-journey.spec.ts`, `test/e2e/m4-browser-verification.spec.ts`, và `test/e2e/g2-g10-and-portability.spec.ts`).
 - Mọi request HTTP/HTTPS/WS ra ngoài `127.0.0.1` / `localhost` bị `route.abort("blockedbyclient")` ngay lập tức và được ghi vào mảng `blockedUrls`; cuối mỗi bài kiểm thử `guard.assertZeroOutbound()` khẳng định `blockedUrls` rỗng (**0** request ra ngoài trên cả **60/60** lượt chạy Desktop, Tablet, Mobile).
-- Bài kiểm thử di sản 10 năm trong `test/e2e/g2-g10-and-portability.spec.ts` còn bật `await context.setOffline(true)` và mở tệp `viewer.html` qua giao thức `file://`, chứng minh hồ sơ học tập hiển thị trọn vẹn khi máy ngắt hoàn toàn kết nối mạng.
+- Bài kiểm thử di sản 10 năm trong `test/e2e/g2-g10-and-portability.spec.ts` còn gắn `offlinePage.route("**/*", ...)` gọi `route.abort("internetdisconnected")` cho mọi giao thức khác `file:`/`data:`/`blob:`, rồi mở trực tiếp tệp `viewer.html` qua giao thức `file://`, chứng minh hồ sơ học tập hiển thị trọn vẹn khi không có bất kỳ kết nối mạng nào.
 
 **Phán quyết: PASS.**
 
@@ -219,14 +219,14 @@ npx vitest run --config vitest.integration.config.ts test/integration/g6-g9-mast
 154:    independentSessionCount < COMPETENCY_CONFIG.independentMinDistinctSessions;
 
  ✓ test/unit/competency-transitions.test.ts (35 tests)
- ✓ test/unit/session-budget-and-recompute.test.ts (5 tests)
- ✓ test/integration/g6-g9-mastery-and-session-cap.test.ts (2 tests)
+ ✓ test/unit/session-budget-and-recompute.test.ts (6 tests)
+ ✓ test/integration/g6-g9-mastery-and-session-cap.test.ts (3 tests)
 ```
 
 **Đo được:**
 - `competency.ts` kiểm tra đồng thời `independentCount >= 2` **và** `independentSessionCount >= 2` (tính theo `sessionId` phân biệt qua `sessionKeyForAttempt`), tách biệt hoàn toàn `lessonPurpose === "practice"` và `evidenceKind === "parent_correction"`.
 - Hai lượt giải độc lập trong **cùng một phiên học** giữ trạng thái ở **`SUPPORTED`**; chỉ khi xác nhận lại ở phiên học thứ hai khác `sessionId` mới lên **`INDEPENDENT`**.
-- Trên các bài học ánh xạ 1–1 tới kỹ năng, `isScheduledReviewFirstTryIndependent()` (`src/worker/services/session-service.ts`) mở khóa lần nộp đầu tiên không gợi ý trong phiên ôn tập định kỳ **khi và chỉ khi `priorDue !== null && now >= priorDue`**, giúp kỹ năng tiến lên **`RETAINED`** sau kỳ nghỉ định kỳ mà vẫn giữ nguyên Cổng A2 chống đoán mò trước hạn (`now < due_at` → bị ép về `assisted`).
+- Trên các bài học ánh xạ 1–1 tới kỹ năng, `isScheduledReviewFirstTryIndependent()` và `replaySkillAttemptEvidence()` (`src/shared/engine/recompute-learner-state.ts`) mở khóa lần nộp đầu tiên không gợi ý trong phiên ôn tập định kỳ **khi và chỉ khi `priorDue !== null && now >= priorDue`**, được chia sẻ đồng nhất giữa `session-service.ts`, `finalizeSession`, `recordParentCorrection`, `selectRetentionAttempts` và `recomputeLearnerState` — giúp kỹ năng tiến lên **`RETAINED`** và được ghi nhận chính xác trên phép đo `retention:report` 14/30 ngày mà vẫn giữ nguyên Cổng A2 chống đoán mò trước hạn (`now < due_at` → bị ép về `assisted`).
 - Bộ tái tính toán tất định `recomputeLearnerState` (`src/shared/engine/recompute-learner-state.ts`) phát lại lịch sử `learning_attempts` từ đầu và được integration test xác nhận khớp 100% với `skill_evidence` và `review_schedule` lưu trong D1.
 
 **Phán quyết: PASS.**
@@ -250,8 +250,8 @@ npm run review:simulate
 13
 ```
 Trích xuất kết quả JSON từ `npm run review:simulate` (`ok: true`, chạy tất định 100% trên 3.650 ngày lịch `2026-09-05` → `2036-09-01`, 1.800 kỹ năng tích lũy, 3 ngày nhuận `2028-02-29`, `2032-02-29`, `2036-02-29`, 10 kỳ nghỉ Tết Âm lịch + 10 kỳ nghỉ hè 92 ngày theo nửa đêm `Asia/Ho_Chi_Minh` `17:00:00Z`):
-- **Thang cố định cũ 1–3–7–14 (`legacy_fixed_14d`):** tổng **288.458** lượt ôn / 10 năm; trung bình Năm thứ 10 vọt lên **146,89 lượt/ngày** (lịch) / **151,01 lượt/ngày** (ngày học), đỉnh **840 lượt/ngày** → quá tải sụp đổ.
-- **Chính sách Lớp 4 hiện hành (`fsrs6_grade4_30d`, `retention: 0.95`, trần `30d`):** trung bình Năm 1 ở quy mô tiểu học chỉ **4,01 lượt/ngày** (phù hợp cho học sinh 9 tuổi trong 1 năm học), và minh họa rõ vì sao lộ trình liên cấp 10 năm cần nới trần khoảng cách khi lên cấp 2–3.
+- **Thang cố định cũ 1–3–7–14 (`legacy_fixed_ladder`):** tổng **288.416** lượt ôn / 10 năm; trung bình Năm thứ 10 vọt lên **146,89 lượt/ngày** (lịch) / **151,01 lượt/ngày** (ngày học), đỉnh **1.437 lượt/ngày** → quá tải sụp đổ.
+- **Chính sách Lớp 4 hiện hành (`fsrs6_grade4_policy`, `retention: 0.95`, trần `30d`):** trung bình Năm 1 ở quy mô tiểu học chỉ **6,34 lượt/ngày** (phù hợp cho học sinh 9 tuổi trong 1 năm học, còn ở quy mô tích lũy 10 năm không nới trần thì Năm 10 lên `96,44 lượt/ngày` — minh họa rõ vì sao lộ trình liên cấp 10 năm cần nới trần khoảng cách khi lên cấp 2–3).
 - **Chính sách FSRS-6 10 năm của Masterplan (`fsrs6_masterplan_10y`, `retention: 0.90`, trần `365d`):** tổng **20.817** lượt ôn / 10 năm; Năm thứ 10 giữ ổn định ở **9,14 lượt/ngày** (lịch) / **9,40 lượt/ngày** (ngày hoạt động) / **8,92 lượt/ngày** (trung bình học kỳ chính khóa) — thấp hơn rất xa trần `25 lượt/ngày`; **611/660** lượt nối lại sau nghỉ Tết giữ nguyên độ ổn định ký ức và **`falseResets: 0`**.
 
 **Phán quyết: PASS.**
@@ -297,13 +297,13 @@ npx vitest run --config vitest.integration.config.ts test/integration/g6-g9-mast
 ```
 4
 (Các dòng khớp `leaderboard`/`streak` duy nhất là bộ lọc chặn gamification trong `src/shared/content/qa-gate.ts` và cột sư phạm chỉ hiển thị cho phụ huynh `failure_streak`)
- ✓ test/unit/session-budget-and-recompute.test.ts (5 tests)
- ✓ test/integration/g6-g9-mastery-and-session-cap.test.ts (2 tests)
+ ✓ test/unit/session-budget-and-recompute.test.ts (6 tests)
+ ✓ test/integration/g6-g9-mastery-and-session-cap.test.ts (3 tests)
 ```
 
 **Đo được:**
-- `src/shared/engine/session-budget.ts` khóa cứng `MAX_LEARNER_SESSION_MS = 25 * 60 * 1000` (25 phút), `EYE_REST_COOLDOWN_MS = 15 * 60 * 1000` (15 phút nghỉ mắt), `PARENT_SESSION_EXTENSION_MS = 15 * 60 * 1000` (+15 phút khi phụ huynh xác thực mật khẩu).
-- **Dừng Mềm (Soft Stop):** Lần nộp bài đang làm dở chạm mốc 25 phút vẫn được chấm điểm và lưu bằng chứng nguyên tử (`200 OK`, `sessionTimeBudgetReached: true`, `canAdvance: false`); bước tiếp theo hoặc phiên học mới bị chặn `429 SESSION_TIME_LIMIT_REACHED` kèm thông báo nghỉ mắt tiếng Việt trên `LessonScreen.tsx`.
+- `src/shared/engine/session-budget.ts` khóa cứng `MAX_LEARNER_SESSION_MS = 25 * 60 * 1000` (25 phút), `EYE_REST_COOLDOWN_MS = 15 * 60 * 1000` (15 phút nghỉ mắt), `PARENT_SESSION_EXTENSION_MS = 15 * 60 * 1000` (+15 phút khi phụ huynh xác thực mật khẩu), đồng thời cộng dồn thời lượng học liên tục qua `computeContinuousStudyCarryOverMs` để việc chuyển sang bài học khác ở phút thứ 24 không thể xóa bộ đếm 25 phút.
+- **Dừng Mềm (Soft Stop):** Lần nộp bài đang làm dở chạm mốc 25 phút vẫn được chấm điểm và lưu bằng chứng nguyên tử (`200 OK`, `sessionTimeBudgetReached: true`, `canAdvance: false`); bước tiếp theo hoặc phiên học mới bị từ chối `403 Forbidden` kèm thông báo nghỉ mắt tiếng Việt trên `LessonScreen.tsx` (giữ nguyên trạng thái `softStopped: true` cả khi tải lại trang).
 - Phụ huynh nhập mật khẩu tại `POST /api/learner/sessions/extend` (có kiểm soát CSRF và khoá `auth_throttles`) sẽ mở thêm 15 phút và ghi chứng từ kiểm toán `session.time_extended` / `session.rest_overridden` vào `audit_events`. Kịch bản này được chứng minh cả ở tầng Worker/D1 lẫn trên trình duyệt thật trong `test/e2e/g2-g10-and-portability.spec.ts`.
 - **0** bảng xếp hạng, **0** chuỗi ngày học gây áp lực.
 
@@ -327,9 +327,9 @@ Running 6 tests using 3 workers
 ```
 
 **Đo được:**
-- `@axe-core/playwright` (`^4.11.2`) quét trực tiếp cây DOM đang render với bộ thẻ `["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]` trên màn hình chọn môn/bài học, màn hình làm bài tập của học sinh, màn hình nghỉ mắt 25 phút, màn hình Quản lý dữ liệu của phụ huynh và trình xem di sản ngoại tuyến `viewer.html` trên cả 3 cấu hình khung nhìn (`desktop-1280x800`, `tablet-820x1180`, `mobile-390x844`) → **0** vi phạm `critical` hoặc `serious`.
+- `@axe-core/playwright` (`^4.14.0`) quét trực tiếp cây DOM đang render với bộ thẻ `["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]` trên màn hình chọn môn/bài học, màn hình làm bài tập của học sinh, màn hình nghỉ mắt 25 phút, màn hình Quản lý dữ liệu của phụ huynh và trình xem di sản ngoại tuyến `viewer.html` trên cả 3 cấu hình khung nhìn (`desktop`, `tablet`, `mobile`) → **0** vi phạm `critical` hoặc `serious`.
 - Quá trình quét đã phát hiện và sửa triệt để 3 lỗi WCAG thực tế trong mã nguồn: `label-content-name-mismatch` trên `.lesson-tile` (`LessonList.tsx`), thiếu nhãn cho `role="progressbar"` (`StepProgress.tsx`), và vùng bảng cuộn ngang trên di động cần `tabindex="0"` (`static-viewer.ts`).
-- Mọi phần tử điều khiển tương tác chính của học sinh (`.subject-card`, `.lesson-tile`, `.choice-option`, nút nộp bài, nút gợi ý) đều được đo `boundingBox()` thực tế và đạt **`width >= 48px` và `height >= 48px`**.
+- Mọi nút tương tác và lựa chọn hiển thị trên màn hình làm bài tập của học sinh (`.lesson-page button:visible, .lesson-page label.choice:visible`) đều được đo `boundingBox()` thực tế và đạt **`width >= 48px` và `height >= 48px`** (cùng quy tắc `min-height: 48px` trên `.subject-card`, `.lesson-tile`, `.btn`).
 
 **Phán quyết: PASS.**
 
@@ -573,8 +573,8 @@ npm run retention:report
 npm run retention:drill
 
 # Bộ kiểm thử đầy đủ (Unit + Integration + Playwright E2E)
-npm run verify            # 29 tệp / 399 unit test + lint + typecheck + QA/sim/TCO + build
-npm run test:integration  # 20 tệp / 206 integration test
+npm run verify            # 29 tệp / 400 unit test + lint + typecheck + QA/sim/TCO + build
+npm run test:integration  # 20 tệp / 207 integration test
 npm run test:e2e          # 60 Playwright E2E test (Desktop + Tablet + Mobile)
 ```
 
