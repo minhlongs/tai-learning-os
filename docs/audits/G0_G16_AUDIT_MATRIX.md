@@ -1,7 +1,7 @@
 # Ma trận kiểm chứng G0–G16
 
 **Ngày đo:** 2026-11-10 (khởi tạo G0–G16); 2026-11-13 (mục MB, mục OPS); **2026-11-15 (đo lại toàn diện G0–G16, MB, OPS và bộ xuất di sản 10 năm sau khi đóng G2, G6, G9, G10, G13, G15)**
-**HEAD:** `659008ff35cb6ed18084581e6e9b0d64aab3fa09` — đây là nơi các phép đo dưới đây được chạy, trên một cây làm việc sạch. (Commit ngay sau đó chỉ cập nhật chính tài liệu này; xem G0.)
+**HEAD:** `92819a096d32e6f416ff19fe39933a98a0863250` — đây là nơi các phép đo dưới đây được chạy, trên một cây làm việc sạch. (Commit ngay sau đó chỉ cập nhật chính tài liệu này; xem G0.)
 **Nhánh:** `feat/issue-68-mission-a-phase2-gates`
 **Máy:** macOS, Node v26.7.0, npm 11.x
 
@@ -27,7 +27,7 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 hoặc G16 �
 
 | Cổng | Tên | Phán quyết | Số đo chính |
 |---|---|---|---|
-| G0 | Baseline & môi trường | **PASS** | HEAD `659008ff35cb6…`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (`exit=0`) |
+| G0 | Baseline & môi trường | **PASS** | HEAD `92819a096d32e…`; cây làm việc **0 tệp** thay đổi; baseline `bff5c9d` là tổ tiên (`exit=0`) |
 | G1 | Nhất quán mô hình năng lực | **PASS** | `src/` + `test/`: **0** `EMERGING`; 5 trạng thái khớp `COMPETENCY_STATES` |
 | G2 | Kiểm thử không phụ thuộc mạng | **PASS** | `context.route("**/*", …)` chủ động chặn mọi URL ngoài localhost (**8** điểm gắn `attachZeroOutboundGuard`, **0** request ra ngoài trên **60/60** test E2E + mở `viewer.html` qua `file://` khi offline) |
 | G3 | Bí mật & mặc định an toàn | **PASS** | 0 bí mật mặc định; **14** test `config-guard` + **6** test `deployment-lock` |
@@ -62,12 +62,12 @@ git merge-base --is-ancestor bff5c9d HEAD; echo "exit=$?"
 
 **Kết quả nguyên văn (đo lại 2026-11-15):**
 ```
-659008ff35cb6ed18084581e6e9b0d64aab3fa09
+92819a096d32e6f416ff19fe39933a98a0863250
 0
 exit=0
 ```
 
-**Đo được:** HEAD của toàn bộ mã nguồn, kiểm thử, script và ADR là `659008ff35cb6ed18084581e6e9b0d64aab3fa09`; baseline `bff5c9d` là tổ tiên của HEAD (`exit=0`); cây làm việc có **0 tệp** thay đổi. (Commit ngay sau `659008f` chỉ cập nhật chính tài liệu kiểm chứng này để không tự làm cũ SHA ghim.)
+**Đo được:** HEAD của toàn bộ mã nguồn, kiểm thử, script và ADR là `92819a096d32e6f416ff19fe39933a98a0863250`; baseline `bff5c9d` là tổ tiên của HEAD (`exit=0`); cây làm việc có **0 tệp** thay đổi. (Commit ngay sau `92819a0` chỉ cập nhật chính tài liệu kiểm chứng này để không tự làm cũ SHA ghim.)
 
 **Phán quyết: PASS.**
 
@@ -350,7 +350,7 @@ npx vitest run --config vitest.integration.config.ts test/integration/batched-wr
       Tests  9 passed (9)
 ```
 
-**Đo được:** **16** điểm gọi `.batch(` trong `src/`; **4** bài test rollback/race trong `evidence-and-ledger-integrity.test.ts`; **9** bài test hình dạng batch trong `batched-write-shape.test.ts` (bao gồm bài thứ 9 mới bổ sung cho `POST /api/data/export-portability`: `0` batch, đúng `1` lệnh ghi chứng từ `data.portability_exported` ở độ sâu `0` vào `audit_events`). Ngoài ra các tuyến gia hạn phiên học (`learner.ts:969,1005`) và xuất di sản (`portability.ts:34`) đều là các chứng từ kiểm toán đơn câu lệnh thuộc bộ ngoại lệ hợp lệ đã liệt kê.
+**Đo được:** **16** điểm gọi `.batch(` trong `src/`; **4** bài test rollback/race trong `evidence-and-ledger-integrity.test.ts`; **9** bài test hình dạng batch trong `batched-write-shape.test.ts` (bao gồm bài thứ 9 mới bổ sung cho `POST /api/data/export-portability`: `0` batch, đúng `1` lệnh ghi chứng từ `data.portability_exported` ở độ sâu `0` vào `audit_events`). Ngoài ra các tuyến gia hạn phiên học (`learner.ts:1044,1080,1126`) và xuất di sản (`portability.ts:34`) đều là các chứng từ kiểm toán đơn câu lệnh thuộc bộ ngoại lệ hợp lệ đã liệt kê.
 
 **Phán quyết: PASS.**
 
@@ -573,7 +573,7 @@ npm run retention:report
 npm run retention:drill
 
 # Bộ kiểm thử đầy đủ (Unit + Integration + Playwright E2E)
-npm run verify            # 29 tệp / 400 unit test + lint + typecheck + QA/sim/TCO + build
+npm run verify            # 29 tệp / 401 unit test + lint + typecheck + QA/sim/TCO + build
 npm run test:integration  # 20 tệp / 207 integration test
 npm run test:e2e          # 60 Playwright E2E test (Desktop + Tablet + Mobile)
 ```
