@@ -25,6 +25,7 @@ import type {
 import { readActiveLearnerId } from "../../lib/active-learner-store";
 import { api, failureMessage } from "../../lib/api";
 import { endpoints } from "../../lib/endpoints";
+import { activeLearnerLabelVi } from "../../lib/learner-label";
 import { useSessionContext } from "../../lib/session-context";
 import { ProtectedScreen } from "../../components/ProtectedScreen";
 import { EmptyPanel, ErrorPanel, LoadingPanel } from "../../components/ScreenState";
@@ -198,12 +199,13 @@ export function FourWeekPlannerScreen({
   const weekItems = items.filter((item) => item.weekIndex === selectedWeek);
 
   const todayStr = new Date().toISOString().split("T")[0];
+  const learnerName = activeLearnerLabelVi(session);
 
   return (
     <ProtectedScreen area="parent" session={session}>
       <div className="dashboard">
         <header className="dashboard__header">
-          <h1 className="page__title">Kế hoạch học tập 4 tuần của Tài</h1>
+          <h1 className="page__title">{`Kế hoạch học tập 4 tuần của ${learnerName}`}</h1>
           <p className="page__lede">
             Kế hoạch phân bổ tự động dựa trên chương trình của khối lớp, các lỗ hổng kỹ năng tiên
             quyết, và chu kỳ ôn tập ngắt quãng (Spaced Retrieval). Mỗi buổi giới hạn ~20 phút, không
@@ -362,7 +364,7 @@ export function FourWeekPlannerScreen({
           <EmptyPanel title="Chưa có kế hoạch nào được lập">
             <p>
               Nhấn nút &ldquo;Tạo / Cập nhật lại kế hoạch 4 tuần&rdquo; ở trên để hệ thống quét dữ liệu
-              chương trình và bằng chứng hiện có để lập lộ trình cho Tài.
+              chương trình và bằng chứng hiện có để lập lộ trình cho {learnerName}.
             </p>
           </EmptyPanel>
         ) : null}

@@ -244,7 +244,7 @@ decision, not an omission:
 
 | Field | Status | Held instead |
 |---|---|---|
-| Legal name / full name | **ABSENT** | `nickname` only (e.g. "Tai") |
+| Legal name / full name | **ABSENT** | `nickname` only (e.g. "Bé Mẫu") |
 | Date of birth | **ABSENT** | `birth_year` — year only, optional, for age banding |
 | School name | **ABSENT** | nothing; `school_years.label` is a family-supplied grouping label |
 | Home address | **ABSENT** | `timezone` DEFAULT `'Asia/Ho_Chi_Minh'` (a scheduling zone, not a location) |

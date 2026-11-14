@@ -107,8 +107,8 @@ export const baselineMathGrade4: LessonDefinition = {
       content: {
         type: "multiple_choice",
         question_vi:
-          "Một hộp có 10 cái bánh, Tài đã ăn 3 cái. Phân số chỉ số bánh Tài đã ăn là:",
-        question_en: "There are 10 cakes in a box, Tai ate 3. What fraction did Tai eat?",
+          "Một hộp có 10 cái bánh, Nam đã ăn 3 cái. Phân số chỉ số bánh Nam đã ăn là:",
+        question_en: "There are 10 cakes in a box, Nam ate 3. What fraction did Nam eat?",
         choices: [
           { id: "a", label_vi: "3/10 hộp bánh", correct: true },
           { id: "b", label_vi: "7/10 hộp bánh", correct: false },
@@ -116,11 +116,11 @@ export const baselineMathGrade4: LessonDefinition = {
           { id: "d", label_vi: "10/3 hộp bánh", correct: false },
         ],
         hint1_vi: "Hỏi số bánh đã ăn, không phải số bánh còn lại.",
-        hint2_vi: "Tài đã ăn 3 cái trong tổng số 10 cái bằng nhau.",
+        hint2_vi: "Nam đã ăn 3 cái trong tổng số 10 cái bằng nhau.",
         hint3_vi: "Tử số là 3 (số đã ăn), mẫu số là 10 (tổng số bánh).",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
-      explanationVi: "Tài đã ăn 3 cái trong tổng số 10 cái nên phân số chỉ số bánh đã ăn là 3/10 hộp.",
+      explanationVi: "Nam đã ăn 3 cái trong tổng số 10 cái nên phân số chỉ số bánh đã ăn là 3/10 hộp.",
     },
   ],
 };

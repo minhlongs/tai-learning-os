@@ -1,5 +1,5 @@
 {
-  // He dieu hanh hoc tap Tai — Worker & D1 configuration.
+  // TAI Learning OS — Worker & D1 configuration.
   // LOCAL ONLY: this config must never be deployed without founder authorization.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tai-learning-os",
