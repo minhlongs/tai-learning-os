@@ -18,7 +18,7 @@
    - No generative AI / LLM chat in learner mode.
    - Evidence (`learning_attempts`) is append-only and separated from interpretation (`skill_evidence`).
    - Any hint usage (`helpLevel >= 1`) or retry (`attemptNo > 1`) designates an attempt as `assisted` (`SUPPORTED`), never `observed` (`INDEPENDENT`).
-   - Spaced review uses a deterministic `[1, 3, 7, 14]` day ladder (`src/shared/engine/review.ts`).
+   - Spaced review intervals are computed by FSRS-6 (`ts-fsrs` 6.0.0) in `src/shared/engine/review.ts`, with fuzzing disabled so the same attempt history always yields the same interval. Failure retry (1 day), the assisted-solve retry (1 day), the 30-day ceiling and the 3-failure parent escalation are policy rules of this project, not FSRS defaults. See `docs/adr/ADR-002-fsrs-spaced-review.md`.
 4. **Parent Governance & Security**:
    - Stateless HMAC-SHA256 session cookie (`tlo_session`, `HttpOnly`, `SameSite=Strict`, 8h TTL) with explicit `mode` claim (`parent` vs `learner`) + double-submit CSRF header (`x-tlo-csrf`).
    - Passwords hashed with PBKDF2-SHA256 (600,000 iterations, 16-byte random salt, transparent `needsRehash` migration from 100,000 iterations).

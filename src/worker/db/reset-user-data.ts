@@ -36,6 +36,10 @@ export const USER_DATA_TABLES_IN_DELETE_ORDER = [
   "learning_plan_items",
   "baseline_assessments",
   "curriculum_intakes",
+  // Layers 2 and 3 (ADR-005) reference `learning_attempts`, `learners` and
+  // `skills`, so they clear before the ledger they were derived from.
+  "skill_evidence_observation",
+  "skill_estimate",
   "learning_attempts",
   "learning_sessions",
   "skill_evidence",

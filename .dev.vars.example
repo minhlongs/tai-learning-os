@@ -11,12 +11,23 @@
 # is LOCAL ONLY in this MVP: it runs under `wrangler dev` against a local D1
 # file, and no line of this configuration creates a Cloudflare resource.
 
+# ── ENVIRONMENT ──────────────────────────────────────────────────────────────
+# The ONLY value that relaxes the config guard is "development". It permits
+# first-run parent creation when PARENT_PASSWORD_HASH is empty, which is what
+# makes a fresh local database usable.
+#
+# This variable is intentionally absent from wrangler.jsonc: a deployed Worker
+# that does not set it is treated as production, so the bootstrap path cannot be
+# re-enabled by shipping the repository config.
+ENVIRONMENT=development
+
 # ── SESSION_SECRET ───────────────────────────────────────────────────────────
 # Signs session tokens and derives the CSRF token. Must be high-entropy.
 #
-# The app refuses to serve ANY protected route when this is missing (see
-# src/worker/http/middleware.ts): a missing secret must fail closed, never fall
-# back to an unsigned or guessable default.
+# The app refuses to serve ANY protected route when this is missing or shorter
+# than 32 bytes or built from fewer than 8 distinct characters (see
+# src/worker/config-guard.ts): a bad secret must fail closed, never fall back to
+# an unsigned or guessable default.
 #
 # Generate one:
 #   node -e 'console.log(require("crypto").randomBytes(32).toString("base64url"))'
@@ -27,8 +38,10 @@ SESSION_SECRET=
 
 # ── PARENT_PASSWORD_HASH ─────────────────────────────────────────────────────
 # The parent's password, stored only as a PBKDF2-SHA256 hash. The app refuses to
-# serve protected routes when this is missing UNLESS ENVIRONMENT is "development",
-# which is what lets first-run account creation work on a fresh local database.
+# serve protected routes when this is missing UNLESS ENVIRONMENT is "development"
+# (set above), which is what lets first-run account creation work on a fresh
+# local database. A value that is present but malformed or below 100,000
+# iterations is refused in every environment.
 #
 # Deliberately NOT a password: this file holds no plaintext credential. To make
 # one from a password you choose:

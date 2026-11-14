@@ -20,7 +20,7 @@
 
 - **Frontend**: React 19, TypeScript strict mode, CSS thuần theo Design Tokens trực quan và thân thiện.
 - **Backend / Edge Runtime**: Cloudflare Workers (`workerd`), REST API được kiểm soát qua `x-tlo-csrf` và Session Cookie (`HttpOnly`, `SameSite=Strict`).
-- **Database**: Cloudflare D1 (SQLite) với 22 bảng quan hệ, ràng buộc khóa ngoại `PRAGMA foreign_keys = ON`, bảng bóp nghẹt đăng nhập thất bại `auth_throttles`, bản chụp phiên bản bất biến `lesson_versions`, siêu dữ liệu chương trình GDPT 2018 và kế hoạch học tập 4 tuần.
+- **Database**: Cloudflare D1 (SQLite) với 35 bảng quan hệ, ràng buộc khóa ngoại `PRAGMA foreign_keys = ON`, bảng bóp nghẹt đăng nhập thất bại `auth_throttles`, bản chụp phiên bản bất biến `lesson_versions`, siêu dữ liệu chương trình GDPT 2018 và kế hoạch học tập 4 tuần.
 - **Testing & Verification**:
   - `Vitest` (Unit test cho engine sư phạm, planner, crypto, schema).
   - `Vitest` + `node:sqlite` (`DatabaseSync` D1 adapter cho Integration test kiểm thử trực tiếp Worker routes và SQLite D1).
@@ -72,10 +72,10 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (260 tests across 16 files)
+# Chạy toàn bộ Unit Tests (356 tests across 21 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (148 tests across 15 files)
+# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (202 tests across 19 files)
 npm run test:integration
 
 # Chạy Playwright End-to-End Tests (54 tests, Desktop + Tablet + Mobile)
@@ -98,6 +98,7 @@ npm run unlock:parent
 npm run db:reprovision-household
 
 # Kiểm tra sẵn sàng chỉ-đọc (read-only preflight) của DB hộ gia đình và số bài học đã duyệt cho Tài
+# (nếu báo "expected schemaVersion >= 15", chạy `npm run db:migrate` một lần rồi chạy lại)
 npm run household:preflight
 
 # Duyệt bài học hộ gia đình cho Tài một cách nguyên tử và idempotent (mặc định theo lớp đã đăng ký)
@@ -112,14 +113,14 @@ npm run household:approve-lessons
 tai-learning-os/
 ├── docs/                      # Tài liệu kiến trúc, bảo mật, vận hành và quyền riêng tư
 │   ├── ARCHITECTURE.md        # Kiến trúc hệ thống và phân tách trách nhiệm
-│   ├── DATA_MODEL.md          # Đặc tả 22 bảng cơ sở dữ liệu và mô hình bằng chứng
+│   ├── DATA_MODEL.md          # Đặc tả 35 bảng cơ sở dữ liệu và mô hình bằng chứng
 │   ├── LEARNING_ENGINE.md     # Động cơ đánh giá năng lực và thuật ngữ sư phạm
 │   ├── SECURITY.md            # Mô hình đe dọa, chính sách mật khẩu và CSRF
 │   ├── CHILD_PRIVACY_REVIEW.md# Đánh giá quyền riêng tư dữ liệu trẻ em
 │   ├── PARENT_OPERATIONS.md   # Cẩm nang vận hành dành cho phụ huynh
 │   ├── ROADMAP_90_DAYS.md     # Kế hoạch phát triển và điều kiện triển khai
 │   └── audits/                # Báo cáo kiểm định chất lượng Cổng 01, 02 & 03 (Forensic Audit)
-├── migrations/                # D1 SQL Migrations (0001..0014)
+├── migrations/                # D1 SQL Migrations (0001..0016)
 ├── scripts/                   # Các script công cụ cục bộ (seed, reset, export, hash)
 ├── src/
 │   ├── client/                # React 19 SPA (Screens, Components, Styles)

@@ -53,6 +53,14 @@ const D1_SQLITE_FILENAME =
 
 const MIGRATION_FILES = listShippedMigrationFiles();
 
+/**
+ * The schema version these tests expect is the numeric prefix of the newest
+ * shipped migration, not a number typed by hand: hardcoding it makes every new
+ * migration look like a failure and invites a blind bump. The listing test below
+ * still names the newest file, so adding one is a deliberate, visible change.
+ */
+const SHIPPED_SCHEMA_VERSION = Number(MIGRATION_FILES.at(-1)!.slice(0, 4));
+
 const CANARY_PARENT_HASH = "pbkdf2-sha256:600000$dbsalt001122334455$dbdigestdeadbeefcafe0123456789";
 const FIXED_NOW = 1_800_000_000_000;
 
@@ -923,7 +931,7 @@ describe("reprovision-household-db CLI script (byte-for-byte archive + clean rep
       expect(result.preservedLearnerNickname).toBe("Tài");
       expect(result.preservedSchoolYearLabel).toBe("2026-2027");
       expect(result.lessonsInserted).toBe(50);
-      expect(result.verification.schemaVersion).toBe(14);
+      expect(result.verification.schemaVersion).toBe(SHIPPED_SCHEMA_VERSION);
       expect(result.verification.lessonsCount).toBe(50);
       expect(result.verification.organizationsCount).toBe(0);
       expect(result.lessonApprovals?.ok).toBe(true);
@@ -1014,7 +1022,7 @@ describe("household CLI discovery helpers", () => {
 });
 
 describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast path)", () => {
-  it("parses --target-root and lists all 14 shipped migration files in order", () => {
+  it("parses --target-root and lists every shipped migration file in order", () => {
     expect(parseMigrateLocalD1CliArgs([])).toEqual({ targetRoot: process.cwd() });
     expect(parseMigrateLocalD1CliArgs(["--target-root", "/tmp/migrate-root"])).toEqual({
       targetRoot: "/tmp/migrate-root",
@@ -1030,20 +1038,26 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
       /Unexpected positional argument for db:migrate/,
     );
     const files = listShippedMigrationFiles();
-    expect(files).toHaveLength(14);
+    expect(files).toHaveLength(MIGRATION_FILES.length);
     expect(files[0]).toBe("0001_initial_schema.sql");
-    expect(files[13]).toBe("0014_grade5_curriculum_expansion.sql");
+    expect(files.at(-1)).toBe("0016_learning_attempts_append_only_update_guard.sql");
     expect(files.every((f) => /^\d{4}_.*\.sql$/.test(f))).toBe(true);
+
+    // Contiguous 0001..N with no gaps and no duplicates: the schema version is
+    // the highest number in the chain, so a hole would make it lie.
+    const numbers = files.map((file) => Number(file.slice(0, 4)));
+    expect(numbers).toEqual(numbers.map((_, index) => index + 1));
+    expect(numbers.at(-1)).toBe(SHIPPED_SCHEMA_VERSION);
   });
 
-  it("provisions a fresh database with all 14 migrations and then runs as a strict zero-write no-op on subsequent invocations", () => {
+  it("provisions a fresh database with every shipped migration and then runs as a strict zero-write no-op on subsequent invocations", () => {
     const tmpRoot = mkdtempSync(join(tmpdir(), "tlo-migrate-local-d1-"));
     try {
       const first = runMigrateLocalD1OnRoot(tmpRoot);
       expect(first.ok).toBe(true);
       expect(first.applied).toEqual(MIGRATION_FILES);
       expect(first.skippedCount).toBe(0);
-      expect(first.schemaVersion).toBe(14);
+      expect(first.schemaVersion).toBe(SHIPPED_SCHEMA_VERSION);
       expect(existsSync(first.sqlitePath)).toBe(true);
 
       // Checkpoint WAL and switch to DELETE journal mode so the file on disk is a single quiescent SQLite file.
@@ -1061,8 +1075,8 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
       const second = runMigrateLocalD1OnRoot(tmpRoot);
       expect(second.ok).toBe(true);
       expect(second.applied).toEqual([]);
-      expect(second.skippedCount).toBe(14);
-      expect(second.schemaVersion).toBe(14);
+      expect(second.skippedCount).toBe(MIGRATION_FILES.length);
+      expect(second.schemaVersion).toBe(SHIPPED_SCHEMA_VERSION);
 
       const postHash = sha256File(first.sqlitePath);
       const postStat = statSync(first.sqlitePath);
@@ -1085,8 +1099,8 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
       };
       expect(parsedCli.ok).toBe(true);
       expect(parsedCli.applied).toEqual([]);
-      expect(parsedCli.skippedCount).toBe(14);
-      expect(parsedCli.schemaVersion).toBe(14);
+      expect(parsedCli.skippedCount).toBe(MIGRATION_FILES.length);
+      expect(parsedCli.schemaVersion).toBe(SHIPPED_SCHEMA_VERSION);
       expect(sha256File(first.sqlitePath)).toBe(preHash);
     } finally {
       rmSync(tmpRoot, { recursive: true, force: true });
@@ -1129,7 +1143,7 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
       expect(result.ok).toBe(true);
       expect(result.skippedCount).toBe(10);
       expect(result.applied).toEqual(MIGRATION_FILES.slice(10));
-      expect(result.schemaVersion).toBe(14);
+      expect(result.schemaVersion).toBe(SHIPPED_SCHEMA_VERSION);
     } finally {
       rmSync(tmpRoot, { recursive: true, force: true });
     }

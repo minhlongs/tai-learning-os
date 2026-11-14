@@ -62,6 +62,7 @@
      ```bash
      npm run household:preflight
      ```
+   - Nếu lệnh dừng với dòng `expected schemaVersion >= 15, found 14`: cơ sở dữ liệu trên máy đang cũ hơn mã nguồn trong kho, đây không phải lỗi và không mất dữ liệu. Chạy `npm run db:migrate` một lần rồi chạy lại `npm run household:preflight`. *(English: if preflight refuses on `schemaVersion`, run `npm run db:migrate` once and retry.)*
 4. **Làm mới cơ sở dữ liệu hộ gia đình sạch (`db:reprovision-household`):**
    - Khi cần lưu trữ nguyên vẹn cơ sở dữ liệu hiện tại vào `backups/` và khởi tạo lại cơ sở dữ liệu gia đình sạch 100% (giữ nguyên tài khoản Phụ huynh, hồ sơ bé Tài, năm học và 50 bài học mẫu, kèm duyệt sẵn bài học theo khối lớp của con):
      ```bash

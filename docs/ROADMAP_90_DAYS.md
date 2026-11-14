@@ -16,7 +16,7 @@
 
 ### Delivered in Gate 01, Gate 02 & M4
 - [x] Deterministic competency derivation (`NOT_OBSERVED` → `SUPPORTED` → `INDEPENDENT` → `RETAINED` → `TRANSFERRED`) with failed-review demotion (`RETAINED` → `INDEPENDENT`) and first-attempt (`attemptNo === 1`) anti-brute-force rule.
-- [x] Spaced review scheduler (`[1, 3, 7, 14]` days ladder with 1-day reset on review failure and parent escalation on 3+ consecutive failures).
+- [x] Spaced review scheduler (FSRS-6 intervals via `ts-fsrs` 6.0.0, fuzzing disabled for reproducibility, with a 1-day reset on review failure and parent escalation on 3+ consecutive failures).
 - [x] Strict client-server boundary: answer keys stripped from learner responses; server-only grading and server-enforced hint provenance (`hint.requested` audit trail prevents `helpLevel` spoofing).
 - [x] Hardened security middleware: per-client rate-limiting buckets (`AUTH_RATE_LIMITER` 5/60s, `API_RATE_LIMITER` 120/60s), `Origin` header validation, `x-tlo-csrf` enforcement, and automatic password hash upgrade (`needsRehash`).
 - [x] Local D1 SQLite schema (22 domain tables including `lesson_versions` immutable snapshots, FK enforcement, CHECK constraints) and reference catalogue.

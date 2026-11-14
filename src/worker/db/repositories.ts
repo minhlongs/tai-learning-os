@@ -34,6 +34,8 @@ import type {
   ReviewScheduleRow,
   SchoolYearRow,
   SessionReflectionRow,
+  SkillEstimateRow,
+  SkillEvidenceObservationRow,
   SkillEvidenceRow,
   SkillRow,
   SubjectRow,
@@ -214,6 +216,8 @@ export async function deleteLearnerCascade(
     db.prepare("DELETE FROM learning_plan_items WHERE learner_id = ?1"),
     db.prepare("DELETE FROM baseline_assessments WHERE learner_id = ?1"),
     db.prepare("DELETE FROM curriculum_intakes WHERE learner_id = ?1"),
+    db.prepare("DELETE FROM skill_evidence_observation WHERE learner_id = ?1"),
+    db.prepare("DELETE FROM skill_estimate WHERE learner_id = ?1"),
     db.prepare("DELETE FROM learning_attempts WHERE learner_id = ?1"),
     db.prepare("DELETE FROM learning_sessions WHERE learner_id = ?1"),
     db.prepare("DELETE FROM skill_evidence WHERE learner_id = ?1"),
@@ -1582,6 +1586,155 @@ export function reviewScheduleUpsert(
       input.lastResult,
       input.lastAttemptAt,
       input.failureStreak,
+      input.now,
+    );
+}
+
+/* ── Layer 2: per-attempt evidence observations ──────────────────────────── */
+
+export async function listEvidenceObservationsForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<SkillEvidenceObservationRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, learner_id, skill_id, attempt_id, observed_kind, help_level, attempt_no,
+              observed_at, created_at
+       FROM skill_evidence_observation WHERE learner_id = ?1
+       ORDER BY observed_at ASC`,
+    )
+    .bind(learnerId)
+    .all<SkillEvidenceObservationRow>();
+  return result.results ?? [];
+}
+
+/**
+ * The observation insert as a bound statement, for composing into `db.batch`.
+ *
+ * A plain INSERT, not an upsert: the table is append-only and keyed by attempt,
+ * so a conflict means the same attempt was classified twice. That is a real
+ * invariant violation and should abort the batch rather than be silently
+ * resolved in favour of whichever writer ran first.
+ */
+export function evidenceObservationInsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    skillId: string;
+    attemptId: string;
+    observedKind: "independent" | "assisted" | "correction";
+    helpLevel: number;
+    attemptNo: number;
+    observedAt: number;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO skill_evidence_observation
+         (id, learner_id, skill_id, attempt_id, observed_kind, help_level, attempt_no,
+          observed_at, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    )
+    .bind(
+      input.id,
+      input.learnerId,
+      input.skillId,
+      input.attemptId,
+      input.observedKind,
+      input.helpLevel,
+      input.attemptNo,
+      input.observedAt,
+      input.now,
+    );
+}
+
+/* ── Layer 3: stored memory estimate ─────────────────────────────────────── */
+
+export async function listSkillEstimatesForLearner(
+  db: Db,
+  learnerId: string,
+): Promise<SkillEstimateRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, learner_id, skill_id, stability, difficulty, retrievability_at, reps, lapses,
+              fsrs_state, scheduled_days, last_review_at, model_version, computed_at,
+              attempt_watermark, attempt_count, created_at, updated_at
+       FROM skill_estimate WHERE learner_id = ?1 ORDER BY computed_at DESC`,
+    )
+    .bind(learnerId)
+    .all<SkillEstimateRow>();
+  return result.results ?? [];
+}
+
+/** The skill_estimate upsert as a bound statement, for composing into `db.batch`. */
+export function skillEstimateUpsert(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    skillId: string;
+    stability: number;
+    difficulty: number;
+    retrievabilityAt: number;
+    reps: number;
+    lapses: number;
+    fsrsState: number;
+    scheduledDays: number;
+    lastReviewAt: number | null;
+    modelVersion: string;
+    attemptWatermark: string | null;
+    attemptCount: number;
+    /**
+     * When the model produced these numbers. Carried separately from `now`
+     * because a restore must keep the original computation instant: stamping it
+     * with the restore moment would make an estimate computed from a shorter
+     * ledger prefix look freshly current.
+     */
+    computedAt: number;
+    now: number;
+  },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO skill_estimate
+         (id, learner_id, skill_id, stability, difficulty, retrievability_at, reps, lapses,
+          fsrs_state, scheduled_days, last_review_at, model_version, computed_at,
+          attempt_watermark, attempt_count, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+       ON CONFLICT(learner_id, skill_id) DO UPDATE SET
+         stability = excluded.stability,
+         difficulty = excluded.difficulty,
+         retrievability_at = excluded.retrievability_at,
+         reps = excluded.reps,
+         lapses = excluded.lapses,
+         fsrs_state = excluded.fsrs_state,
+         scheduled_days = excluded.scheduled_days,
+         last_review_at = excluded.last_review_at,
+         model_version = excluded.model_version,
+         computed_at = excluded.computed_at,
+         attempt_watermark = excluded.attempt_watermark,
+         attempt_count = excluded.attempt_count,
+         updated_at = excluded.updated_at`,
+    )
+    .bind(
+      input.id,
+      input.learnerId,
+      input.skillId,
+      input.stability,
+      input.difficulty,
+      input.retrievabilityAt,
+      input.reps,
+      input.lapses,
+      input.fsrsState,
+      input.scheduledDays,
+      input.lastReviewAt,
+      input.modelVersion,
+      input.computedAt,
+      input.attemptWatermark,
+      input.attemptCount,
+      input.now,
       input.now,
     );
 }

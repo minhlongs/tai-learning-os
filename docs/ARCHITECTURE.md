@@ -58,8 +58,8 @@ HTTP surface is [`src/shared/api-contract.ts`](../src/shared/api-contract.ts).
 ┌───────────────────────────────┐   ┌─────────────────────────────────┐
 │  D1  (SQLite, local-only)     │   │  .dev.vars                      │
 │  binding: DB                  │   │  SESSION_SECRET                 │
-│  migrations/0001..0014        │   │  PARENT_PASSWORD_HASH           │
-│  22 tables — see DATA_MODEL   │   │  Local-only test credentials    │
+│  migrations/0001..0015        │   │  PARENT_PASSWORD_HASH           │
+│  35 tables — see DATA_MODEL   │   │  Local-only test credentials    │
 └───────────────────────────────┘   └─────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────┐

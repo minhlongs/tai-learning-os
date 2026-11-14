@@ -3,7 +3,7 @@
  *
  * Verifies local `.dev.vars` key presence (boolean only, never secret values),
  * SQLite `PRAGMA integrity_check`, household D1 isolation invariants (triggers,
- * unique attempt index, schema v14+, 50+ catalogue lessons, single parent/learner,
+ * unique attempt index, schema v15+, 50+ catalogue lessons, single parent/learner,
  * zero B2B2C organizations/classrooms, and zero foreign audit actors), household
  * identity presence (`parents`, `learners`, `school_years`), and the count of
  * parent-approved active lessons for the registered household learner without
@@ -11,6 +11,7 @@
  */
 
 import {
+  assertMinimumSchemaVersion,
   extractHouseholdIdentity,
   verifyCleanHouseholdState,
   type CleanHouseholdVerificationReport,
@@ -93,6 +94,8 @@ async function inspectHouseholdDatabaseState(
   db: D1Database,
   snapshot: HouseholdIdentitySnapshot,
 ): Promise<CleanHouseholdVerificationReport> {
+  await assertMinimumSchemaVersion(db, "Household DB preflight failed");
+
   const triggers =
     (
       await db
@@ -136,6 +139,8 @@ async function inspectHouseholdDatabaseState(
          (SELECT COUNT(*) FROM learning_sessions) AS learning_sessions_count,
          (SELECT COUNT(*) FROM learning_attempts) AS learning_attempts_count,
          (SELECT COUNT(*) FROM skill_evidence) AS skill_evidence_count,
+         (SELECT COUNT(*) FROM skill_evidence_observation) AS skill_evidence_observation_count,
+         (SELECT COUNT(*) FROM skill_estimate) AS skill_estimate_count,
          (SELECT COUNT(*) FROM audit_events) AS audit_events_count`,
     )
     .first<{
@@ -150,6 +155,8 @@ async function inspectHouseholdDatabaseState(
       learning_sessions_count: number;
       learning_attempts_count: number;
       skill_evidence_count: number;
+      skill_evidence_observation_count: number;
+      skill_estimate_count: number;
       audit_events_count: number;
     }>();
 
@@ -175,6 +182,8 @@ async function inspectHouseholdDatabaseState(
     learningSessionsCount: Number(counts?.learning_sessions_count ?? 0),
     learningAttemptsCount: Number(counts?.learning_attempts_count ?? 0),
     skillEvidenceCount: Number(counts?.skill_evidence_count ?? 0),
+    skillEvidenceObservationCount: Number(counts?.skill_evidence_observation_count ?? 0),
+    skillEstimateCount: Number(counts?.skill_estimate_count ?? 0),
     auditEventsCount: Number(counts?.audit_events_count ?? 0),
     auditActions,
   };
@@ -187,17 +196,14 @@ async function inspectHouseholdDatabaseState(
     report.learningSessionsCount === 0 &&
     report.learningAttemptsCount === 0 &&
     report.skillEvidenceCount === 0 &&
+    report.skillEvidenceObservationCount === 0 &&
+    report.skillEstimateCount === 0 &&
     report.auditActions.every((action) => PRISTINE_ENROLLMENT_ACTIONS.has(action));
 
   if (isPristinePostReprovision) {
     return verifyCleanHouseholdState(db);
   }
 
-  if (report.schemaVersion < 14) {
-    throw new Error(
-      `Household DB preflight failed: expected schemaVersion >= 14, found ${report.schemaVersion}`,
-    );
-  }
   if (report.lessonsCount < 50 || report.lessonVersionsCount < 50) {
     throw new Error(
       `Household DB preflight failed: expected at least 50 catalogue lessons and 50 lesson_versions, found lessons=${report.lessonsCount}, lessonVersions=${report.lessonVersionsCount}`,

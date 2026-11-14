@@ -30,13 +30,17 @@ Hệ thống triển khai 4 bảng chuyên biệt quản lý chương trình:
 
 ### 3. THANG NĂNG LỰC 5 BẬC VÀ CƠ CHẾ ÔN TẬP CÁCH QUÃNG
 
-Động cơ suy diễn năng lực học sinh (`src/shared/engine/competency.ts`) vận hành theo thang 5 bậc:
+Động cơ suy diễn năng lực học sinh (`src/shared/engine/competency.ts`) vận hành theo thang 5 bậc. Thang này được khai báo một lần duy nhất tại `COMPETENCY_STATES` (`src/shared/schemas/attempt.ts:25`) và là ràng buộc `CHECK` trên cột `skill_evidence.state`, nên tài liệu này chỉ chép lại đúng bộ giá trị đó:
+
 1. `NOT_OBSERVED`: Chưa có quan sát thực tế nào.
-2. `EMERGING`: Đã làm nhưng tỷ lệ đúng thấp hoặc chỉ hoàn thành với nhiều gợi ý.
-3. `SUPPORTED`: Trả lời đúng nhưng cần trợ giúp (gợi ý cấp 1-4, hoặc làm lại sau lần sai đầu tiên).
-4. `INDEPENDENT`: Làm đúng độc lập ngay từ lần thử đầu tiên, không dùng gợi ý, đạt đủ số lần tối thiểu.
-5. `TRANSFERRED` / `RETAINED`:
-   - `TRANSFERRED`: Vận dụng giải quyết thành công bài tập biến thể độc lập.
-   - `RETAINED`: Vượt qua bài kiểm tra ôn tập cách quãng sau khoảng thời gian tiêu chuẩn `[1, 3, 7, 14]` ngày.
-   - **Quy tắc bảo vệ:** Nếu học sinh thất bại trong một lần ôn tập định kỳ sau đó, hệ thống tự động giáng cấp về `INDEPENDENT` để đưa vào hàng đợi ôn tập lại.
-   - **Tách biệt bài luyện tập gia đình (`purpose = 'practice'`):** Khi phụ huynh nhân bản bài học thư viện chuẩn TAI (`POST /api/parent/lessons/fork`), bản sao mang `ownership_type = 'family'` và `purpose = 'practice'` kèm liên kết phả hệ (`source_lesson_id`, `source_version`, `source_step_id`). Các phiên và lượt làm bài trên bài luyện tập gia đình luôn được server gán `purpose = 'practice'`, `evidence_kind = 'assisted'` và không bao giờ ghi đè `skill_evidence`, `review_schedule`, chẩn đoán đầu vào hay kế hoạch 4 tuần chính thức.
+2. `SUPPORTED`: Trả lời đúng nhưng cần trợ giúp (gợi ý cấp 1-4, hoặc làm lại sau lần sai đầu tiên).
+3. `INDEPENDENT`: Làm đúng độc lập ngay từ lần thử đầu tiên, không dùng gợi ý, đạt đủ số lần tối thiểu.
+4. `RETAINED`: Vượt qua bài kiểm tra ôn tập cách quãng đúng hạn, với khoảng cách do FSRS-6 (`ts-fsrs` 6.0.0) tính từ chính lịch sử làm bài của em — xem `src/shared/engine/review.ts` và `docs/adr/ADR-002-fsrs-spaced-review.md`.
+5. `TRANSFERRED`: Vận dụng giải quyết thành công bài tập biến thể độc lập.
+
+Hai quy tắc đi kèm thang bậc:
+
+- **Quy tắc bảo vệ:** Nếu học sinh thất bại trong một lần ôn tập định kỳ sau đó, hệ thống tự động giáng cấp về `INDEPENDENT` để đưa vào hàng đợi ôn tập lại.
+- **Tách biệt bài luyện tập gia đình (`purpose = 'practice'`):** Khi phụ huynh nhân bản bài học thư viện chuẩn TAI (`POST /api/parent/lessons/fork`), bản sao mang `ownership_type = 'family'` và `purpose = 'practice'` kèm liên kết phả hệ (`source_lesson_id`, `source_version`, `source_step_id`). Các phiên và lượt làm bài trên bài luyện tập gia đình luôn được server gán `purpose = 'practice'`, `evidence_kind = 'assisted'` và không bao giờ ghi đè `skill_evidence`, `review_schedule`, chẩn đoán đầu vào hay kế hoạch 4 tuần chính thức.
+
+Không có bậc trung gian nào khác: một lượt làm đúng nhưng sai tỷ lệ hoặc cần nhiều gợi ý được ghi là `SUPPORTED`, không phải một trạng thái riêng. Lý do và bằng chứng ở `docs/adr/ADR-001-single-independent-standard.md`.

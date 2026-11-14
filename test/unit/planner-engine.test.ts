@@ -152,6 +152,29 @@ describe("evaluateBaselineDiagnostic — non-punitive diagnostic evidence evalua
     expect(result.parentReviewRequired).toBe(true);
   });
 
+  it("never counts a parent correction as an independent solve", () => {
+    const result = evaluateBaselineDiagnostic({
+      learnerId: "lnr-1",
+      subjectId: "math",
+      attempts: [
+        {
+          stepId: "s1",
+          stepPosition: 1,
+          kind: "concept",
+          outcome: "correct",
+          helpLevel: 0,
+          attemptNo: 1,
+          skillId: "math-frac-equiv",
+          evidenceKind: "parent_correction",
+        },
+      ],
+    });
+
+    expect(result.observedSummaryVi).toContain("Chưa ghi nhận");
+    // A correction is evidence that support exists, not that the child solved it.
+    expect(result.needsObservation).toEqual(["math-frac-equiv"]);
+  });
+
   it("handles empty baseline attempts honestly", () => {
     const result = evaluateBaselineDiagnostic({
       learnerId: "lnr-1",

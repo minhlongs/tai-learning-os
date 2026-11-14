@@ -21,12 +21,18 @@ import {
   csrfTokenFor,
   type SessionClaims,
 } from "../../shared/crypto/session";
+import { validateConfig } from "../config-guard";
 
 export type AppEnv = {
   DB: D1Database;
-  /** Present only in local dev, supplied by .dev.vars (gitignored). */
+  /** Supplied via .dev.vars locally (gitignored) or a Worker secret when deployed. */
   PARENT_PASSWORD_HASH?: string;
   SESSION_SECRET?: string;
+  /**
+   * `"development"` is the only value that relaxes the config guard. Unset means
+   * production: `wrangler.jsonc` declares no default, so a deploy gets the
+   * strict rules unless it opts out deliberately.
+   */
   ENVIRONMENT?: string;
   AUTH_RATE_LIMITER?: RateLimit;
   API_RATE_LIMITER?: RateLimit;
@@ -104,6 +110,31 @@ export async function dispatch(
   const method = request.method.toUpperCase();
   const requestId = crypto.randomUUID();
 
+  // Fail closed on configuration, before route matching, rate limiting, or
+  // authentication. This runs first — not after the 404 branches — because a
+  // Worker with no usable signing key has no correct answer to give for *any*
+  // request, including one for a path it does not serve. Answering 404 there
+  // would tell the caller the app is healthy and only that URL is missing,
+  // which is a worse lie than a blank 500.
+  //
+  // A Worker has no startup hook: it is instantiated per request, so "refuse to
+  // start" is not expressible. Refusing every request is the strongest form the
+  // platform allows, and it is what `test/integration/api.test.ts` asserts.
+  //
+  // The check lives in `config-guard.ts` so it can be asserted directly rather
+  // than inferred from a blank 500, and so it rejects weak values rather than
+  // merely absent ones (`SESSION_SECRET="a"` signs a valid HMAC and is
+  // worthless).
+  const verdict = validateConfig(env);
+  if (!verdict.ok) {
+    // Intentionally opaque: the operator must read logs, not the response body.
+    // Only codes and measured lengths are logged — never a secret value.
+    console.error(
+      `refusing to serve: invalid configuration ${verdict.problems.map((problem) => problem.code).join(", ")}`,
+    );
+    return serverError();
+  }
+
   if (!path.startsWith("/api/")) {
     // Not an API route. The Vite plugin serves static assets itself, so this is
     // only reached for an API-shaped miss.
@@ -116,21 +147,6 @@ export async function dispatch(
 
   if (!match) {
     return notFound();
-  }
-
-  // Fail closed on configuration. If production credentials are missing, the
-  // protected surface must not silently fall back to an unauthenticated mode.
-  const missing: string[] = [];
-  if (!env.SESSION_SECRET) missing.push("SESSION_SECRET");
-  if (env.ENVIRONMENT === "development" && !env.PARENT_PASSWORD_HASH) {
-    // Dev onboarding supports first-run parent creation, so this is allowed.
-  } else if (!env.PARENT_PASSWORD_HASH) {
-    missing.push("PARENT_PASSWORD_HASH");
-  }
-  if (missing.length > 0) {
-    // Intentionally opaque: the operator must read logs, not the response body.
-    console.error(`refusing to serve: missing configuration ${missing.join(", ")}`);
-    return serverError();
   }
 
   // Rate limiting, per actor bucket.

@@ -29,6 +29,7 @@ const {
   decryptBackupEnvelope,
   isEncryptedBackupEnvelope,
 } = await import("../src/shared/crypto/backup-cipher.ts");
+const { EXPORT_COLLECTIONS } = await import("../src/shared/schemas/transfer.ts");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..");
@@ -334,6 +335,33 @@ try {
     .bind(learnerId, familyLessonId, now + 20_000)
     .run();
 
+  // Layers 2 and 3 (ADR-005). Without a row in each, the restored collection
+  // counts are 0 and the parity check compares 0 to 0 — it passes whether the
+  // import wrote these tables or dropped them on the floor. One row each makes
+  // the round-trip an actual claim: the observation resolves to an attempt id
+  // that only survives if the attempt was restored under the same id, and the
+  // estimate names the ledger watermark it was computed from.
+  await db
+    .prepare(
+      `INSERT INTO skill_evidence_observation
+         (id, learner_id, skill_id, attempt_id, observed_kind, help_level, attempt_no, observed_at, created_at)
+       VALUES ('obs-drill-1', ?1, 'sci-states-of-matter', 'att-drill-1', 'independent', 0, 1, ?2, ?2)`,
+    )
+    .bind(learnerId, now + 30_000)
+    .run();
+
+  await db
+    .prepare(
+      `INSERT INTO skill_estimate
+         (id, learner_id, skill_id, stability, difficulty, retrievability_at, reps, lapses, fsrs_state,
+          scheduled_days, last_review_at, model_version, computed_at, attempt_watermark, attempt_count,
+          created_at, updated_at)
+       VALUES ('est-drill-1', ?1, 'sci-states-of-matter', 4.2, 5.1, 0.93, 1, 0, 2,
+               3, ?2, 'v6.0.0', ?2, 'att-drill-1', 1, ?2, ?2)`,
+    )
+    .bind(learnerId, now + 30_000)
+    .run();
+
   const parentCtx = {
     parentId,
     displayName: "Phụ huynh Drill",
@@ -424,6 +452,13 @@ try {
   await db.prepare("DELETE FROM lessons WHERE id = ?1").bind(familyLessonId).run();
 
   // 6. Decrypt the backup from disk and restore via importRecord handler
+  //
+  // The restore is timed from the first byte read off disk to the last committed
+  // row, because that is what "roll back to the backup" costs an operator. The
+  // clock is `performance.now()` rather than `Date.now()`: this number decides
+  // whether the documented recovery procedure fits its stated budget, and a
+  // wall clock can jump under NTP correction mid-drill.
+  const restoreStartedAt = performance.now();
   const decrypted = await decryptBackupEnvelope(diskRaw, drillPassphrase);
   assert(decrypted.ok === true, `decryption failed: ${!decrypted.ok ? decrypted.errors.join("; ") : ""}`);
 
@@ -454,6 +489,20 @@ try {
   assert(importReport.counts.baselineAssessments === 1, "restored 1 baselineAssessment");
   assert(importReport.counts.learningPlanItems === 1, "restored 1 learningPlanItem");
   assert(importReport.counts.sessionReflections === 1, "restored 1 sessionReflection");
+
+  // The rollback finishes when the last row is committed, which is exactly when
+  // `importRecord` returns. Everything after this point is verification, not
+  // recovery, so it is excluded from the measured duration: an operator waiting
+  // on a restore is waiting for this, not for our assertions.
+  const restoreMs = performance.now() - restoreStartedAt;
+
+  // The documented recovery procedure promises an operator can roll back inside
+  // one minute. Asserting it here means a restore that creeps past the budget
+  // fails the drill instead of quietly reporting a larger number nobody reads.
+  assert(
+    restoreMs < 60_000,
+    `rollback must finish inside the 60s budget, took ${restoreMs.toFixed(1)}ms`,
+  );
 
   // Verify historical v1 snapshot AND v2 snapshot of the family lesson were both faithfully restored
   const restoredFamV1 = await db
@@ -490,7 +539,12 @@ try {
     "v2 step explanation and source_step_id must be preserved",
   );
 
-  // Verify all 21 collections round-tripped by re-exporting after restore and comparing counts
+  // Verify every restored collection round-tripped, by re-exporting from the
+  // database after the restore and comparing against the backup. This reads real
+  // D1 rows, which is the only way to detect a row the import silently dropped:
+  // `importReport.counts` is counted off the request body (`countOf` in
+  // `importRecord` reads `data[key].length`), so comparing it to the envelope
+  // would compare the file to itself and could never report a loss.
   const postRestoreExportRes = await exportRecord({
     request: new Request(exportUrl.toString(), { method: "POST" }),
     url: exportUrl,
@@ -500,29 +554,32 @@ try {
   });
   assert(postRestoreExportRes.status === 200, "post-restore exportRecord must return 200");
   const postRestoreEnvelope = await postRestoreExportRes.json();
-  for (const key of [
-    "learners",
-    "schoolYears",
-    "subjects",
-    "skills",
-    "skillPrerequisites",
-    "lessons",
-    "lessonVersions",
-    "lessonSteps",
-    "reviewApprovals",
-    "learningSessions",
-    "learningAttempts",
-    "skillEvidence",
-    "reviewSchedule",
-    "learningGoals",
-    "curriculumObjectives",
-    "curriculumIntakes",
-    "lessonMetadata",
-    "baselineAssessments",
-    "learningPlanItems",
-    "sessionReflections",
-    "schemaVersions",
-  ]) {
+
+  // `auditEvents` is the one collection a restore deliberately does not replay
+  // verbatim. Import re-derives `hint.requested` provenance from the attempt
+  // history and records its own `data.imported` row, so the ledger after a
+  // restore is a new set of facts about the restore, not a copy of the old one.
+  // Comparing it would fail on a correct restore; every other collection is
+  // compared against the full `EXPORT_COLLECTIONS` list so a collection added to
+  // the schema is checked here without editing this drill.
+  const parityKeys = EXPORT_COLLECTIONS.filter((key) => key !== "auditEvents");
+
+  // Records the backup held versus records the restore actually reached in D1.
+  // Both sides are summed over `parityKeys`, so a collection that imported
+  // nothing shows up as a non-zero loss rather than as twenty passing counts
+  // masking one silent drop.
+  const backedUpRecords = parityKeys.reduce(
+    (sum, key) => sum + (exportedEnvelope.data[key] ?? []).length,
+    0,
+  );
+  const restoredRecords = parityKeys.reduce((sum, key) => sum + (postRestoreEnvelope.data[key] ?? []).length, 0);
+  const recordsLost = backedUpRecords - restoredRecords;
+  assert(
+    recordsLost === 0,
+    `rollback must lose no records: backup held ${backedUpRecords}, restore reached ${restoredRecords}`,
+  );
+
+  for (const key of parityKeys) {
     assert(
       postRestoreEnvelope.data[key].length === exportedEnvelope.data[key].length,
       `collection parity mismatch for ${key}: exported ${exportedEnvelope.data[key].length}, post-restore ${postRestoreEnvelope.data[key].length}`,
@@ -544,6 +601,9 @@ try {
       drill: "backup-restore-aes-256-gcm",
       lessonsExported: exportedEnvelope.data.lessons.length,
       countsRestored: importReport.counts,
+      restoreMs: Math.round(restoreMs),
+      recordsBackedUp: backedUpRecords,
+      recordsLost,
       approvalFailClosedToDraft: restoredApproval?.status === "draft",
     }),
   );

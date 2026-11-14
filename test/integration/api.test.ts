@@ -167,6 +167,50 @@ describe("authorization — the protected surface is closed", () => {
     expect(response.status).toBe(401);
   });
 
+  it("refuses every matched route when SESSION_SECRET is absent, before authentication runs", async () => {
+    // The guard runs ahead of auth, so a misconfigured Worker answers 500 rather
+    // than 401: it is not "you are not logged in", it is "this server cannot
+    // decide who you are". A 401 here would mean the request reached the
+    // authenticator without a signing key.
+    const noSecret = { ...env } as unknown as typeof env;
+    const response = await worker.fetch(
+      new Request(`${ORIGIN}/api/parent/dashboard`, {
+        headers: { origin: ORIGIN, "user-agent": "config-guard-ua" },
+      }),
+      noSecret,
+    );
+    expect(response.status).toBe(500);
+    // Opaque body: the operator reads logs, not the response.
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(JSON.stringify(body)).not.toContain("SESSION_SECRET");
+    expect(JSON.stringify(body)).not.toContain("configuration");
+  });
+
+  it("refuses unmatched and non-API paths too, so the guard precedes route matching", async () => {
+    // A Worker with no signing key has no correct answer for any request. If the
+    // guard sat after route matching, these would answer 404 — telling the caller
+    // the app is healthy and only that URL is missing.
+    const noSecret = { ...env } as unknown as typeof env;
+    const headers = { origin: ORIGIN, "user-agent": "config-guard-ua" };
+    const misses = ["/api/does-not-exist", "/", "/some/asset.js"];
+    for (const path of misses) {
+      const response = await worker.fetch(new Request(`${ORIGIN}${path}`, { headers }), noSecret);
+      expect(response.status, `path ${path}`).toBe(500);
+    }
+  });
+
+  it("refuses when SESSION_SECRET is present but too weak to be a key", async () => {
+    const response = await worker.fetch(
+      new Request(`${ORIGIN}/api/parent/dashboard`, {
+        headers: { origin: ORIGIN, "user-agent": "config-guard-ua" },
+      }),
+      { ...env, SESSION_SECRET: "a" } as unknown as typeof env,
+    );
+    // A one-character secret signs a valid HMAC and is worthless. Presence-only
+    // checking would have accepted it and served the request.
+    expect(response.status).toBe(500);
+  });
+
   it("rejects a protected read with a garbage cookie", async () => {
     jar.cookies = { tlo_session: "not-a-real-token" };
     const response = await call("/api/parent/dashboard");

@@ -143,6 +143,7 @@ if (isMainModule) {
   }
 
   const rawDb = new DatabaseSync(join(d1StateDir, sqliteFile), { readOnly: true });
+  let failure = null;
   try {
     const row = rawDb.prepare("PRAGMA integrity_check").get();
     const sqliteIntegrityCheck =
@@ -153,7 +154,20 @@ if (isMainModule) {
     if (!report.ok) {
       process.exitCode = 1;
     }
+  } catch (error) {
+    // A household database older than the shipped schema is a normal operator
+    // state, not a crash: the check throws with the exact command that fixes
+    // it. Report that sentence on stderr and exit 1, instead of letting an
+    // uncaught error bury the instruction under a stack trace. Re-thrown after
+    // the `finally` below has closed the read-only handle.
+    failure = error;
   } finally {
     rawDb.close();
+  }
+  if (failure !== null) {
+    console.error(
+      `preflight refused: ${failure instanceof Error ? failure.message : String(failure)}`,
+    );
+    process.exit(1);
   }
 }

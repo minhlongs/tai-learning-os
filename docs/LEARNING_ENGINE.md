@@ -190,91 +190,105 @@ trustworthy:
 
 ## 4. Spaced review
 
+Intervals are computed by **FSRS-6** (`ts-fsrs` 6.0.0), not by a hand-written
+ladder. The scheduler keeps FSRS's memory model and adds this project's policy
+rules around it:
+
 ```ts
 export const REVIEW_CONFIG = {
-  /** Interval ladder in days, climbed on each successful review. */
-  intervals: [1, 3, 7, 14],
-  /** Interval used for the first scheduled review after independent learning. */
-  initialIntervalDays: 1,
-  /** Interval after a failed review — rescheduled, not dropped. */
+  /** Target probability of recall at the due date. */
+  requestRetention: 0.95,
+  /** Ceiling for this learner; FSRS itself allows far longer. */
+  maximumIntervalDays: 30,
+  /** Interval after a failed review — retried tomorrow, not at an FSRS lapse. */
   failureRetryDays: 1,
-  /** A skill with more than this many consecutive failures is flagged for parent review. */
+  /** Floor for any computed interval; a review is never same-day. */
+  minimumIntervalDays: 1,
+  /** A skill with this many consecutive failures is flagged for parent review. */
   failureEscalation: 3,
 } as const;
 ```
 
-### The ladder
+### How the interval is decided
+
+`scheduleReview(attempts, nowMs)` is still a **pure function**: the same attempt
+history always produces the same interval and the same due date.
+
+1. The **decision point** is the last attempt the learner answered **correctly**.
+   A failure recorded after that solve is input to the *next* decision, not this
+   one — it has not yet disproven anything that was known when the solve happened.
+2. If a **scheduled review** failed after that solve, the interval is
+   `failureRetryDays` (1 day). FSRS's own lapse interval assumes the learner was
+   genuinely recalling the item; a failed review is evidence they were not, so we
+   retry tomorrow instead of trusting the model's lapse estimate.
+3. If the solve was **not independent** (any hint, or a retry), the interval is
+   also 1 day. Assistance is evidence of needing help, not of retention.
+4. Otherwise the attempts **up to and including that solve** are replayed through
+   FSRS in chronological order, each graded as `Good` (independent correct),
+   `Hard` (assisted correct) or `Again` (wrong). The resulting
+   `card.scheduled_days` is clamped to `[minimumIntervalDays, maximumIntervalDays]`.
+
+Two configuration choices make that deterministic and explainable:
+
+- **`enable_fuzz: false`.** FSRS normally fuzzes intervals on purpose, to spread
+  due dates and avoid pile-ups. Fuzzing would make this function impure and the
+  parent unable to reproduce a schedule, so it is off.
+- **`enable_short_term: false`.** The short-term scheduler emits sub-day steps
+  (minutes). This household runs one session per day, and `review_schedule.
+  interval_days` is an integer number of days, so a 10-minute step would mark a
+  skill due before the child next opens the app.
+
+### What the intervals actually look like
+
+Measured on this machine by replaying on-time reviews through the configured
+scheduler (`node --input-type=module`, `ts-fsrs@6.0.0`):
 
 ```
-  success →  1 day  →  3 days  →  7 days  →  14 days   (then stays at 14)
-                     ▲
-                     └── position is chosen by FAILURE COUNT, not by success count
+first Good solve          →  3 days
+then, reviewed on time    →  6 → 15 → 30 → 30 …   (ceiling holds)
+first answer Again        →  1 day
+first answer Hard         →  2 days (clamped up to the 1-day floor only if 0)
+after a 4-solve streak,
+one failed review          →  1 day, failureStreak 1
 ```
 
-`scheduleReview(attempts, nowMs)` is a **pure function**: the due date is a pure
-function of (last result, failure streak, interval ladder). No randomness, so the
-parent can audit and argue with every schedule. The position on the ladder is:
+`requestRetention: 0.95` and `maximumIntervalDays: 30` are deliberate:
 
-```ts
-const stepIndex = Math.min(failuresBefore, REVIEW_CONFIG.intervals.length - 1);
-const intervalDays = REVIEW_CONFIG.intervals[stepIndex] ?? REVIEW_CONFIG.initialIntervalDays;
-```
+| retention | uncapped ladder after each Good | why not |
+|---|---|---|
+| 0.80 | 8 → 75 → 120 → 120 | a 9-year-old forgets long before 75 days |
+| 0.90 | 3 → 14 → 57 → 120 | FSRS's adult self-study default; leaves a lapse-prone gap |
+| **0.95** | **3 → 6 → 15 → 34 → 72** | **chosen: frequent enough that a forgotten skill resurfaces inside a term** |
+| 0.97 | 3 → 3 → 6 → 11 → 19 | so frequent it turns revision into rote drilling |
 
-So `failuresBefore = 0` → 1 day, `1` → 3 days, `2` → 7 days, `3+` → capped at 14
-days. The comment states the intent: *"a learner who struggled restarts low
-rather than being pushed out to 14 days."*
+The 30-day ceiling matters because at 0.95 the uncapped ladder reaches 72 days
+by the fifth success. Thirty days is long enough that a 9-year-old still recalls
+the skill and short enough that a forgotten one resurfaces before the next report
+card. Neither number is validated against this learner's forgetting curve — see
+[`ROADMAP_90_DAYS.md`](ROADMAP_90_DAYS.md) phase 2 — but both are now *stated
+inputs* rather than an unexamined ladder. The full reasoning is in
+[`adr/ADR-002-fsrs-spaced-review.md`](adr/ADR-002-fsrs-spaced-review.md).
 
-### Failed review rescheduling
+### Calendar days, Vietnam time
 
-A failed (or merely assisted) review is **rescheduled, not dropped**:
-
-```ts
-if (!isIndependentAttempt(lastAttempt)) {
-  const interval = REVIEW_CONFIG.failureRetryDays;   // 1 day
-  return {
-    dueAt: nowMs + interval * DAY_MS,
-    intervalDays: interval,
-    failureStreak: failuresBefore + 1,
-    reason_vi: "Em cần ôn lại sớm vì lần làm gần nhất cần gợi ý.",
-  };
-}
-```
-
-The due date is `now + 1 day`. **Two honest caveats about what this branch
-actually catches:**
-
-- It triggers when the last attempt is **not an independent solve** — which means
-  both `incorrect` **and** `correct at help level ≥ 3`. An assisted success is
-  treated as "needs review soon", which is the conservative reading.
-- `failuresBefore` is computed by `countTrailingFailures`, which counts trailing
-  `incorrect` attempts regardless of whether they were scheduled reviews. The
-  variable name says "failures before"; the code counts *all* trailing incorrect
-  attempts on the skill. For a skill being learned for the first time these are
-  the same thing; for a skill already reviewed they are not. **This is a real
-  imprecision in the implementation, not a documentation simplification.**
+`dueAt` is always `nowMs + intervalDays * DAY_MS`, an exact multiple of 24 hours.
+Vietnam has no daylight saving, so in `Asia/Ho_Chi_Minh` this lands on the same
+clock time N calendar days later. `ReviewDecision.dueOnVi` exposes that date as
+`YYYY-MM-DD` in Vietnam time so the parent reads a date rather than an offset.
 
 ### Failure streak
 
-`failure_streak` in `review_schedule` is `+1` per failure, *"so scheduling stays
-explainable."* It is **visible to the parent only** — never shown to the child.
+`failure_streak` in `review_schedule` counts the run of wrong answers leading up
+to the decision point. It is **visible to the parent only** — never shown to the
+child.
 
-`needsParentAttention(attempts)` escalates when the trailing consecutive failure streak reaches the threshold:
+When the last solve needed help, the solve itself joins the run, so the parent
+sees `1` after an assisted answer rather than a clean-looking `0` that hides the
+assistance.
 
-```ts
-export function needsParentAttention(attempts: readonly AttemptEvidence[]): boolean {
-  let trailingFailures = 0;
-  for (let i = attempts.length - 1; i >= 0; i -= 1) {
-    const a = attempts[i]!;
-    if (isIndependentAttempt(a)) break;
-    if (a.outcome === "incorrect") {
-      trailingFailures += 1;
-    }
-  }
-  return trailingFailures >= REVIEW_CONFIG.failureEscalation;
-}
-```
-
-At 3 consecutive incorrect attempts (unbroken by an independent solve) the skill is **flagged for a human decision, not another automated retry**. Once the learner achieves an independent solve (`helpLevel <= 2`, `attemptNo === 1`), the trailing failure streak is broken and the flag resets automatically.
+`needsParentAttention(attempts)` escalates when the trailing consecutive failure
+streak reaches 3, unbroken by an independent solve. At that point the skill is
+**flagged for a human decision, not another automated retry**.
 
 ### Selection
 
@@ -289,18 +303,13 @@ applied here, so a long backlog is presented whole rather than truncated — the
 choice of how much to attempt in one sitting is the parent's and child's, not the
 scheduler's.
 
-### ⚠ These are starting assumptions, not validated thresholds
+### ⚠ Still starting assumptions, not validated thresholds
 
-Quoting the file directly:
-
-> *"These intervals are starting assumptions for this MVP — NOT validated
-> thresholds for this learner. They are configuration, not findings."*
-
-`[1, 3, 7, 14]` is a **reasonable default**, not an empirically derived schedule
-for any child. It has not been validated against this learner's forgetting
-behaviour, and no data exists to validate it against — no sessions have been run.
-Tuning requires real evidence; see [`ROADMAP_90_DAYS.md`](ROADMAP_90_DAYS.md)
-phase 2.
+FSRS is a well-tested *model of memory*, but its parameters are population
+defaults, not this child's. `requestRetention: 0.95` is a pedagogical judgement
+(a school-scale ladder), and `maximumIntervalDays: 30` is a ceiling chosen for a
+4th grader. Neither has been fitted to this learner, because no data exists yet
+to fit against. They are configuration, not findings.
 
 ---
 

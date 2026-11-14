@@ -48,7 +48,10 @@
   //
   // PARENT_PASSWORD_HASH  — PBKDF2-SHA256 hash of the parent's password (600,000 iterations; see docs/DATA_MODEL.md §6)
   // SESSION_SECRET        — high-entropy secret used to sign session tokens
-  "vars": {
-    "ENVIRONMENT": "development"
-  }
+  //
+  // ENVIRONMENT is deliberately NOT declared here. The config guard treats an
+  // unset ENVIRONMENT as production, so first-run parent creation — the one
+  // behaviour that `ENVIRONMENT: "development"` unlocks — cannot be switched
+  // back on by shipping this file. Local development sets it in .dev.vars.
+  "vars": {}
 }

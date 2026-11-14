@@ -22,7 +22,7 @@ import {
   isIndependentAttempt,
   type AttemptEvidence,
 } from "../../shared/engine/competency";
-import { scheduleReview } from "../../shared/engine/review";
+import { computeEstimate, scheduleReview } from "../../shared/engine/review";
 import type { CompetencyState } from "../../shared/schemas/attempt";
 import * as repo from "../db/repositories";
 
@@ -169,6 +169,18 @@ export async function recordAttemptWithDerivation(
       const priorDue = reviewRows.find((r) => r.skill_id === step.skillId)?.due_at ?? null;
       const currentEvidence = currentEvidenceRows.find((r) => r.skill_id === step.skillId) ?? null;
 
+      const thisAttemptEvidence: AttemptEvidence = {
+        attemptId,
+        skillId: step.skillId,
+        outcome: grade.outcome,
+        helpLevel: effectiveHelpLevel,
+        evidenceKind,
+        attemptNo,
+        isTransfer: transferStepIds.has(step.stepId) && grade.outcome === "correct",
+        isReview: priorDue !== null && input.now >= priorDue,
+        createdAt: input.now,
+      };
+
       const learnerEvidence: AttemptEvidence[] = [
         ...skillAttempts.map((a) => ({
           attemptId: a.id,
@@ -181,17 +193,7 @@ export async function recordAttemptWithDerivation(
           isReview: priorDue !== null && a.created_at >= priorDue,
           createdAt: a.created_at,
         })),
-        {
-          attemptId,
-          skillId: step.skillId,
-          outcome: grade.outcome,
-          helpLevel: effectiveHelpLevel,
-          evidenceKind,
-          attemptNo,
-          isTransfer: transferStepIds.has(step.stepId) && grade.outcome === "correct",
-          isReview: priorDue !== null && input.now >= priorDue,
-          createdAt: input.now,
-        },
+        thisAttemptEvidence,
       ];
 
       const evidence: AttemptEvidence[] = [...learnerEvidence];
@@ -254,6 +256,41 @@ export async function recordAttemptWithDerivation(
           intervalDays: decision.intervalDays,
           reasonVi: decision.reasonVi,
         };
+      }
+
+      // Layer 2 (ADR-005): what THIS attempt may be counted as, recorded beside
+      // the counters on `skill_evidence` rather than only inside them, so the
+      // per-attempt basis survives the next attempt overwriting the totals.
+      postAttemptStatements.push(
+        repo.evidenceObservationInsert(db, {
+          id: crypto.randomUUID(),
+          learnerId: input.learnerId,
+          skillId: step.skillId,
+          attemptId,
+          observedKind: isIndependentAttempt(thisAttemptEvidence) ? "independent" : "assisted",
+          helpLevel: effectiveHelpLevel,
+          attemptNo,
+          observedAt: input.now,
+          now: input.now,
+        }),
+      );
+
+      // Layer 3 (ADR-005): the FSRS memory state behind the schedule, stored
+      // with the ledger prefix it was computed from so a reader can detect a
+      // stale estimate and recompute it. Nothing reads this back into
+      // `skill_evidence.state`; the state stays derived from attempts.
+      const estimate = computeEstimate(learnerEvidence, input.now);
+      if (estimate) {
+        postAttemptStatements.push(
+          repo.skillEstimateUpsert(db, {
+            id: crypto.randomUUID(),
+            learnerId: input.learnerId,
+            skillId: step.skillId,
+            ...estimate,
+            computedAt: input.now,
+            now: input.now,
+          }),
+        );
       }
     }
 

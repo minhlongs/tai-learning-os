@@ -292,7 +292,8 @@ describe("atomic attempt, derivation, review schedule, and audit batch boundary"
     )
       .bind(learnerId)
       .first<{ interval_days: number; last_result: string; failure_streak: number }>();
-    expect(reviewRow?.interval_days).toBe(1);
+    // FSRS-6's first interval for an independent "Good" solve is 3 days.
+    expect(reviewRow?.interval_days).toBe(3);
     expect(reviewRow?.last_result).toBe("passed");
     expect(reviewRow?.failure_streak).toBe(0);
 

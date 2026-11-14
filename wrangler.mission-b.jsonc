@@ -1,0 +1,52 @@
+// TAI Learning OS — Mission B (commercial) firewall configuration.
+//
+// NOT ACTIVE. This file is deliberately not deployable and not wired to
+// anything. It exists so the commercial path has a named, reviewable boundary
+// instead of being an idea that grows quietly inside the household product.
+//
+// No Mission A code reads it, no script passes it as `configPath`, and `main`
+// below points at a file that does not exist yet. Running
+// `wrangler deploy -c wrangler.mission-b.jsonc` fails at the first step with
+// "Could not resolve ... src/worker/mission-b/index.ts". That is the intended
+// behaviour: activation requires writing an entry point, which cannot happen by
+// accident and cannot pass review while the guard test in
+// test/unit/mission-b-firewall.test.ts still describes the file as inactive.
+//
+// Activating Mission B is gated on the three prerequisites recorded in
+// docs/ROADMAP_90_DAYS.md:56-62 (founder written authorization revoking the
+// LOCAL ONLY constraint, child-privacy legal sign-off, production secret
+// provisioning) plus the risk review in docs/audits/MISSION_B_PUBLIC_REPO_RISK.md.
+// Until all of them are signed, this file stays inert.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tai-learning-os-mission-b",
+
+  // Intentionally absent from the repository. See the header.
+  "main": "src/worker/mission-b/index.ts",
+  "compatibility_date": "2026-10-24",
+
+  // Different binding name from the household Worker's `DB` on purpose: code
+  // written for Mission A cannot reach this database even if the config were
+  // loaded, because nothing in src/ binds `MISSION_B_DB`. The worker would fail
+  // to resolve the binding rather than run against commercial data by accident.
+  //
+  // `database_id` is a placeholder, not a Cloudflare UUID, for the same reason
+  // `wrangler.jsonc` uses `local-only`: there is no provisioned remote database
+  // behind this name, and a value that cannot resolve cannot be deployed.
+  //
+  // `keep_vars: false` stops a deploy from silently inheriting dashboard-level
+  // variables configured for the household Worker. Every variable Mission B
+  // needs must be declared in this file, in the open, at review time.
+  "keep_vars": false,
+  "d1_databases": [
+    {
+      "binding": "MISSION_B_DB",
+      "database_name": "tai-learning-os-mission-b",
+      "database_id": "unprovisioned-mission-b",
+      "preview_database_id": "unprovisioned-mission-b"
+    }
+  ],
+
+  // Fail closed, same as the household config: no secrets in source.
+  "vars": {}
+}
