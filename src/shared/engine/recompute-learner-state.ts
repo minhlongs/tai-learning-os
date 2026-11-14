@@ -92,6 +92,73 @@ export function isScheduledReviewFirstTryIndependent(input: {
 }
 
 /**
+ * Replay chronological scheduled-review `dueAt` boundaries for a single skill's
+ * official ledger rows, normalizing eligible due scheduled-review first-try
+ * `observed` solves to `attemptNo: 1` so every reader (`session-service`,
+ * `finalizeSession`, `recordParentCorrection`, `retention-queries`, and
+ * `recomputeLearnerState`) applies the exact same Gate G6 rule.
+ */
+export function replaySkillAttemptEvidence(input: {
+  skillId: string;
+  attempts: readonly RawLedgerAttempt[];
+  transferStepIds: ReadonlySet<string>;
+}): AttemptEvidence[] {
+  const ordered = [...input.attempts].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+    return a.id.localeCompare(b.id);
+  });
+
+  const learnerEvidence: AttemptEvidence[] = [];
+  let priorDueAt: number | null = null;
+  const seenSessionSteps = new Map<string, number>();
+
+  for (const raw of ordered) {
+    if ((raw.purpose ?? "official") !== "official") continue;
+    if (raw.evidenceKind === "parent_correction") continue;
+
+    const sessionStepKey = `${raw.sessionId}::${raw.stepId}`;
+    const priorSameSessionStepAttempts = seenSessionSteps.get(sessionStepKey) ?? 0;
+    seenSessionSteps.set(sessionStepKey, priorSameSessionStepAttempts + 1);
+
+    const isReview = priorDueAt !== null && raw.createdAt >= priorDueAt;
+    const reviewFirstTryUnlock = isScheduledReviewFirstTryIndependent({
+      outcome: raw.outcome,
+      helpLevel: raw.helpLevel,
+      priorDueAt,
+      createdAt: raw.createdAt,
+      priorSameSessionStepAttempts,
+      purpose: raw.purpose ?? "official",
+    });
+
+    const effectiveAttemptNo =
+      raw.evidenceKind === "observed" && (isReview || reviewFirstTryUnlock) && priorSameSessionStepAttempts === 0
+        ? 1
+        : raw.attemptNo;
+
+    const ev: AttemptEvidence = {
+      attemptId: raw.id,
+      sessionId: raw.sessionId,
+      skillId: input.skillId,
+      outcome: raw.outcome,
+      helpLevel: raw.helpLevel,
+      evidenceKind: raw.evidenceKind,
+      attemptNo: effectiveAttemptNo,
+      isTransfer: input.transferStepIds.has(raw.stepId) && raw.outcome === "correct",
+      isReview,
+      createdAt: raw.createdAt,
+    };
+    learnerEvidence.push(ev);
+
+    const stepDecision = scheduleReview(learnerEvidence, raw.createdAt);
+    if (stepDecision) {
+      priorDueAt = stepDecision.dueAt;
+    }
+  }
+
+  return learnerEvidence;
+}
+
+/**
  * Deterministically recompute every skill's derived state, schedule, and FSRS
  * memory estimate from raw ledger rows.
  */
@@ -135,55 +202,11 @@ export function recomputeLearnerState(input: {
 
   for (const skillId of [...allSkillIds].sort()) {
     const rawSkillAttempts = officialBySkill.get(skillId) ?? [];
-    const learnerEvidence: AttemptEvidence[] = [];
-    let priorDueAt: number | null = null;
-    const seenSessionSteps = new Map<string, number>();
-
-    for (const raw of rawSkillAttempts) {
-      const sessionStepKey = `${raw.sessionId}::${raw.stepId}`;
-      const priorSameSessionStepAttempts = seenSessionSteps.get(sessionStepKey) ?? 0;
-      seenSessionSteps.set(sessionStepKey, priorSameSessionStepAttempts + 1);
-
-      const isReview = priorDueAt !== null && raw.createdAt >= priorDueAt;
-      const reviewFirstTryUnlock = isScheduledReviewFirstTryIndependent({
-        outcome: raw.outcome,
-        helpLevel: raw.helpLevel,
-        priorDueAt,
-        createdAt: raw.createdAt,
-        priorSameSessionStepAttempts,
-        purpose: raw.purpose ?? "official",
-      });
-
-      // When the live write path already marked an eligible scheduled-review
-      // first try as `observed` (with effective `attemptNo: 1` for derivation),
-      // or when replaying historical rows across a due boundary, normalize the
-      // derivation evidence deterministically.
-      const effectiveAttemptNo =
-        raw.evidenceKind === "observed" && isReview && priorSameSessionStepAttempts === 0
-          ? 1
-          : reviewFirstTryUnlock && raw.evidenceKind === "observed"
-            ? 1
-            : raw.attemptNo;
-
-      const ev: AttemptEvidence = {
-        attemptId: raw.id,
-        sessionId: raw.sessionId,
-        skillId,
-        outcome: raw.outcome,
-        helpLevel: raw.helpLevel,
-        evidenceKind: raw.evidenceKind,
-        attemptNo: effectiveAttemptNo,
-        isTransfer: input.transferStepIds.has(raw.stepId) && raw.outcome === "correct",
-        isReview,
-        createdAt: raw.createdAt,
-      };
-      learnerEvidence.push(ev);
-
-      const stepDecision = scheduleReview(learnerEvidence, raw.createdAt);
-      if (stepDecision) {
-        priorDueAt = stepDecision.dueAt;
-      }
-    }
+    const learnerEvidence = replaySkillAttemptEvidence({
+      skillId,
+      attempts: rawSkillAttempts,
+      transferStepIds: input.transferStepIds,
+    });
 
     const fullEvidence: AttemptEvidence[] = [...learnerEvidence];
     const floor = floorBySkill.get(skillId);

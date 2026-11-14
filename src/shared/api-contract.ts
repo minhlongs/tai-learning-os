@@ -112,6 +112,8 @@ export type StartSessionResponse = {
     remainingMs: number;
     extensionCount: number;
     reached: boolean;
+    /** True when the session already recorded its post-cap in-flight attempt and is awaiting rest or parent extension. */
+    softStopped?: boolean;
   };
 };
 

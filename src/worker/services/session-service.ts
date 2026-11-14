@@ -22,9 +22,15 @@ import {
   isIndependentAttempt,
   type AttemptEvidence,
 } from "../../shared/engine/competency";
-import { isScheduledReviewFirstTryIndependent } from "../../shared/engine/recompute-learner-state";
+import {
+  isScheduledReviewFirstTryIndependent,
+  replaySkillAttemptEvidence,
+} from "../../shared/engine/recompute-learner-state";
 import { computeEstimate, scheduleReview } from "../../shared/engine/review";
-import { evaluateSessionBudget } from "../../shared/engine/session-budget";
+import {
+  computeContinuousStudyCarryOverMs,
+  evaluateSessionBudget,
+} from "../../shared/engine/session-budget";
 import type { CompetencyState } from "../../shared/schemas/attempt";
 import * as repo from "../db/repositories";
 
@@ -120,16 +126,31 @@ export async function recordAttemptWithDerivation(
     input.learnerGrade !== undefined
       ? input.learnerGrade
       : (await repo.findLearnerForParent(db, input.learnerId, parentId))?.grade ?? null;
-  const extensionCount = await repo.countSessionTimeExtensions(db, session.id);
+  const [extensionCount, recentSessions, lastParentRestOverrideAt] = await Promise.all([
+    repo.countSessionTimeExtensions(db, session.id),
+    repo.listSessionsForLearner(db, input.learnerId, 20),
+    repo.findLatestParentRestOverrideAt(db, input.learnerId),
+  ]);
+  const carryOverMs = computeContinuousStudyCarryOverMs({
+    currentSessionId: session.id,
+    anchorMs: session.started_at,
+    priorSessions: recentSessions.map((s) => ({
+      id: s.id,
+      startedAt: s.started_at,
+      endedAt: s.ended_at,
+    })),
+    lastParentRestOverrideAt,
+  });
   const budgetStatus = evaluateSessionBudget({
     grade: learnerGrade,
     startedAt: session.started_at,
     nowMs: input.now,
     extensionCount,
+    carryOverMs,
   });
 
   if (budgetStatus.reached) {
-    const budgetCutoffMs = session.started_at + budgetStatus.budgetMs;
+    const budgetCutoffMs = session.started_at + Math.max(0, budgetStatus.budgetMs - carryOverMs);
     const sessionAttempts = await repo.listAttemptsForSession(db, session.id);
     const alreadySubmittedAfterCap = sessionAttempts.some((a) => a.created_at >= budgetCutoffMs);
     const alreadyWorkingThisStep = sessionAttempts.some((a) => a.step_id === step.stepId);
@@ -226,45 +247,25 @@ export async function recordAttemptWithDerivation(
 
       const currentEvidence = currentEvidenceRows.find((r) => r.skill_id === step.skillId) ?? null;
 
-      // Replay historical `dueAt` boundaries chronologically so earlier scheduled-review
-      // first-try unlocks stay `attemptNo: 1` for derivation while pre-due retries stay
-      // disqualified (`attemptNo > 1`).
-      const seenHistSessionSteps = new Map<string, number>();
-      let replayDueAt: number | null = null;
-      const historicalEvidence: AttemptEvidence[] = [];
-
-      for (const a of skillAttempts) {
-        const sKey = `${a.session_id}::${a.step_id}`;
-        const priorInSession = seenHistSessionSteps.get(sKey) ?? 0;
-        seenHistSessionSteps.set(sKey, priorInSession + 1);
-
-        const histIsReview =
-          (replayDueAt !== null && a.created_at >= replayDueAt) ||
-          (priorDue !== null && a.created_at >= priorDue);
-        const effectiveHistAttemptNo =
-          a.evidence_kind === "observed" && histIsReview && priorInSession === 0
-            ? 1
-            : a.attempt_no;
-
-        const item: AttemptEvidence = {
-          attemptId: a.id,
+      // Replay historical `dueAt` boundaries chronologically via the shared
+      // `replaySkillAttemptEvidence` helper so live writes and `recomputeLearnerState`
+      // agree bit-for-bit.
+      const historicalEvidence = replaySkillAttemptEvidence({
+        skillId: step.skillId,
+        attempts: skillAttempts.map((a) => ({
+          id: a.id,
           sessionId: a.session_id,
-          skillId: step.skillId,
+          stepId: a.step_id,
+          skillId: a.skill_id,
           outcome: a.outcome,
           helpLevel: a.help_level,
           evidenceKind: a.evidence_kind,
-          attemptNo: effectiveHistAttemptNo,
-          isTransfer: transferStepIds.has(a.step_id) && a.outcome === "correct",
-          isReview: histIsReview,
+          attemptNo: a.attempt_no,
+          purpose: a.purpose === "practice" ? "practice" : "official",
           createdAt: a.created_at,
-        };
-        historicalEvidence.push(item);
-
-        const histDecision = scheduleReview(historicalEvidence, a.created_at);
-        if (histDecision) {
-          replayDueAt = histDecision.dueAt;
-        }
-      }
+        })),
+        transferStepIds,
+      });
 
       const thisAttemptEvidence: AttemptEvidence = {
         attemptId,
@@ -507,25 +508,33 @@ export async function recordParentCorrection(
     now: number;
   },
 ): Promise<void> {
-  const attempts = await repo.listAttemptsForLearner(db, input.learnerId);
+  const [attempts, transferStepIds] = await Promise.all([
+    repo.listAttemptsForLearner(db, input.learnerId),
+    repo.listTransferStepIds(db),
+  ]);
   const skillAttempts = attempts.filter(
     (a) =>
       a.skill_id === input.skillId &&
       a.evidence_kind !== "parent_correction" &&
       (a.purpose ?? "official") === "official",
   );
-  const independent = skillAttempts.filter((a) => isIndependentAttempt({
-    attemptId: a.id,
-    sessionId: a.session_id,
+  const replayed = replaySkillAttemptEvidence({
     skillId: input.skillId,
-    outcome: a.outcome,
-    helpLevel: a.help_level,
-    evidenceKind: a.evidence_kind,
-    attemptNo: a.attempt_no,
-    isTransfer: false,
-    isReview: false,
-    createdAt: a.created_at,
-  })).length;
+    attempts: skillAttempts.map((a) => ({
+      id: a.id,
+      sessionId: a.session_id,
+      stepId: a.step_id,
+      skillId: a.skill_id,
+      outcome: a.outcome,
+      helpLevel: a.help_level,
+      evidenceKind: a.evidence_kind,
+      attemptNo: a.attempt_no,
+      purpose: "official",
+      createdAt: a.created_at,
+    })),
+    transferStepIds,
+  });
+  const independent = replayed.filter((ev) => isIndependentAttempt(ev)).length;
 
   await db.batch([
     repo.skillEvidenceUpsert(db, {

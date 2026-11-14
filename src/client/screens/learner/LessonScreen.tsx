@@ -132,6 +132,7 @@ export function LessonScreen({
       .then((value) => {
         if (!live) return;
         setStart(value);
+        setBudgetReachedAfterStep(Boolean(value.sessionBudget?.softStopped));
         setError(null);
       })
       .catch((error: unknown) => {

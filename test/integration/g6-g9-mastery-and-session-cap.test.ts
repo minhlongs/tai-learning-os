@@ -16,7 +16,9 @@ import type {
 } from "../../src/shared/api-contract";
 import { MAX_LEARNER_SESSION_MS } from "../../src/shared/engine/session-budget";
 import { recomputeLearnerState } from "../../src/shared/engine/recompute-learner-state";
+import { summarizeRetention } from "../../src/shared/engine/retention";
 import * as repo from "../../src/worker/db/repositories";
+import { selectRetentionAttempts } from "../../src/worker/db/retention-queries";
 import { resetData } from "./reset-data";
 import { openTestDatabase, type TestProxy } from "./test-db";
 
@@ -276,6 +278,68 @@ describe("Gate G6 — cross-session INDEPENDENT & scheduled review RETAINED unlo
     expect(recomputed.skills.get(skillId)?.derivation.independentCount).toBe(
       evAfterReview?.independent_count,
     );
+
+    // Finalizing the scheduled review session reproduces the stored multi-day FSRS reason cleanly
+    const finReviewRes = await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: s3Review.sessionId },
+    });
+    expect(finReviewRes.status).toBe(200);
+    const finReviewBody = (await finReviewRes.json()) as FinalizeSessionResponse;
+    const reviewSummaryItem = finReviewBody.summary.nextReview.find((r) => r.skillId === skillId);
+    expect(reviewSummaryItem?.intervalDays).toBeGreaterThan(1);
+
+    // Delayed-retention probe at 14+ days also recognizes due scheduled-review first-try solves on 1-to-1 lessons
+    const eighteenDaysLater = fourDaysLater + 15 * 86_400_000;
+    const probeSpy = vi.spyOn(Date, "now").mockReturnValue(eighteenDaysLater);
+    await call("/api/session/login", {
+      method: "POST",
+      json: { displayName: "Phụ huynh Minh", password: PASSWORD },
+    });
+    csrf = ((await (await call("/api/session")).json()) as { csrfToken: string }).csrfToken;
+
+    const s4Probe = (await (
+      await call("/api/learner/sessions", { method: "POST", json: { lessonId } })
+    ).json()) as StartSessionResponse;
+    const probeAttemptRes = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: s4Probe.sessionId,
+        stepId: nonTransferSteps[0]!.id,
+        submission: { kind: "choice", choiceId: key0 },
+        helpLevel: 0,
+      },
+    });
+    probeSpy.mockRestore();
+    expect(probeAttemptRes.status).toBe(200);
+
+    const retentionAttempts = await selectRetentionAttempts(env.DB, learnerId);
+    const retentionReport = summarizeRetention(retentionAttempts);
+    const h14 = retentionReport.horizons.find((h) => h.horizonDays === 14);
+    expect(h14?.probes).toBeGreaterThanOrEqual(1);
+    expect(h14?.independent).toBe(h14?.probes);
+
+    // Parent manual correction preserves the normalized `independent_count` (4 independent solves)
+    await call("/api/session/login", {
+      method: "POST",
+      json: { displayName: "Phụ huynh Minh", password: PASSWORD },
+    });
+    csrf = ((await (await call("/api/session")).json()) as { csrfToken: string }).csrfToken;
+    const corrRes = await call("/api/parent/skills/correct", {
+      method: "POST",
+      json: {
+        skillId,
+        state: "RETAINED",
+        note: "Phụ huynh kiểm tra lại xác nhận con nắm vững.",
+      },
+    });
+    expect(corrRes.status).toBe(200);
+    const evAfterCorrection = await env.DB.prepare(
+      "SELECT independent_count FROM skill_evidence WHERE learner_id = ?1 AND skill_id = ?2",
+    )
+      .bind(learnerId, skillId)
+      .first<{ independent_count: number }>();
+    expect(evAfterCorrection?.independent_count).toBe(4);
   });
 });
 
@@ -404,5 +468,87 @@ describe("Gate G9 — 25-minute Soft Stop session cap, cooldown & parent passwor
       json: { lessonId: lesson2 },
     });
     expect(afterOverride.status).toBe(200);
+  });
+
+  it("carries cumulative time across lesson switches (<15m gap) and reports softStopped on reload", async () => {
+    const lessons = await env.DB.prepare(
+      "SELECT id FROM lessons WHERE purpose = 'official' ORDER BY id ASC LIMIT 2",
+    ).all<{ id: string }>();
+    const lesson1 = lessons.results![0]!.id;
+    const lesson2 = lessons.results![1]!.id;
+
+    for (const id of [lesson1, lesson2]) {
+      await call("/api/parent/lessons/approval", {
+        method: "POST",
+        json: { lessonId: id, status: "approved" },
+      });
+    }
+
+    // Study Lesson 1 for 24 minutes (1 minute shy of the 25-minute cap)
+    const s1 = (await (
+      await call("/api/learner/sessions", { method: "POST", json: { lessonId: lesson1 } })
+    ).json()) as StartSessionResponse;
+    await env.DB.prepare("UPDATE learning_sessions SET started_at = ?1 WHERE id = ?2")
+      .bind(Date.now() - 24 * 60_000, s1.sessionId)
+      .run();
+
+    // Switch immediately to Lesson 2 -> abandons s1 at 24m and carries 24m forward (`remainingMs <= 60_000`)
+    const s2 = (await (
+      await call("/api/learner/sessions", { method: "POST", json: { lessonId: lesson2 } })
+    ).json()) as StartSessionResponse;
+    expect(s2.sessionBudget?.remainingMs).toBeLessThanOrEqual(60_000);
+    expect(s2.sessionBudget?.reached).toBe(false);
+
+    // 70 seconds later on Lesson 2 (total continuous study = 25m10s >= 25m):
+    const nowPlus70s = Date.now() + 70_000;
+    const spy = vi.spyOn(Date, "now").mockReturnValue(nowPlus70s);
+    const step0 = s2.steps[0]!;
+    const step1 = s2.steps[1]!;
+    const key0 = await answerKeyFor(step0.id);
+    const key1 = await answerKeyFor(step1.id);
+
+    // In-flight submission on Lesson 2 hits Soft Stop!
+    const inFlight = (await (
+      await call("/api/learner/attempts", {
+        method: "POST",
+        json: {
+          sessionId: s2.sessionId,
+          stepId: step0.id,
+          submission: { kind: "choice", choiceId: key0 },
+          helpLevel: 0,
+        },
+      })
+    ).json()) as SubmitAttemptResponse;
+    expect(inFlight.sessionTimeBudgetReached).toBe(true);
+
+    // Reloading Lesson 2 reports `softStopped: true` immediately so UI restores the rest banner
+    const resumed = (await (
+      await call("/api/learner/sessions", { method: "POST", json: { lessonId: lesson2 } })
+    ).json()) as StartSessionResponse;
+    expect(resumed.sessionBudget?.softStopped).toBe(true);
+
+    // Advancing to step1 on Lesson 2 is blocked (403)
+    const blocked = await call("/api/learner/attempts", {
+      method: "POST",
+      json: {
+        sessionId: s2.sessionId,
+        stepId: step1.id,
+        submission: { kind: "choice", choiceId: key1 },
+        helpLevel: 0,
+      },
+    });
+    expect(blocked.status).toBe(403);
+
+    // Finalizing Lesson 2 after 1m10s (cumulative 25m10s) triggers the 15-minute eye-rest cooldown!
+    await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: s2.sessionId },
+    });
+    const reopenDuringRest = await call("/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId: lesson1 },
+    });
+    spy.mockRestore();
+    expect(reopenDuringRest.status).toBe(403);
   });
 });

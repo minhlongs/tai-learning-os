@@ -4,6 +4,7 @@ import {
   MAX_LEARNER_SESSION_MINUTES,
   MAX_LEARNER_SESSION_MS,
   PARENT_SESSION_EXTENSION_MS,
+  computeContinuousStudyCarryOverMs,
   evaluateEyeRestCooldown,
   evaluateSessionBudget,
   sessionCapAppliesToGrade,
@@ -80,6 +81,35 @@ describe("Gate G9 — 25-minute learner session budget & eye-rest cooldown", () 
       nowMs: endedAt + 5 * 60_000,
     });
     expect(overridden.resting).toBe(false);
+  });
+
+  it("carries continuous study duration across back-to-back sessions separated by less than 15 minutes", () => {
+    const t0 = 1_760_000_000_000;
+    const s1End = t0 + 24 * 60_000;
+    const s2Start = s1End + 30_000; // 30s gap (< 15m eye-rest break)
+
+    const carry = computeContinuousStudyCarryOverMs({
+      currentSessionId: "s2",
+      anchorMs: s2Start,
+      priorSessions: [{ id: "s1", startedAt: t0, endedAt: s1End }],
+    });
+    expect(carry).toBe(24 * 60_000);
+
+    const budgetOnS2 = evaluateSessionBudget({
+      grade: 4,
+      startedAt: s2Start,
+      nowMs: s2Start + 65_000, // 24m + 1m05s >= 25m
+      carryOverMs: carry,
+    });
+    expect(budgetOnS2.reached).toBe(true);
+
+    // After a full 15-minute rest break, carry-over resets to 0
+    const afterFullBreak = computeContinuousStudyCarryOverMs({
+      currentSessionId: "s3",
+      anchorMs: s1End + EYE_REST_COOLDOWN_MS,
+      priorSessions: [{ id: "s1", startedAt: t0, endedAt: s1End }],
+    });
+    expect(afterFullBreak).toBe(0);
   });
 });
 

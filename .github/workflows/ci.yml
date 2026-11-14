@@ -40,7 +40,7 @@ jobs:
       - name: Verify read-only local D1 SQL dump runner
         run: npm run db:dump -- --output /tmp/ci-d1-dump.sql
 
-      - name: Run full verification gate (typecheck, lint, unit tests, validate:lessons, build)
+      - name: Run full verification gate (typecheck, lint, unit tests, validate:lessons, qa:content, review:simulate, tco:verify, build)
         run: npm run verify
 
       - name: Run Worker + D1 integration test suite

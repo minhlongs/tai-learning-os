@@ -30,8 +30,10 @@ import type {
 import type { Submission } from "../../shared/schemas/answer";
 import { clampHelp, hintFor } from "../../shared/schemas/answer";
 import { verifyPassword } from "../../shared/crypto/password";
+import { replaySkillAttemptEvidence } from "../../shared/engine/recompute-learner-state";
 import { deriveStoredScheduleReasonVi } from "../../shared/engine/review";
 import {
+  computeContinuousStudyCarryOverMs,
   evaluateEyeRestCooldown,
   evaluateSessionBudget,
   PARENT_SESSION_EXTENSION_MINUTES,
@@ -345,13 +347,34 @@ export const startSession: Handler = async (context) => {
           : "official";
 
       const resumeNow = Date.now();
-      const extensionCount = await repo.countSessionTimeExtensions(context.env.DB, existing.id);
+      const [extensionCount, recentForResume, lastRestOverrideForResume, resumedAttempts] =
+        await Promise.all([
+          repo.countSessionTimeExtensions(context.env.DB, existing.id),
+          repo.listSessionsForLearner(context.env.DB, learner.id, 20),
+          repo.findLatestParentRestOverrideAt(context.env.DB, learner.id),
+          repo.listAttemptsForSession(context.env.DB, existing.id),
+        ]);
+      const resumeCarryOverMs = computeContinuousStudyCarryOverMs({
+        currentSessionId: existing.id,
+        anchorMs: refreshed.started_at,
+        priorSessions: recentForResume.map((s) => ({
+          id: s.id,
+          startedAt: s.started_at,
+          endedAt: s.ended_at,
+        })),
+        lastParentRestOverrideAt: lastRestOverrideForResume,
+      });
       const resumedBudget = evaluateSessionBudget({
         grade: learner.grade,
         startedAt: refreshed.started_at,
         nowMs: resumeNow,
         extensionCount,
+        carryOverMs: resumeCarryOverMs,
       });
+      const resumeCutoffMs =
+        refreshed.started_at + Math.max(0, resumedBudget.budgetMs - resumeCarryOverMs);
+      const alreadySoftStopped =
+        resumedBudget.reached && resumedAttempts.some((a) => a.created_at >= resumeCutoffMs);
 
       return ok<StartSessionResponse>({
         sessionId: existing.id,
@@ -367,27 +390,48 @@ export const startSession: Handler = async (context) => {
           remainingMs: resumedBudget.remainingMs,
           extensionCount: resumedBudget.extensionCount,
           reached: resumedBudget.reached,
+          softStopped: alreadySoftStopped,
         },
       });
     }
   }
 
-  // Gate G9: before opening a brand-new session, check whether the learner just
-  // completed or abandoned a 25-minute session and is inside the 15-minute eye-rest window.
+  // Gate G9: before opening a brand-new session (or switching lessons), check
+  // EVERY recently ended session for an active 15-minute eye-rest cooldown
+  // (accounting for continuous study carry-over across back-to-back sessions)
+  // AND check whether switching away from `existing` would cross the 25m cap.
   const preCheckNow = Date.now();
-  const recentSessions = await repo.listSessionsForLearner(context.env.DB, learner.id, 5);
-  const latestEnded = recentSessions.find((s) => s.status !== "in_progress" && typeof s.ended_at === "number");
-  if (latestEnded && typeof latestEnded.ended_at === "number") {
-    const [lastExtensionCount, lastParentRestOverrideAt] = await Promise.all([
-      repo.countSessionTimeExtensions(context.env.DB, latestEnded.id),
-      repo.findLatestParentRestOverrideAt(context.env.DB, learner.id),
-    ]);
+  const [recentSessions, lastParentRestOverrideAt] = await Promise.all([
+    repo.listSessionsForLearner(context.env.DB, learner.id, 20),
+    repo.findLatestParentRestOverrideAt(context.env.DB, learner.id),
+  ]);
+  const priorSegments = recentSessions.map((s) => ({
+    id: s.id,
+    startedAt: s.started_at,
+    endedAt: s.ended_at,
+  }));
+
+  for (const endedSession of recentSessions) {
+    if (endedSession.status === "in_progress" || typeof endedSession.ended_at !== "number") {
+      continue;
+    }
+    const endedExtensionCount = await repo.countSessionTimeExtensions(
+      context.env.DB,
+      endedSession.id,
+    );
+    const endedCarryOverMs = computeContinuousStudyCarryOverMs({
+      currentSessionId: endedSession.id,
+      anchorMs: endedSession.started_at,
+      priorSessions: priorSegments,
+      lastParentRestOverrideAt,
+    });
     const restStatus = evaluateEyeRestCooldown({
       grade: learner.grade,
       lastEndedSession: {
-        startedAt: latestEnded.started_at,
-        endedAt: latestEnded.ended_at,
-        extensionCount: lastExtensionCount,
+        startedAt: endedSession.started_at,
+        endedAt: endedSession.ended_at,
+        extensionCount: endedExtensionCount,
+        carryOverMs: endedCarryOverMs,
       },
       lastParentRestOverrideAt,
       nowMs: preCheckNow,
@@ -398,13 +442,21 @@ export const startSession: Handler = async (context) => {
       );
     }
   }
+
   if (existing && existing.lesson_id !== lesson.id && existing.is_continuation_expired !== 1) {
     const existingExtensions = await repo.countSessionTimeExtensions(context.env.DB, existing.id);
+    const existingCarryOverMs = computeContinuousStudyCarryOverMs({
+      currentSessionId: existing.id,
+      anchorMs: existing.started_at,
+      priorSessions: priorSegments,
+      lastParentRestOverrideAt,
+    });
     const existingBudget = evaluateSessionBudget({
       grade: learner.grade,
       startedAt: existing.started_at,
       nowMs: preCheckNow,
       extensionCount: existingExtensions,
+      carryOverMs: existingCarryOverMs,
     });
     if (existingBudget.reached) {
       return forbidden(
@@ -505,11 +557,24 @@ export const startSession: Handler = async (context) => {
     return serverError();
   }
 
+  const newCarryOverMs = computeContinuousStudyCarryOverMs({
+    currentSessionId: sessionId,
+    anchorMs: commitNow,
+    priorSessions: [
+      ...priorSegments,
+      ...(existing
+        ? [{ id: existing.id, startedAt: existing.started_at, endedAt: commitNow }]
+        : []),
+    ],
+    lastParentRestOverrideAt,
+  });
+
   const newBudget = evaluateSessionBudget({
     grade: learner.grade,
     startedAt: commitNow,
     nowMs: commitNow,
     extensionCount: 0,
+    carryOverMs: newCarryOverMs,
   });
 
   return ok<StartSessionResponse>({
@@ -760,18 +825,24 @@ export const finalizeSession: Handler = async (context) => {
     if (sessionPurpose === "official") {
       const row = reviewRows.find((r) => r.skill_id === skillId);
       if (row) {
-        const officialSkillAttempts = learnerAttempts
-          .filter((a) => a.skill_id === skillId && (a.purpose ?? "official") === "official")
-          .map((a) => ({
-            attemptId: a.id,
-            skillId,
-            outcome: a.outcome,
-            helpLevel: a.help_level,
-            evidenceKind: a.evidence_kind,
-            attemptNo: a.attempt_no,
-            isTransfer: transferStepIds.has(a.step_id) && a.outcome === "correct",
-            createdAt: a.created_at,
-          }));
+        const officialSkillAttempts = replaySkillAttemptEvidence({
+          skillId,
+          attempts: learnerAttempts
+            .filter((a) => a.skill_id === skillId && (a.purpose ?? "official") === "official")
+            .map((a) => ({
+              id: a.id,
+              sessionId: a.session_id,
+              stepId: a.step_id,
+              skillId: a.skill_id,
+              outcome: a.outcome,
+              helpLevel: a.help_level,
+              evidenceKind: a.evidence_kind,
+              attemptNo: a.attempt_no,
+              purpose: "official" as const,
+              createdAt: a.created_at,
+            })),
+          transferStepIds,
+        });
         nextReview.push({
           skillId,
           skillNameVi: skill.name_vi,
@@ -1014,12 +1085,27 @@ export const extendSessionTime: Handler = async (context) => {
       now,
     });
 
-    const extensionCount = await repo.countSessionTimeExtensions(db, session.id);
+    const [extensionCount, recentForExtend, lastRestOverrideForExtend] = await Promise.all([
+      repo.countSessionTimeExtensions(db, session.id),
+      repo.listSessionsForLearner(db, learner.id, 20),
+      repo.findLatestParentRestOverrideAt(db, learner.id),
+    ]);
+    const extendCarryOverMs = computeContinuousStudyCarryOverMs({
+      currentSessionId: session.id,
+      anchorMs: session.started_at,
+      priorSessions: recentForExtend.map((s) => ({
+        id: s.id,
+        startedAt: s.started_at,
+        endedAt: s.ended_at,
+      })),
+      lastParentRestOverrideAt: lastRestOverrideForExtend,
+    });
     const budget = evaluateSessionBudget({
       grade: learner.grade,
       startedAt: session.started_at,
       nowMs: now,
       extensionCount,
+      carryOverMs: extendCarryOverMs,
     });
 
     return ok<ExtendSessionTimeResponse>({

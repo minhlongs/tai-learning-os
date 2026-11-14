@@ -42,10 +42,10 @@ export function parsePortabilityCliArgs(argv) {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--output-dir") {
+    if (arg === "--output-dir" || arg === "--out-dir") {
       const next = argv[i + 1];
       if (typeof next !== "string" || !next.trim() || next.startsWith("--")) {
-        throw new Error("Missing or invalid value for --output-dir");
+        throw new Error(`Missing or invalid value for ${arg}`);
       }
       if (outputDir !== null) {
         throw new Error(`Unexpected duplicate output directory argument: ${next}`);

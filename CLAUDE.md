@@ -53,8 +53,8 @@ npm run dev
 # Run verification gates
 npm run typecheck          # Worker + App TypeScript strict check
 npm run lint               # ESLint check
-npm run test               # Vitest unit tests (29 files, 399 tests)
-npm run test:integration   # Vitest Worker + D1 integration tests (20 files, 206 tests)
+npm run test               # Vitest unit tests (29 files, 400 tests)
+npm run test:integration   # Vitest Worker + D1 integration tests (20 files, 207 tests)
 npm run test:e2e           # Playwright E2E browser tests (60 tests, Desktop, Tablet, Mobile; G2 zero-outbound + G10 axe WCAG 2.2 AA)
 npm run qa:content         # Gate G13 offline deterministic math/pedagogy/leakage QA + promptfoo config check
 npm run review:simulate    # Gate G7 3,650-day FSRS-6 longitudinal simulation (Asia/Ho_Chi_Minh)

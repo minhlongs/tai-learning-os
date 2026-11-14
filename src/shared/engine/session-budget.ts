@@ -47,16 +47,71 @@ export function sessionCapAppliesToGrade(grade: number | null | undefined): bool
   return grade <= 5;
 }
 
+export type SessionWindowSegment = {
+  id: string;
+  startedAt: number;
+  endedAt: number | null;
+};
+
+/**
+ * Compute continuous active study duration across back-to-back sessions that
+ * were NOT separated by a full 15-minute `EYE_REST_COOLDOWN_MS` break (or an
+ * explicit parent `session.rest_overridden` event).
+ *
+ * This closes the lesson-switch loophole: abandoning Lesson A at minute 24 and
+ * immediately opening Lesson B carries forward the 24 minutes already spent,
+ * rather than resetting the 25-minute timer to zero.
+ */
+export function computeContinuousStudyCarryOverMs(input: {
+  currentSessionId?: string | null;
+  anchorMs: number;
+  priorSessions: readonly SessionWindowSegment[];
+  lastParentRestOverrideAt?: number | null;
+}): number {
+  const closed = input.priorSessions
+    .filter(
+      (s): s is { id: string; startedAt: number; endedAt: number } =>
+        s.id !== input.currentSessionId &&
+        typeof s.endedAt === "number" &&
+        s.endedAt <= input.anchorMs &&
+        s.endedAt >= s.startedAt,
+    )
+    .sort((a, b) => b.endedAt - a.endedAt);
+
+  let carryOverMs = 0;
+  let chainCursorStart = input.anchorMs;
+
+  for (const seg of closed) {
+    if (
+      typeof input.lastParentRestOverrideAt === "number" &&
+      input.lastParentRestOverrideAt >= seg.endedAt &&
+      input.lastParentRestOverrideAt <= chainCursorStart
+    ) {
+      break;
+    }
+    const gapMs = chainCursorStart - seg.endedAt;
+    if (gapMs >= EYE_REST_COOLDOWN_MS) {
+      break;
+    }
+    carryOverMs += seg.endedAt - seg.startedAt;
+    chainCursorStart = Math.min(chainCursorStart, seg.startedAt);
+  }
+
+  return carryOverMs;
+}
+
 export function evaluateSessionBudget(input: {
   grade: number | null | undefined;
   startedAt: number;
   nowMs: number;
   extensionCount?: number;
+  carryOverMs?: number;
 }): SessionBudgetStatus {
   const applies = sessionCapAppliesToGrade(input.grade);
   const extensionCount = Math.max(0, Math.trunc(input.extensionCount ?? 0));
+  const carryOverMs = Math.max(0, Math.trunc(input.carryOverMs ?? 0));
   const budgetMs = MAX_LEARNER_SESSION_MS + extensionCount * PARENT_SESSION_EXTENSION_MS;
-  const elapsedMs = Math.max(0, input.nowMs - input.startedAt);
+  const elapsedMs = Math.max(0, input.nowMs - input.startedAt) + carryOverMs;
   const remainingMs = applies ? Math.max(0, budgetMs - elapsedMs) : budgetMs;
   const reached = applies && elapsedMs >= budgetMs;
 
@@ -79,7 +134,8 @@ export type EyeRestStatus = {
 
 /**
  * Determine whether the learner is currently inside the post-25-minute eye-rest
- * window from their most recently ended session.
+ * window from their most recently ended session (including cumulative study
+ * across back-to-back sessions that were not separated by a 15-minute rest).
  */
 export function evaluateEyeRestCooldown(input: {
   grade: number | null | undefined;
@@ -87,6 +143,7 @@ export function evaluateEyeRestCooldown(input: {
     startedAt: number;
     endedAt: number;
     extensionCount: number;
+    carryOverMs?: number;
   } | null;
   lastParentRestOverrideAt?: number | null;
   nowMs: number;
@@ -95,10 +152,10 @@ export function evaluateEyeRestCooldown(input: {
     return { resting: false, resumeAt: null, remainingRestMinutes: 0 };
   }
 
-  const { startedAt, endedAt, extensionCount } = input.lastEndedSession;
+  const { startedAt, endedAt, extensionCount, carryOverMs } = input.lastEndedSession;
   const sessionBudgetMs =
     MAX_LEARNER_SESSION_MS + Math.max(0, Math.trunc(extensionCount)) * PARENT_SESSION_EXTENSION_MS;
-  const durationMs = endedAt - startedAt;
+  const durationMs = Math.max(0, endedAt - startedAt) + Math.max(0, Math.trunc(carryOverMs ?? 0));
 
   // Cooldown triggers only when the prior session actually ran up to its time budget.
   if (durationMs < sessionBudgetMs) {

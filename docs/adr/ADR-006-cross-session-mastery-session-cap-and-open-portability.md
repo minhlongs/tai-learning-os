@@ -63,7 +63,7 @@ Ba nút thắt thiết kế cốt lõi cần giải quyết mà **không** phá 
 - Bộ xuất gồm 4 tạo phẩm chuẩn hóa:
   1. **1EdTech CLR Standard 2.0 (`clr-2.0.json`):** Hồ sơ thành tích JSON-LD ẩn danh (`urn:uuid:...`), chỉ phát hành chứng nhận cho các kỹ năng có bằng chứng thực chất, không chứa PII hay khóa đáp án.
   2. **1EdTech CASE 1.1 (`case-1.1.json`):** Khung mục tiêu chương trình `CFPackage` ánh xạ đầy đủ mục tiêu GDPT 2018 và quan hệ tiên quyết (`CFAssociations`).
-  3. **IEEE 9274.1.1 xAPI 2.0 (`xapi-2.0.jsonl`):** Dòng sự kiện lịch sử làm bài định dạng JSON Lines với Actor `mbox_sha1sum` ẩn danh.
+  3. **IEEE 9274.1.1 xAPI 2.0 (`xapi-2.0.jsonl`):** Dòng sự kiện lịch sử làm bài định dạng JSON Lines với Actor `account = { homePage: "urn:tai-learning-os:household", name: learnerId }` ẩn danh.
   4. **Trình xem độc lập ngoại tuyến (`viewer.html`):** Một tệp HTML duy nhất tự chứa CSS/JS nội tuyến, khóa cứng `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'`, thoát mã an toàn mọi chuỗi JSON nhúng (`escapeJsonForHtmlScript`), đạt chuẩn WCAG 2.2 AA và mở trực tiếp qua giao thức `file://` khi tắt hoàn toàn Wi-Fi.
 
 ---
