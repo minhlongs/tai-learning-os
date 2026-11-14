@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { attachZeroOutboundGuard, type OutboundNetworkRecorder } from "./network-guard";
 
 /**
  * The learner journey in a real browser.
@@ -201,6 +202,16 @@ async function signInWithFreshLearner(page: Page): Promise<void> {
 }
 
 test.describe("learner journey", () => {
+  let networkGuard: OutboundNetworkRecorder;
+
+  test.beforeEach(async ({ context }) => {
+    networkGuard = await attachZeroOutboundGuard(context);
+  });
+
+  test.afterEach(() => {
+    networkGuard.assertZeroOutbound();
+  });
+
   test("parent approves a lesson, the learner is taught, and the dashboard records it", async ({
     page,
   }) => {

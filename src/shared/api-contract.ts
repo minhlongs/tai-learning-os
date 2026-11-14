@@ -104,6 +104,15 @@ export type StartSessionResponse = {
   purpose?: LessonPurposeContract;
   ownershipType?: LessonOwnershipTypeContract;
   steps: LessonStepPayload[];
+  /** Server-tracked session timing budget for Grade 4–5 Soft Stop (Gate G9). */
+  sessionBudget?: {
+    applies: boolean;
+    startedAt: number;
+    budgetMs: number;
+    remainingMs: number;
+    extensionCount: number;
+    reached: boolean;
+  };
 };
 
 /** What the client is allowed to see. Never includes the answer key. */
@@ -152,6 +161,24 @@ export type SubmitAttemptResponse = {
   /** True when the interaction is a transfer check (well done message). */
   isTransfer: boolean;
   purpose?: LessonPurposeContract;
+  /** Gate G9 Soft Stop: true when the 25-minute session cap was reached on this submission. */
+  sessionTimeBudgetReached?: boolean;
+  remainingSessionMs?: number;
+};
+
+export type ExtendSessionTimeRequest = {
+  sessionId?: string;
+  learnerId?: string;
+  password: string;
+};
+
+export type ExtendSessionTimeResponse = {
+  ok: true;
+  sessionId: string | null;
+  extensionCount: number;
+  addedMinutes: number;
+  budgetMs: number | null;
+  restOverridden: boolean;
 };
 
 export type FinalizeSessionRequest = { sessionId: string };
@@ -489,6 +516,29 @@ export type ImportResponse = {
 
 export type DeleteLearnerRequest = { learnerId: string; confirmation: string };
 export type DeleteLearnerResponse = { deleted: true };
+
+export type ExportPortabilityResponse = {
+  exportedAt: number;
+  manifest: {
+    learners: number;
+    skills: number;
+    objectives: number;
+    achievements: number;
+    sessions: number;
+    attempts: number;
+    xapiStatements: number;
+    formats: {
+      clr: string;
+      case: string;
+      xapi: string;
+    };
+    exportedAtIso: string;
+  };
+  clr20: unknown;
+  case11: unknown;
+  xapi20Jsonl: string;
+  viewerHtml: string;
+};
 
 // --- Learner enrolment ----------------------------------------------------
 

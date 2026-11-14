@@ -15,6 +15,7 @@ export const endpoints = {
   learnerHome: "/api/learner/home",
   learnerSubjects: "/api/learner/subjects",
   startSession: "/api/learner/sessions",
+  extendSessionTime: "/api/learner/sessions/extend",
   finalizeSession: "/api/learner/sessions/finalize",
   reflectSession: "/api/learner/sessions/reflect",
   requestHint: "/api/learner/hints",
@@ -60,6 +61,7 @@ export const endpoints = {
   orgClassroomProgress: "/api/org/classrooms/progress",
 
   exportData: "/api/data/export",
+  exportPortability: "/api/data/export-portability",
   importData: "/api/data/import",
   deleteLearner: "/api/data/learner",
 } as const;

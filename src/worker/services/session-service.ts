@@ -22,7 +22,9 @@ import {
   isIndependentAttempt,
   type AttemptEvidence,
 } from "../../shared/engine/competency";
+import { isScheduledReviewFirstTryIndependent } from "../../shared/engine/recompute-learner-state";
 import { computeEstimate, scheduleReview } from "../../shared/engine/review";
+import { evaluateSessionBudget } from "../../shared/engine/session-budget";
 import type { CompetencyState } from "../../shared/schemas/attempt";
 import * as repo from "../db/repositories";
 
@@ -70,6 +72,7 @@ export async function recordAttemptWithDerivation(
   input: {
     sessionId: string;
     learnerId: string;
+    learnerGrade?: number | null;
     lessonId: string;
     step: StepContext;
     submission: Submission;
@@ -83,6 +86,8 @@ export async function recordAttemptWithDerivation(
   attemptNo: number;
   derivedState: CompetencyState | null;
   review: { dueAt: number; intervalDays: number; reasonVi: string } | null;
+  sessionTimeBudgetReached: boolean;
+  remainingSessionMs: number;
 }> {
   const { step } = input;
   if (!step.content) {
@@ -91,7 +96,8 @@ export async function recordAttemptWithDerivation(
     throw new GuardError("Nội dung bài học không hợp lệ. Vui lòng báo phụ huynh.", 500);
   }
 
-  const session = await repo.findSession(db, input.sessionId, await ownerOf(db, input.learnerId));
+  const parentId = await ownerOf(db, input.learnerId);
+  const session = await repo.findSession(db, input.sessionId, parentId);
   if (!session) throw new GuardError("Phiên học không tồn tại.", 404);
   if (session.learner_id !== input.learnerId) {
     // A session belonging to another learner must never accept this answer.
@@ -102,6 +108,37 @@ export async function recordAttemptWithDerivation(
   }
   if (session.is_continuation_expired === 1) {
     throw new GuardError("Phiên học đã hết thời gian gia hạn 30 phút sau khi quyền truy cập bị thu hồi.", 403);
+  }
+
+  // Gate G9: 25-minute Soft Stop session budget for Grades 4–5.
+  // An in-flight step attempt crossing the 25-minute boundary is ALWAYS accepted
+  // and graded so the child never loses work in progress. Once at least one
+  // attempt has already been recorded at or after the budget deadline, advancing
+  // to a NEW step is refused until the session is finalized for rest or extended
+  // by the parent (`session.time_extended`).
+  const learnerGrade =
+    input.learnerGrade !== undefined
+      ? input.learnerGrade
+      : (await repo.findLearnerForParent(db, input.learnerId, parentId))?.grade ?? null;
+  const extensionCount = await repo.countSessionTimeExtensions(db, session.id);
+  const budgetStatus = evaluateSessionBudget({
+    grade: learnerGrade,
+    startedAt: session.started_at,
+    nowMs: input.now,
+    extensionCount,
+  });
+
+  if (budgetStatus.reached) {
+    const budgetCutoffMs = session.started_at + budgetStatus.budgetMs;
+    const sessionAttempts = await repo.listAttemptsForSession(db, session.id);
+    const alreadySubmittedAfterCap = sessionAttempts.some((a) => a.created_at >= budgetCutoffMs);
+    const alreadyWorkingThisStep = sessionAttempts.some((a) => a.step_id === step.stepId);
+    if (alreadySubmittedAfterCap && !alreadyWorkingThisStep) {
+      throw new GuardError(
+        "Em đã học đủ 25 phút hôm nay rồi! Mình kết thúc phiên học và nghỉ mắt nhé.",
+        403,
+      );
+    }
   }
 
   const lesson = await repo.findLesson(db, session.lesson_id);
@@ -115,37 +152,59 @@ export async function recordAttemptWithDerivation(
   // ── Attempt + audit + derived state, re-derived on concurrency conflict ───
   //
   // Linearization point: the atomic execution of `db.batch`.
-  // Inside each round we snapshot:
-  //   1. Gap-safe step attempt summary (`COALESCE(MAX(attempt_no), 0) + 1` and
-  //      `COUNT(*)` of prior attempts on `(learner_id, step_id)`).
-  //   2. Disclosed hint state (`maxLevel` and `auditCount` on `audit_events` for
-  //      `action = 'hint.requested'` and `(learner_id, step_id)`).
-  //   3. Committed attempts on `(learner_id, skill_id)` for competency & review
-  //      derivation.
-  //
-  // `repo.attemptInsertGuarded` embeds SQL assertions checking that none of those
-  // three snapshots changed before the batch commits. If a concurrent request
-  // (same-step attempt, cross-step same-skill attempt, or concurrent hint
-  // disclosure) commits first, the batch aborts atomically and this bounded loop
-  // re-reads the newly committed state and recomputes everything.
   for (let round = 0; round <= MAX_CONCURRENCY_RETRIES; round += 1) {
-    const [stepSummary, hintState] = await Promise.all([
+    const [stepSummary, hintState, priorSameSessionStepAttempts, reviewRows] = await Promise.all([
       repo.getStepAttemptSummaryForLearner(db, input.learnerId, step.stepId),
-      repo.getDisclosedHintState(db, { learnerId: input.learnerId, stepId: step.stepId }),
+      repo.getDisclosedHintState(db, {
+        learnerId: input.learnerId,
+        stepId: step.stepId,
+        sessionId: input.sessionId,
+      }),
+      repo.getSessionStepAttemptCount(db, {
+        learnerId: input.learnerId,
+        sessionId: input.sessionId,
+        stepId: step.stepId,
+      }),
+      step.skillId && sessionPurpose === "official"
+        ? repo.listReviewScheduleForLearner(db, input.learnerId)
+        : Promise.resolve([]),
     ]);
 
-    const effectiveHelpLevel = clampHelp(Math.max(clientHelpLevel, hintState.maxLevel));
+    const priorDue =
+      step.skillId && sessionPurpose === "official"
+        ? (reviewRows.find((r) => r.skill_id === step.skillId)?.due_at ?? null)
+        : null;
+    const isDueScheduledReview = priorDue !== null && input.now >= priorDue;
+
+    // Outside a due scheduled review, prior hint disclosures on `(learnerId, stepId)`
+    // permanently floor `helpLevel` across sessions (Gate A2). When a scheduled
+    // FSRS review is due (`now >= priorDue`), only hints disclosed inside THIS
+    // review session floor the review attempt, so a learner who needed help days
+    // ago can prove unassisted recall on review day.
+    const floorLevel = isDueScheduledReview ? hintState.sessionMaxLevel : hintState.maxLevel;
+    const effectiveHelpLevel = clampHelp(Math.max(clientHelpLevel, floorLevel));
     const grade = gradeSubmission(step.content, input.submission, effectiveHelpLevel);
 
     const attemptNo = stepSummary.nextAttemptNo;
     const attemptId = crypto.randomUUID();
+
+    const scheduledReviewFirstTryUnlock = isScheduledReviewFirstTryIndependent({
+      outcome: grade.outcome,
+      helpLevel: effectiveHelpLevel,
+      priorDueAt: priorDue,
+      createdAt: input.now,
+      priorSameSessionStepAttempts,
+      purpose: sessionPurpose,
+    });
+
     const evidenceKind: "observed" | "assisted" | "parent_correction" =
       sessionPurpose === "practice"
         ? "assisted"
-        : grade.outcome === "correct" &&
-            effectiveHelpLevel === 0 &&
-            attemptNo === 1 &&
-            stepSummary.priorAttemptCount === 0
+        : (grade.outcome === "correct" &&
+              effectiveHelpLevel === 0 &&
+              attemptNo === 1 &&
+              stepSummary.priorAttemptCount === 0) ||
+            scheduledReviewFirstTryUnlock
           ? "observed"
           : "assisted";
 
@@ -155,9 +214,8 @@ export async function recordAttemptWithDerivation(
     const postAttemptStatements: D1PreparedStatement[] = [];
 
     if (step.skillId && sessionPurpose === "official") {
-      const [attempts, reviewRows, transferStepIds, currentEvidenceRows] = await Promise.all([
+      const [attempts, transferStepIds, currentEvidenceRows] = await Promise.all([
         repo.listAttemptsForLearner(db, input.learnerId),
-        repo.listReviewScheduleForLearner(db, input.learnerId),
         repo.listTransferStepIds(db),
         repo.listSkillEvidenceForLearner(db, input.learnerId),
       ]);
@@ -166,33 +224,63 @@ export async function recordAttemptWithDerivation(
       );
       expectedSkillAttemptCount = skillAttempts.length;
 
-      const priorDue = reviewRows.find((r) => r.skill_id === step.skillId)?.due_at ?? null;
       const currentEvidence = currentEvidenceRows.find((r) => r.skill_id === step.skillId) ?? null;
+
+      // Replay historical `dueAt` boundaries chronologically so earlier scheduled-review
+      // first-try unlocks stay `attemptNo: 1` for derivation while pre-due retries stay
+      // disqualified (`attemptNo > 1`).
+      const seenHistSessionSteps = new Map<string, number>();
+      let replayDueAt: number | null = null;
+      const historicalEvidence: AttemptEvidence[] = [];
+
+      for (const a of skillAttempts) {
+        const sKey = `${a.session_id}::${a.step_id}`;
+        const priorInSession = seenHistSessionSteps.get(sKey) ?? 0;
+        seenHistSessionSteps.set(sKey, priorInSession + 1);
+
+        const histIsReview =
+          (replayDueAt !== null && a.created_at >= replayDueAt) ||
+          (priorDue !== null && a.created_at >= priorDue);
+        const effectiveHistAttemptNo =
+          a.evidence_kind === "observed" && histIsReview && priorInSession === 0
+            ? 1
+            : a.attempt_no;
+
+        const item: AttemptEvidence = {
+          attemptId: a.id,
+          sessionId: a.session_id,
+          skillId: step.skillId,
+          outcome: a.outcome,
+          helpLevel: a.help_level,
+          evidenceKind: a.evidence_kind,
+          attemptNo: effectiveHistAttemptNo,
+          isTransfer: transferStepIds.has(a.step_id) && a.outcome === "correct",
+          isReview: histIsReview,
+          createdAt: a.created_at,
+        };
+        historicalEvidence.push(item);
+
+        const histDecision = scheduleReview(historicalEvidence, a.created_at);
+        if (histDecision) {
+          replayDueAt = histDecision.dueAt;
+        }
+      }
 
       const thisAttemptEvidence: AttemptEvidence = {
         attemptId,
+        sessionId: input.sessionId,
         skillId: step.skillId,
         outcome: grade.outcome,
         helpLevel: effectiveHelpLevel,
         evidenceKind,
-        attemptNo,
+        attemptNo: scheduledReviewFirstTryUnlock ? 1 : attemptNo,
         isTransfer: transferStepIds.has(step.stepId) && grade.outcome === "correct",
-        isReview: priorDue !== null && input.now >= priorDue,
+        isReview: isDueScheduledReview,
         createdAt: input.now,
       };
 
       const learnerEvidence: AttemptEvidence[] = [
-        ...skillAttempts.map((a) => ({
-          attemptId: a.id,
-          skillId: step.skillId as string,
-          outcome: a.outcome,
-          helpLevel: a.help_level,
-          evidenceKind: a.evidence_kind,
-          attemptNo: a.attempt_no,
-          isTransfer: transferStepIds.has(a.step_id) && a.outcome === "correct",
-          isReview: priorDue !== null && a.created_at >= priorDue,
-          createdAt: a.created_at,
-        })),
+        ...historicalEvidence,
         thisAttemptEvidence,
       ];
 
@@ -200,6 +288,7 @@ export async function recordAttemptWithDerivation(
       if (currentEvidence?.source === "parent_correction") {
         evidence.push({
           attemptId: `correction-${currentEvidence.id}`,
+          sessionId: `correction-${currentEvidence.id}`,
           skillId: step.skillId,
           outcome: "correct",
           helpLevel: 0,
@@ -313,6 +402,7 @@ export async function recordAttemptWithDerivation(
         expectedStepAttemptCount: stepSummary.priorAttemptCount,
         expectedHintAuditCount: hintState.auditCount,
         expectedSkillAttemptCount,
+        scopeHintFloorToSession: isDueScheduledReview,
       }),
       repo.auditInsert(db, {
         id: crypto.randomUUID(),
@@ -351,6 +441,8 @@ export async function recordAttemptWithDerivation(
         attemptNo,
         derivedState,
         review,
+        sessionTimeBudgetReached: budgetStatus.reached,
+        remainingSessionMs: budgetStatus.remainingMs,
       };
     } catch (error) {
       // Only inspect session status/deadline if the batch failed due to the guarded
@@ -359,7 +451,7 @@ export async function recordAttemptWithDerivation(
         throw error;
       }
 
-      const currentSession = await repo.findSession(db, input.sessionId, await ownerOf(db, input.learnerId));
+      const currentSession = await repo.findSession(db, input.sessionId, parentId);
       if (!currentSession || currentSession.status !== "in_progress") {
         throw new GuardError("Phiên học đã kết thúc.", 403);
       }
@@ -424,6 +516,7 @@ export async function recordParentCorrection(
   );
   const independent = skillAttempts.filter((a) => isIndependentAttempt({
     attemptId: a.id,
+    sessionId: a.session_id,
     skillId: input.skillId,
     outcome: a.outcome,
     helpLevel: a.help_level,
@@ -460,8 +553,6 @@ export async function recordParentCorrection(
   ]);
 }
 
-/** Load a lesson's steps into validated, renderable contexts. */
-
 /**
  * Resolve the parent that owns a learner, so the attempt is written under a
  * verified owner rather than one supplied by the caller.
@@ -474,6 +565,8 @@ async function ownerOf(db: D1Database, learnerId: string): Promise<string> {
   if (!row) throw new GuardError("Không tìm thấy hồ sơ người học.", 404);
   return row.parent_id;
 }
+
+/** Load a lesson's steps into validated, renderable contexts. */
 export async function loadStepContexts(
   db: D1Database,
   lessonId: string,

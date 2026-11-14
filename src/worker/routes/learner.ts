@@ -14,6 +14,8 @@
  */
 
 import type {
+  ExtendSessionTimeRequest,
+  ExtendSessionTimeResponse,
   FinalizeSessionResponse,
   LearnerHomeResponse,
   LessonStepPayload,
@@ -27,13 +29,19 @@ import type {
 } from "../../shared/api-contract";
 import type { Submission } from "../../shared/schemas/answer";
 import { clampHelp, hintFor } from "../../shared/schemas/answer";
+import { verifyPassword } from "../../shared/crypto/password";
 import { deriveStoredScheduleReasonVi } from "../../shared/engine/review";
+import {
+  evaluateEyeRestCooldown,
+  evaluateSessionBudget,
+  PARENT_SESSION_EXTENSION_MINUTES,
+} from "../../shared/engine/session-budget";
 import { parseExercise } from "../../shared/schemas/exercise";
 import { toLearnerExercise } from "../../shared/schemas/exercise";
 import type { LearnerRow } from "../db/schema";
 import * as repo from "../db/repositories";
-import { badRequest, forbidden, notFound, ok, readJsonBody, serverError } from "../http/response";
-import type { Handler, HandlerContext } from "../http/middleware";
+import { badRequest, forbidden, notFound, ok, rateLimited, readJsonBody, serverError } from "../http/response";
+import { authClientKey, type Handler, type HandlerContext } from "../http/middleware";
 import {
   GuardError,
   loadStepContexts,
@@ -336,6 +344,15 @@ export const startSession: Handler = async (context) => {
           ? "practice"
           : "official";
 
+      const resumeNow = Date.now();
+      const extensionCount = await repo.countSessionTimeExtensions(context.env.DB, existing.id);
+      const resumedBudget = evaluateSessionBudget({
+        grade: learner.grade,
+        startedAt: refreshed.started_at,
+        nowMs: resumeNow,
+        extensionCount,
+      });
+
       return ok<StartSessionResponse>({
         sessionId: existing.id,
         lessonId: existing.lesson_id,
@@ -343,7 +360,56 @@ export const startSession: Handler = async (context) => {
         subjectId: lesson.subject_id,
         purpose: resumedPurpose,
         steps: sessionSteps,
+        sessionBudget: {
+          applies: resumedBudget.applies,
+          startedAt: resumedBudget.startedAt,
+          budgetMs: resumedBudget.budgetMs,
+          remainingMs: resumedBudget.remainingMs,
+          extensionCount: resumedBudget.extensionCount,
+          reached: resumedBudget.reached,
+        },
       });
+    }
+  }
+
+  // Gate G9: before opening a brand-new session, check whether the learner just
+  // completed or abandoned a 25-minute session and is inside the 15-minute eye-rest window.
+  const preCheckNow = Date.now();
+  const recentSessions = await repo.listSessionsForLearner(context.env.DB, learner.id, 5);
+  const latestEnded = recentSessions.find((s) => s.status !== "in_progress" && typeof s.ended_at === "number");
+  if (latestEnded && typeof latestEnded.ended_at === "number") {
+    const [lastExtensionCount, lastParentRestOverrideAt] = await Promise.all([
+      repo.countSessionTimeExtensions(context.env.DB, latestEnded.id),
+      repo.findLatestParentRestOverrideAt(context.env.DB, learner.id),
+    ]);
+    const restStatus = evaluateEyeRestCooldown({
+      grade: learner.grade,
+      lastEndedSession: {
+        startedAt: latestEnded.started_at,
+        endedAt: latestEnded.ended_at,
+        extensionCount: lastExtensionCount,
+      },
+      lastParentRestOverrideAt,
+      nowMs: preCheckNow,
+    });
+    if (restStatus.resting) {
+      return forbidden(
+        `Em vừa hoàn thành phiên học 25 phút. Mình nghỉ mắt thêm ${restStatus.remainingRestMinutes} phút trước khi mở bài mới nhé! (Phụ huynh có thể xác nhận mật khẩu nếu cần mở sớm).`,
+      );
+    }
+  }
+  if (existing && existing.lesson_id !== lesson.id && existing.is_continuation_expired !== 1) {
+    const existingExtensions = await repo.countSessionTimeExtensions(context.env.DB, existing.id);
+    const existingBudget = evaluateSessionBudget({
+      grade: learner.grade,
+      startedAt: existing.started_at,
+      nowMs: preCheckNow,
+      extensionCount: existingExtensions,
+    });
+    if (existingBudget.reached) {
+      return forbidden(
+        "Em đã học đủ 25 phút ở phiên hiện tại! Mình kết thúc phiên học và nghỉ mắt trước khi sang bài mới nhé.",
+      );
     }
   }
 
@@ -439,6 +505,13 @@ export const startSession: Handler = async (context) => {
     return serverError();
   }
 
+  const newBudget = evaluateSessionBudget({
+    grade: learner.grade,
+    startedAt: commitNow,
+    nowMs: commitNow,
+    extensionCount: 0,
+  });
+
   return ok<StartSessionResponse>({
     sessionId,
     lessonId: lesson.id,
@@ -446,6 +519,14 @@ export const startSession: Handler = async (context) => {
     subjectId: lesson.subject_id,
     purpose: sessionPurpose,
     steps,
+    sessionBudget: {
+      applies: newBudget.applies,
+      startedAt: newBudget.startedAt,
+      budgetMs: newBudget.budgetMs,
+      remainingMs: newBudget.remainingMs,
+      extensionCount: 0,
+      reached: newBudget.reached,
+    },
   });
 };
 
@@ -583,6 +664,7 @@ export const submitAttempt: Handler = async (context) => {
     const result = await recordAttemptWithDerivation(context.env.DB, {
       sessionId: session.id,
       learnerId: learner.id,
+      learnerGrade: learner.grade,
       lessonId: session.lesson_id,
       step: stepContext,
       submission: body.submission,
@@ -603,8 +685,10 @@ export const submitAttempt: Handler = async (context) => {
       // Unlocked only on a correct answer, so the worked solution cannot be read
       // first and then resubmitted as the learner's own reasoning.
       explanationVi: result.outcome === "correct" ? stepContext.explanationVi : null,
-      canAdvance: result.outcome !== "incorrect",
+      canAdvance: result.outcome !== "incorrect" && !result.sessionTimeBudgetReached,
       isTransfer: stepContext.kind === "transfer",
+      sessionTimeBudgetReached: result.sessionTimeBudgetReached,
+      remainingSessionMs: result.remainingSessionMs,
     });
   } catch (error) {
     if (error instanceof GuardError) {
@@ -844,6 +928,130 @@ export const submitSessionReflection: Handler = async (context) => {
     sessionId: session.id,
     feeling: body.feeling,
     noteVi,
+  });
+};
+
+/* ── POST /api/learner/sessions/extend ─────────────────────────────────────── */
+
+/**
+ * Parent password-verified +15-minute session extension or eye-rest override (Gate G9).
+ *
+ * Protected by the same persistent D1 failed-password throttle (`auth_throttles`)
+ * as login and parent-mode unlock so a learner in child mode cannot brute-force
+ * the parent password to bypass the 25-minute cap.
+ */
+export const extendSessionTime: Handler = async (context) => {
+  const parsed = await readJsonBody(context.request, 4_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as Partial<ExtendSessionTimeRequest>;
+
+  if (typeof body.password !== "string" || body.password.length === 0) {
+    return badRequest("Phụ huynh vui lòng nhập mật khẩu để xác nhận gia hạn thời gian học.");
+  }
+
+  const now = Date.now();
+  const db = context.env.DB;
+  const ipKey = authClientKey(context.request);
+  const accountKey = `account:id:${context.parent.parentId}`;
+
+  const ipThrottle = await repo.checkAuthThrottle(db, ipKey, now);
+  if (ipThrottle.blocked) return rateLimited(ipThrottle.retryAfterSec);
+  const acctThrottle = await repo.checkAuthThrottle(db, accountKey, now);
+  if (acctThrottle.blocked) return rateLimited(acctThrottle.retryAfterSec);
+
+  const parentRow = await repo.findParentById(db, context.parent.parentId);
+  if (!parentRow) return forbidden("Tài khoản phụ huynh không tồn tại.");
+
+  const validPassword = await verifyPassword(body.password, parentRow.password_hash);
+  if (!validPassword) {
+    const ipResult = await repo.recordAuthFailure(db, { key: ipKey, scope: "ip", now });
+    const acctResult = await repo.recordAuthFailure(db, { key: accountKey, scope: "account", now });
+    await repo.recordAudit(db, {
+      id: crypto.randomUUID(),
+      actor: `parent:${parentRow.id}`,
+      action: "session.time_extend_failed",
+      subject: typeof body.sessionId === "string" ? body.sessionId : parentRow.id,
+      detail: JSON.stringify({ reason: "invalid_password" }),
+      now,
+    });
+    if (ipResult.blocked) return rateLimited(ipResult.retryAfterSec);
+    if (acctResult.blocked) return rateLimited(acctResult.retryAfterSec);
+    return forbidden("Mật khẩu phụ huynh không đúng.");
+  }
+
+  await repo.clearAuthThrottle(db, ipKey);
+  await repo.clearAuthThrottle(db, accountKey);
+
+  const explicitLearnerId = typeof body.learnerId === "string" ? body.learnerId : null;
+  const resolved = await currentLearner(context, explicitLearnerId);
+  if ("response" in resolved) return resolved.response;
+  const learner = resolved.learner;
+
+  const requestedSessionId =
+    typeof body.sessionId === "string" && body.sessionId.trim().length > 0
+      ? body.sessionId.trim()
+      : null;
+
+  if (requestedSessionId) {
+    const session = await repo.findSession(db, requestedSessionId, context.parent.parentId);
+    if (!session) return notFound("Phiên học không tồn tại.");
+    if (session.learner_id !== learner.id) {
+      return forbidden("Phiên học không thuộc về người học này.");
+    }
+    if (session.status !== "in_progress") {
+      return badRequest("Phiên học đã kết thúc.");
+    }
+
+    await repo.recordAudit(db, {
+      id: crypto.randomUUID(),
+      actor: `parent:${parentRow.id}`,
+      action: "session.time_extended",
+      subject: session.id,
+      detail: JSON.stringify({
+        learnerId: learner.id,
+        addedMinutes: PARENT_SESSION_EXTENSION_MINUTES,
+      }),
+      now,
+    });
+
+    const extensionCount = await repo.countSessionTimeExtensions(db, session.id);
+    const budget = evaluateSessionBudget({
+      grade: learner.grade,
+      startedAt: session.started_at,
+      nowMs: now,
+      extensionCount,
+    });
+
+    return ok<ExtendSessionTimeResponse>({
+      ok: true,
+      sessionId: session.id,
+      extensionCount,
+      addedMinutes: PARENT_SESSION_EXTENSION_MINUTES,
+      budgetMs: budget.budgetMs,
+      restOverridden: false,
+    });
+  }
+
+  // No active `sessionId`: override the 15-minute post-session eye-rest cooldown for `learner`.
+  await repo.recordAudit(db, {
+    id: crypto.randomUUID(),
+    actor: `parent:${parentRow.id}`,
+    action: "session.rest_overridden",
+    subject: learner.id,
+    detail: JSON.stringify({
+      learnerId: learner.id,
+      addedMinutes: PARENT_SESSION_EXTENSION_MINUTES,
+    }),
+    now,
+  });
+
+  return ok<ExtendSessionTimeResponse>({
+    ok: true,
+    sessionId: null,
+    extensionCount: 0,
+    addedMinutes: PARENT_SESSION_EXTENSION_MINUTES,
+    budgetMs: null,
+    restOverridden: true,
   });
 };
 

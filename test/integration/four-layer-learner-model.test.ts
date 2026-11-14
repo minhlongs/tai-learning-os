@@ -256,6 +256,7 @@ function toEvidence(rows: readonly LearningAttemptRow[]): AttemptEvidence[] {
     .filter((row) => (row.purpose ?? "official") === "official")
     .map((row) => ({
       attemptId: row.id,
+      sessionId: row.session_id,
       skillId: row.skill_id ?? "",
       outcome: row.outcome,
       helpLevel: row.help_level,
@@ -513,10 +514,19 @@ describe("layer 4 — state is derived from attempts, never from the stored esti
     expect(derived.state).toBe("NOT_OBSERVED");
   });
 
-  it("reaches INDEPENDENT after two independent solves, with the estimate moving independently", async () => {
-    await solveStepIndependently(0);
+  it("reaches INDEPENDENT after two independent solves across two distinct sessions, with the estimate moving independently", async () => {
+    const first = await solveStepIndependently(0);
     const afterFirst = await estimateRow();
-    await solveStepIndependently(1);
+
+    // Finalize session 1 so the second solve occurs in a distinct session (Gate G6).
+    const finRes = await call("/api/learner/sessions/finalize", {
+      method: "POST",
+      json: { sessionId: first.session.sessionId },
+    });
+    expect(finRes.status).toBe(200);
+
+    const second = await solveStepIndependently(1);
+    expect(second.session.sessionId).not.toBe(first.session.sessionId);
     const afterSecond = await estimateRow();
 
     const derived = deriveCompetency(toEvidence(await attemptsForSkill()));

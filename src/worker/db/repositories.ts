@@ -1244,9 +1244,17 @@ export function attemptInsertGuarded(
     expectedStepAttemptCount: number;
     expectedHintAuditCount: number;
     expectedSkillAttemptCount: number;
+    /**
+     * When `true` (active scheduled review session where `now >= priorDue`),
+     * hint-floor assertion scopes to the current `sessionId` rather than lifetime
+     * hints from earlier pre-review sessions. `expectedHintAuditCount` still guards
+     * against any concurrent hint disclosure anywhere on `(learner_id, step_id)`.
+     */
+    scopeHintFloorToSession?: boolean;
   },
 ): D1PreparedStatement {
   const purpose = input.purpose ?? "official";
+  const scopeToSession = input.scopeHintFloorToSession ? 1 : 0;
   return db
     .prepare(
       `INSERT INTO learning_attempts
@@ -1280,6 +1288,10 @@ export function attemptInsertGuarded(
                AND subject = ?5
                AND actor = 'learner:' || ?3
                AND json_valid(detail) = 1
+               AND (
+                 ?18 = 0
+                 OR json_extract(detail, '$.sessionId') = ?2
+               )
                AND json_type(detail, '$.level') IN ('integer', 'real')
                AND MIN(4, MAX(0, CAST(json_extract(detail, '$.level') AS INTEGER))) > ?10
            )
@@ -1329,6 +1341,7 @@ export function attemptInsertGuarded(
       input.expectedHintAuditCount,
       input.expectedSkillAttemptCount,
       purpose,
+      scopeToSession,
     );
 }
 
@@ -1913,8 +1926,8 @@ export async function listAudit(db: Db, limit: number): Promise<AuditEventRow[]>
  */
 export async function getDisclosedHintState(
   db: Db,
-  input: { learnerId: string; stepId: string },
-): Promise<{ maxLevel: number; auditCount: number }> {
+  input: { learnerId: string; stepId: string; sessionId?: string },
+): Promise<{ maxLevel: number; sessionMaxLevel: number; auditCount: number }> {
   const result = await db
     .prepare(
       `SELECT detail FROM audit_events
@@ -1927,21 +1940,82 @@ export async function getDisclosedHintState(
 
   const rows = result.results ?? [];
   let maxLevel = 0;
+  let sessionMaxLevel = 0;
   for (const row of rows) {
     if (!row.detail) continue;
     try {
-      const parsed = JSON.parse(row.detail) as { level?: unknown };
+      const parsed = JSON.parse(row.detail) as { level?: unknown; sessionId?: unknown };
       if (typeof parsed?.level === "number" && Number.isFinite(parsed.level)) {
         const clamped = clampHelp(parsed.level);
         if (clamped > maxLevel) {
           maxLevel = clamped;
+        }
+        if (input.sessionId && parsed.sessionId === input.sessionId && clamped > sessionMaxLevel) {
+          sessionMaxLevel = clamped;
         }
       }
     } catch {
       // Ignore malformed detail
     }
   }
-  return { maxLevel: clampHelp(maxLevel), auditCount: rows.length };
+  return {
+    maxLevel: clampHelp(maxLevel),
+    sessionMaxLevel: clampHelp(sessionMaxLevel),
+    auditCount: rows.length,
+  };
+}
+
+export async function getSessionStepAttemptCount(
+  db: Db,
+  input: { learnerId: string; sessionId: string; stepId: string },
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM learning_attempts
+       WHERE learner_id = ?1 AND session_id = ?2 AND step_id = ?3`,
+    )
+    .bind(input.learnerId, input.sessionId, input.stepId)
+    .first<{ count: number }>();
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * Count audited parent time extensions (`action = 'session.time_extended'`)
+ * granted for a given study session.
+ */
+export async function countSessionTimeExtensions(
+  db: Db,
+  sessionId: string,
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM audit_events
+       WHERE action = 'session.time_extended' AND subject = ?1`,
+    )
+    .bind(sessionId)
+    .first<{ count: number }>();
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * Timestamp of the latest audited parent rest-cooldown override (`action = 'session.rest_overridden'`)
+ * for `learnerId`, or `null` if none exists.
+ */
+export async function findLatestParentRestOverrideAt(
+  db: Db,
+  learnerId: string,
+): Promise<number | null> {
+  const row = await db
+    .prepare(
+      `SELECT MAX(created_at) AS latest
+       FROM audit_events
+       WHERE action = 'session.rest_overridden' AND subject = ?1`,
+    )
+    .bind(learnerId)
+    .first<{ latest: number | null }>();
+  return typeof row?.latest === "number" ? row.latest : null;
 }
 
 export async function findMaxDisclosedHintLevel(

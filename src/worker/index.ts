@@ -21,6 +21,7 @@ import {
   switchSessionMode,
 } from "./routes/session";
 import {
+  extendSessionTime,
   finalizeSession,
   getLearnerHome,
   listSubjectsForLearner,
@@ -99,6 +100,7 @@ const ROUTES: readonly Route[] = [
   protectedRoute("GET", /^\/api\/learner\/home$/, getLearnerHome),
   protectedRoute("GET", /^\/api\/learner\/subjects$/, listSubjectsForLearner),
   protectedRoute("POST", /^\/api\/learner\/sessions$/, startSession),
+  protectedRoute("POST", /^\/api\/learner\/sessions\/extend$/, extendSessionTime),
   protectedRoute("POST", /^\/api\/learner\/hints$/, requestHint),
   protectedRoute("POST", /^\/api\/learner\/attempts$/, submitAttempt),
   protectedRoute("POST", /^\/api\/learner\/sessions\/finalize$/, finalizeSession),
