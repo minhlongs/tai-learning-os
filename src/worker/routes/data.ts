@@ -23,6 +23,7 @@ import {
   validateExportEnvelope,
 } from "../../shared/schemas/transfer";
 import type { Db } from "../db/repositories";
+import type { LessonRow } from "../db/schema";
 import * as repo from "../db/repositories";
 import { badRequest, conflict, notFound, ok, readJsonBody, serverError } from "../http/response";
 import type { Handler } from "../http/middleware";
@@ -31,7 +32,16 @@ import { filterVisibleLessonsForParent } from "./parent";
 /** Collections that carry rows keyed by `id`. Order is insert order (FK-safe). */
 const COLLECTIONS = EXPORT_COLLECTIONS;
 
-const MAX_IMPORT_BYTES = 2_000_000;
+/**
+ * Restore-payload ceiling.
+ *
+ * An export embeds the whole reference catalogue, not just the family's rows:
+ * 100 lessons, 507 steps, 90 skills and 90 objectives. That puts an empty
+ * learner's export at roughly 1 MB (pretty-printed), and a household with a
+ * couple of school years of evidence above it, so the budget must leave room
+ * for growth over the years the backup is meant to survive.
+ */
+const MAX_IMPORT_BYTES = 10_000_000;
 
 /* ── POST /api/data/export ─────────────────────────────────────────────────── */
 
@@ -593,8 +603,13 @@ export const exportRecord: Handler = async (context) => {
 /**
  * Import a previously exported envelope.
  *
- * Validation is all-or-nothing: every row is checked before any write happens,
- * so a rejected import leaves the database exactly as it was.
+ * Validation and catalogue/collision checks run before any write is prepared,
+ * and every write of the restore — remapped learners, school years, family
+ * lessons/versions/steps/metadata, downgraded approvals, sessions, attempts,
+ * derived mastery/FSRS rows, goals, intakes, baselines, plan items,
+ * reflections, restored `hint.requested` floors, and the `data.imported` proof
+ * row — executes in ONE `db.batch` transaction. A failure anywhere inside the
+ * batch rolls back every table atomically with zero compensating deletes.
  *
  * The learner is re-keyed to the importing parent. This means an import can
  * never attach a learner to an account that did not already own that record —
@@ -620,118 +635,104 @@ export const importRecord: Handler = async (context) => {
   const data = validation.envelope.data;
   const countOf = (key: (typeof COLLECTIONS)[number]) => (data[key] ?? []).length;
 
-  // Pre-flight collision check against existing database rows BEFORE any learner or collection is written:
-  // If any imported lesson ID already exists in D1 with incompatible ownership (e.g. a family lesson
-  // owned by another parent, or an imported lesson claiming family ownership of a catalogue/org lesson),
-  // or if any `(lessonId, version)` or `lessonSteps` row already exists in D1 with conflicting content,
-  // reject the entire import with 409 Conflict instead of silently dropping via INSERT OR IGNORE.
-  const collisionError = await detectLessonImportCollision(db, data, context.parent.parentId);
-  if (collisionError) {
-    return conflict(collisionError);
+  // Pre-flight collision and catalogue check against existing database rows BEFORE preparing the batch:
+  // Global catalogue rows (`subjects`, `skills`, `skill_prerequisites`, `curriculum_objectives`) must already exist
+  // in D1 and match the database's fields, and any imported lesson ID or version/step snapshot must not collide
+  // with incompatible ownership or content in D1. Rejects the entire import with 409 Conflict before writing.
+  const preflight = await detectLessonImportCollision(db, data, context.parent.parentId);
+  if (preflight.error !== null) {
+    return conflict(preflight.error);
   }
 
-  try {
-    // Remap the exported learner id to a fresh one owned by this parent, so
-    // every dependent row can be re-pointed at a learner that really exists.
-    const learnerIds = new Map<string, string>();
-    for (const learner of data.learners) {
-      const id = crypto.randomUUID();
-      await repo.createLearner(db, {
-        id,
-        parentId: context.parent.parentId,
-        nickname: learner.nickname,
-        birthYear: learner.birthYear,
-        grade: learner.grade,
-        timezone: learner.timezone,
-        now: learner.createdAt,
-      });
-      learnerIds.set(learner.id, id);
-    }
+  // Remap the exported learner id to a fresh one owned by this parent, so
+  // every dependent row can be re-pointed at a learner that really exists.
+  const learnerIds = new Map<string, string>();
+  for (const learner of data.learners) {
+    learnerIds.set(learner.id, crypto.randomUUID());
+  }
 
-    await importCollections(
-      db,
-      {
-        ...data,
-        learners: data.learners.map((learner) => ({
-          ...learner,
-          id: learnerIds.get(learner.id) ?? learner.id,
-        })),
-        lessons: data.lessons.map((lesson) => {
-          const resolvedOwnership = resolveImportedOwnership(lesson);
-          return {
-            ...lesson,
-            ownershipType: resolvedOwnership,
-            ownerParentId:
-              resolvedOwnership === "family" ? context.parent.parentId : (lesson.ownerParentId ?? null),
-          };
-        }),
-        schoolYears: data.schoolYears.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
-        curriculumIntakes: (data.curriculumIntakes ?? []).map((row) => ({
-          ...row,
-          learnerId: retarget(learnerIds, row.learnerId),
-        })),
-        learningSessions: data.learningSessions.map((row) => ({
-          ...row,
-          learnerId: retarget(learnerIds, row.learnerId),
-        })),
-        reviewApprovals: data.reviewApprovals.map((row) => ({
-          ...row,
-          learnerId: row.learnerId ? retarget(learnerIds, row.learnerId) : null,
-          decidedBy: context.parent.parentId,
-        })),
-        learningAttempts: data.learningAttempts.map((row) => ({
-          ...row,
-          learnerId: retarget(learnerIds, row.learnerId),
-        })),
-        skillEvidence: data.skillEvidence.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
-        skillEvidenceObservations: (data.skillEvidenceObservations ?? []).map((row) => ({
-          ...row,
-          learnerId: retarget(learnerIds, row.learnerId),
-        })),
-        skillEstimates: (data.skillEstimates ?? []).map((row) => ({
-          ...row,
-          learnerId: retarget(learnerIds, row.learnerId),
-        })),
-        reviewSchedule: data.reviewSchedule.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
-        baselineAssessments: (data.baselineAssessments ?? []).map((row) => ({
-          ...row,
-          learnerId: retarget(learnerIds, row.learnerId),
-        })),
-        learningPlanItems: (data.learningPlanItems ?? []).map((row) => ({
-          ...row,
-          learnerId: retarget(learnerIds, row.learnerId),
-        })),
-        sessionReflections: (data.sessionReflections ?? []).map((row) => ({
-          ...row,
-          learnerId: retarget(learnerIds, row.learnerId),
-        })),
-        learningGoals: data.learningGoals.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
-        auditEvents: data.auditEvents.map((row) => ({
-          ...row,
-          actor: row.actor.startsWith("learner:")
-            ? `learner:${retarget(learnerIds, row.actor.slice("learner:".length))}`
-            : row.actor,
-          subject: row.subject ? retarget(learnerIds, row.subject) : row.subject,
-        })),
-      },
-      context.parent.parentId,
-    );
+  const counts: Record<string, number> = {};
+  for (const key of COLLECTIONS) counts[key] = countOf(key);
 
-    const counts: Record<string, number> = {};
-    for (const key of COLLECTIONS) counts[key] = countOf(key);
-
-    await repo.recordAudit(db, {
-      id: crypto.randomUUID(),
-      actor: `parent:${context.parent.parentId}`,
-      action: "data.imported",
-      subject: null,
-      detail: JSON.stringify({
-        source: validation.envelope.source,
-        formatVersion: validation.envelope.formatVersion,
-        counts,
+  const statements = buildImportStatements(db, {
+    data: {
+      ...data,
+      learners: data.learners.map((learner) => ({
+        ...learner,
+        id: learnerIds.get(learner.id) ?? learner.id,
+      })),
+      lessons: data.lessons.map((lesson) => {
+        const resolvedOwnership = resolveImportedOwnership(lesson);
+        return {
+          ...lesson,
+          ownershipType: resolvedOwnership,
+          ownerParentId:
+            resolvedOwnership === "family" ? context.parent.parentId : (lesson.ownerParentId ?? null),
+        };
       }),
-      now: Date.now(),
-    });
+      schoolYears: data.schoolYears.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
+      curriculumIntakes: (data.curriculumIntakes ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      learningSessions: data.learningSessions.map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      reviewApprovals: data.reviewApprovals.map((row) => ({
+        ...row,
+        learnerId: row.learnerId ? retarget(learnerIds, row.learnerId) : null,
+        decidedBy: context.parent.parentId,
+      })),
+      learningAttempts: data.learningAttempts.map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      skillEvidence: data.skillEvidence.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
+      skillEvidenceObservations: (data.skillEvidenceObservations ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      skillEstimates: (data.skillEstimates ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      reviewSchedule: data.reviewSchedule.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
+      baselineAssessments: (data.baselineAssessments ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      learningPlanItems: (data.learningPlanItems ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      sessionReflections: (data.sessionReflections ?? []).map((row) => ({
+        ...row,
+        learnerId: retarget(learnerIds, row.learnerId),
+      })),
+      learningGoals: data.learningGoals.map((row) => ({ ...row, learnerId: retarget(learnerIds, row.learnerId) })),
+      auditEvents: data.auditEvents.map((row) => ({
+        ...row,
+        actor: row.actor.startsWith("learner:")
+          ? `learner:${retarget(learnerIds, row.actor.slice("learner:".length))}`
+          : row.actor,
+        subject: row.subject ? retarget(learnerIds, row.subject) : row.subject,
+      })),
+    },
+    importingParentId: context.parent.parentId,
+    existingLessonById: preflight.existingLessonById,
+    existingVersionKeys: preflight.existingVersionKeys,
+    existingStepIds: preflight.existingStepIds,
+    importAuditDetail: JSON.stringify({
+      source: validation.envelope.source,
+      formatVersion: validation.envelope.formatVersion,
+      counts,
+    }),
+    now: Date.now(),
+  });
+
+  try {
+    await db.batch(statements);
 
     const report: ImportResponse = {
       ok: true,
@@ -740,10 +741,32 @@ export const importRecord: Handler = async (context) => {
       counts,
     };
     return ok<ImportResponse>(report);
-  } catch {
-    // The import is not wrapped in a D1 transaction (D1 transactions are limited
-    // to a single statement batch), so a failure mid-way must be reported rather
-    // than presented as a successful restore.
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/NOT NULL constraint failed:\s*learners\.parent_id\b/i.test(message)) {
+      return badRequest(
+        "Máy này đã có hồ sơ người học. Vui lòng xóa hồ sơ hiện tại trước khi phục hồi.",
+      );
+    }
+    if (/UNIQUE constraint failed:\s*lessons\.id\b/i.test(message)) {
+      return conflict(
+        "Xung đột dữ liệu bài học: bài học riêng đã thuộc về một gia đình khác.",
+      );
+    }
+    if (/UNIQUE constraint failed:\s*lesson_(?:versions|steps)\./i.test(message)) {
+      return conflict(
+        "Xung đột phiên bản bài học: bài học riêng đã được chỉnh sửa đồng thời trong khi khôi phục. Không có dữ liệu nào bị ghi dở dang.",
+      );
+    }
+    if (isOversizedBatchError(message)) {
+      console.error(
+        `import rejected oversized atomic batch (${statements.length} statements): ${message}`,
+      );
+      return serverError(
+        "Bản sao lưu vượt quá giới hạn ghi nguyên tử của hệ thống. Không có dữ liệu nào bị ghi dở dang.",
+      );
+    }
+    console.error(`import failed: ${message}`);
     return serverError();
   }
 };
@@ -797,11 +820,117 @@ function resolveImportedOwnership(
   return lesson.ownershipType ?? (lesson.purpose === "practice" ? "family" : fallback);
 }
 
+type PreflightResult =
+  | {
+      error: string;
+      existingLessonById?: undefined;
+      existingVersionKeys?: undefined;
+      existingStepIds?: undefined;
+    }
+  | {
+      error: null;
+      existingLessonById: Map<string, LessonRow>;
+      existingVersionKeys: Set<string>;
+      existingStepIds: Set<string>;
+    };
+
 async function detectLessonImportCollision(
   db: Db,
   data: ExportBody,
   importingParentId: string,
-): Promise<string | null> {
+): Promise<PreflightResult> {
+  const [existingSubjects, existingSkills, existingPrerequisites, existingObjectives] =
+    await Promise.all([
+      repo.listSubjects(db),
+      repo.listSkills(db),
+      repo.listSkillPrerequisites(db),
+      repo.listCurriculumObjectives(db),
+    ]);
+
+  // Global catalogue tables (`subjects`, `skills`, `skill_prerequisites`,
+  // `curriculum_objectives`) are owned by shipped migrations, never mutated by
+  // import, and cannot be removed by learner rollback. Every imported catalogue
+  // row must already exist in D1 and match all DB-relevant fields before any
+  // learner or family row is written.
+  const existingSubjectById = new Map(existingSubjects.map((s) => [s.id, s]));
+  for (const importedSubject of data.subjects ?? []) {
+    const existing = existingSubjectById.get(importedSubject.id);
+    if (!existing) {
+      return { error: `Xung đột danh mục môn học (${importedSubject.id}): môn học trong tệp không tồn tại trong cơ sở dữ liệu.` };
+    }
+    if (
+      existing.name_vi !== importedSubject.nameVi ||
+      existing.name_en !== importedSubject.nameEn ||
+      existing.sort !== importedSubject.sort ||
+      existing.active !== importedSubject.active
+    ) {
+      return { error: `Xung đột danh mục môn học (${importedSubject.id}): thông tin môn học trong tệp không khớp với cơ sở dữ liệu.` };
+    }
+  }
+
+  const existingSkillById = new Map(existingSkills.map((s) => [s.id, s]));
+  for (const importedSkill of data.skills) {
+    const existing = existingSkillById.get(importedSkill.id);
+    if (!existing) {
+      return { error: `Xung đột danh mục kỹ năng (${importedSkill.id}): kỹ năng trong tệp không tồn tại trong cơ sở dữ liệu.` };
+    }
+    if (
+      existing.subject_id !== importedSkill.subjectId ||
+      existing.code !== importedSkill.code ||
+      existing.name_vi !== importedSkill.nameVi ||
+      existing.name_en !== importedSkill.nameEn ||
+      existing.grade_from !== importedSkill.gradeFrom ||
+      existing.grade_to !== importedSkill.gradeTo
+    ) {
+      return { error: `Xung đột danh mục kỹ năng (${importedSkill.id}): thông tin kỹ năng trong tệp không khớp với cơ sở dữ liệu.` };
+    }
+  }
+
+  const existingPrerequisiteKeys = new Set(
+    existingPrerequisites.map((p) => `${p.skill_id}:::${p.prerequisite_id}`),
+  );
+  for (const edge of data.skillPrerequisites) {
+    if (!existingPrerequisiteKeys.has(`${edge.skillId}:::${edge.prerequisiteId}`)) {
+      return { error: `Xung đột quan hệ tiên quyết kỹ năng (${edge.skillId} -> ${edge.prerequisiteId}): quan hệ trong tệp không tồn tại trong cơ sở dữ liệu.` };
+    }
+  }
+
+  // `curriculum_objectives.created_at` is stamped via `strftime('%s','now') * 1000`
+  // when each database runs its migrations, so cross-machine backups share identical
+  // semantic objective rows with distinct `created_at` values. Compare all semantic
+  // columns and exclude `created_at`, matching `lessons` and `lesson_versions` below.
+  const existingObjectiveById = new Map(existingObjectives.map((o) => [o.id, o]));
+  for (const importedObjective of data.curriculumObjectives ?? []) {
+    const existing = existingObjectiveById.get(importedObjective.id);
+    if (!existing) {
+      return { error: `Xung đột mục tiêu chương trình (${importedObjective.id}): mục tiêu trong tệp không tồn tại trong cơ sở dữ liệu.` };
+    }
+    if (
+      existing.subject_id !== importedObjective.subjectId ||
+      existing.grade !== importedObjective.grade ||
+      existing.code !== importedObjective.code ||
+      existing.title_vi !== importedObjective.titleVi ||
+      existing.description_vi !== importedObjective.descriptionVi ||
+      (existing.skill_id ?? null) !== (importedObjective.skillId ?? null) ||
+      existing.provenance !== importedObjective.provenance ||
+      (existing.source_ref ?? null) !== (importedObjective.sourceRef ?? null)
+    ) {
+      return { error: `Xung đột mục tiêu chương trình (${importedObjective.id}): nội dung mục tiêu trong tệp không khớp với cơ sở dữ liệu.` };
+    }
+  }
+
+  const existingSubjectIds = new Set<string>(existingSubjects.map((s) => s.id));
+  const existingSkillIds = new Set<string>(existingSkills.map((s) => s.id));
+
+  for (const item of data.learningPlanItems ?? []) {
+    if (!existingSubjectIds.has(item.subjectId)) {
+      return { error: `Xung đột mục kế hoạch (${item.id}): mã môn học (${item.subjectId}) không tồn tại trong hệ thống.` };
+    }
+    if (item.skillId && !existingSkillIds.has(item.skillId)) {
+      return { error: `Xung đột mục kế hoạch (${item.id}): mã kỹ năng (${item.skillId}) không tồn tại trong hệ thống.` };
+    }
+  }
+
   const referencedLessonIdSet = new Set<string>(data.lessons.map((l) => l.id));
   for (const lv of data.lessonVersions ?? []) referencedLessonIdSet.add(lv.lessonId);
   for (const s of data.lessonSteps) referencedLessonIdSet.add(s.lessonId);
@@ -813,24 +942,20 @@ async function detectLessonImportCollision(
     if (item.lessonId) referencedLessonIdSet.add(item.lessonId);
   }
   const lessonIds = [...referencedLessonIdSet];
-  if (lessonIds.length === 0) return null;
+  if (lessonIds.length === 0) {
+    const existingLessons = await repo.listLessons(db);
+    return {
+      error: null,
+      existingLessonById: new Map(existingLessons.map((l) => [l.id, l])),
+      existingVersionKeys: new Set<string>(),
+      existingStepIds: new Set<string>(),
+    };
+  }
 
-  const [existingLessons, existingVersions, existingSteps, existingSubjects, existingSkills] =
-    await Promise.all([
-      repo.listLessons(db),
-      repo.findLessonVersionsForLessons(db, lessonIds),
-      repo.findAllStepsForLessons(db, lessonIds),
-      repo.listSubjects(db),
-      repo.listSkills(db),
-    ]);
-
-  const existingSubjectIds = new Set<string>([
-    ...existingSubjects.map((s) => s.id),
-    ...(data.subjects ?? []).map((s) => s.id),
-  ]);
-  const existingSkillIds = new Set<string>([
-    ...existingSkills.map((s) => s.id),
-    ...(data.skills ?? []).map((s) => s.id),
+  const [existingLessons, existingVersions, existingSteps] = await Promise.all([
+    repo.listLessons(db),
+    repo.findLessonVersionsForLessons(db, lessonIds),
+    repo.findAllStepsForLessons(db, lessonIds),
   ]);
 
   const existingLessonById = new Map(existingLessons.map((l) => [l.id, l]));
@@ -839,7 +964,7 @@ async function detectLessonImportCollision(
     if (!existing) {
       const importedOwnership = resolveImportedOwnership(importedLesson, "catalogue");
       if (importedOwnership !== "family") {
-        return `Xung đột dữ liệu bài học (${importedLesson.id}): không được phép chèn mới bài học thư viện chung hoặc trung tâm từ tệp sao lưu.`;
+        return { error: `Xung đột dữ liệu bài học (${importedLesson.id}): không được phép chèn mới bài học thư viện chung hoặc trung tâm từ tệp sao lưu.` };
       }
       continue;
     }
@@ -847,36 +972,36 @@ async function detectLessonImportCollision(
     const existingOwnership = existing.ownership_type ?? "catalogue";
     const importedOwnership = resolveImportedOwnership(importedLesson, existingOwnership);
     if (existingOwnership !== importedOwnership) {
-      return `Xung đột dữ liệu bài học (${importedLesson.id}): loại quyền sở hữu trong tệp (${importedOwnership}) khác với cơ sở dữ liệu (${existingOwnership}).`;
+      return { error: `Xung đột dữ liệu bài học (${importedLesson.id}): loại quyền sở hữu trong tệp (${importedOwnership}) khác với cơ sở dữ liệu (${existingOwnership}).` };
     }
     const existingPurpose = existing.purpose ?? (existingOwnership === "family" ? "practice" : "official");
     const importedPurpose =
       importedLesson.purpose ?? (importedOwnership === "family" ? "practice" : "official");
     if (existingPurpose !== importedPurpose) {
-      return `Xung đột dữ liệu bài học (${importedLesson.id}): mục đích bài học trong tệp (${importedPurpose}) khác với cơ sở dữ liệu (${existingPurpose}).`;
+      return { error: `Xung đột dữ liệu bài học (${importedLesson.id}): mục đích bài học trong tệp (${importedPurpose}) khác với cơ sở dữ liệu (${existingPurpose}).` };
     }
     if (existingOwnership === "family" && existing.owner_parent_id !== importingParentId) {
-      return `Xung đột dữ liệu bài học (${importedLesson.id}): bài học riêng đã thuộc về một gia đình khác.`;
+      return { error: `Xung đột dữ liệu bài học (${importedLesson.id}): bài học riêng đã thuộc về một gia đình khác.` };
     }
     if (existing.subject_id !== importedLesson.subjectId) {
-      return `Xung đột dữ liệu bài học (${importedLesson.id}): mã môn học không khớp với cơ sở dữ liệu.`;
+      return { error: `Xung đột dữ liệu bài học (${importedLesson.id}): mã môn học không khớp với cơ sở dữ liệu.` };
     }
     if (existingOwnership !== "family" && importedLesson.version > existing.version) {
-      return `Xung đột dữ liệu bài học (${importedLesson.id} v${importedLesson.version}): phiên bản trong tệp vượt quá phiên bản hiện tại trong cơ sở dữ liệu (v${existing.version}).`;
+      return { error: `Xung đột dữ liệu bài học (${importedLesson.id} v${importedLesson.version}): phiên bản trong tệp vượt quá phiên bản hiện tại trong cơ sở dữ liệu (v${existing.version}).` };
     }
     if (
       existing.version === importedLesson.version &&
       (existing.title_vi !== importedLesson.titleVi ||
         existing.objective_vi !== importedLesson.objectiveVi)
     ) {
-      return `Xung đột dữ liệu bài học (${importedLesson.id} v${importedLesson.version}): tiêu đề hoặc mục tiêu trong tệp khác với cơ sở dữ liệu.`;
+      return { error: `Xung đột dữ liệu bài học (${importedLesson.id} v${importedLesson.version}): tiêu đề hoặc mục tiêu trong tệp khác với cơ sở dữ liệu.` };
     }
   }
 
   for (const lid of lessonIds) {
     const existing = existingLessonById.get(lid);
     if (existing && (existing.ownership_type ?? "catalogue") === "family" && existing.owner_parent_id !== importingParentId) {
-      return `Xung đột dữ liệu bài học (${lid}): bài học riêng đã thuộc về một gia đình khác.`;
+      return { error: `Xung đột dữ liệu bài học (${lid}): bài học riêng đã thuộc về một gia đình khác.` };
     }
   }
 
@@ -887,7 +1012,7 @@ async function detectLessonImportCollision(
       ((existing.ownership_type ?? "catalogue") === "family" || existing.purpose === "practice") &&
       sess.purpose !== "practice"
     ) {
-      return `Xung đột mục đích phiên học (${sess.id}): bài luyện tập (${sess.lessonId}) bắt buộc phải có mục đích phiên học là 'practice'.`;
+      return { error: `Xung đột mục đích phiên học (${sess.id}): bài luyện tập (${sess.lessonId}) bắt buộc phải có mục đích phiên học là 'practice'.` };
     }
   }
 
@@ -898,23 +1023,17 @@ async function detectLessonImportCollision(
       ((existing.ownership_type ?? "catalogue") === "family" || existing.purpose === "practice") &&
       (att.purpose !== "practice" || att.evidenceKind === "observed")
     ) {
-      return `Xung đột mục đích lượt làm bài (${att.id}): bài luyện tập (${att.lessonId}) bắt buộc phải có mục đích 'practice' và không được phép ghi nhận bằng chứng độc lập (observed).`;
+      return { error: `Xung đột mục đích lượt làm bài (${att.id}): bài luyện tập (${att.lessonId}) bắt buộc phải có mục đích 'practice' và không được phép ghi nhận bằng chứng độc lập (observed).` };
     }
   }
 
   const importedLessonById = new Map(data.lessons.map((l) => [l.id, l]));
   for (const item of data.learningPlanItems ?? []) {
-    if (!existingSubjectIds.has(item.subjectId)) {
-      return `Xung đột mục kế hoạch (${item.id}): mã môn học (${item.subjectId}) không tồn tại trong hệ thống.`;
-    }
-    if (item.skillId && !existingSkillIds.has(item.skillId)) {
-      return `Xung đột mục kế hoạch (${item.id}): mã kỹ năng (${item.skillId}) không tồn tại trong hệ thống.`;
-    }
     if (!item.lessonId) continue;
     const existing = existingLessonById.get(item.lessonId);
     const imported = importedLessonById.get(item.lessonId);
     if (!existing && !imported) {
-      return `Xung đột mục kế hoạch (${item.id}): bài học tham chiếu (${item.lessonId}) không tồn tại trong tệp hoặc hệ thống.`;
+      return { error: `Xung đột mục kế hoạch (${item.id}): bài học tham chiếu (${item.lessonId}) không tồn tại trong tệp hoặc hệ thống.` };
     }
     const isPractice = existing
       ? (existing.ownership_type ?? "catalogue") === "family" &&
@@ -924,10 +1043,10 @@ async function detectLessonImportCollision(
           (imported.purpose ?? "practice") === "practice"
         : false;
     if (item.itemKind === "practice" && !isPractice) {
-      return `Xung đột mục kế hoạch (${item.id}): mục luyện tập (itemKind = 'practice') chỉ được phép trỏ tới bài luyện tập riêng của gia đình (${item.lessonId}).`;
+      return { error: `Xung đột mục kế hoạch (${item.id}): mục luyện tập (itemKind = 'practice') chỉ được phép trỏ tới bài luyện tập riêng của gia đình (${item.lessonId}).` };
     }
     if (item.itemKind !== "practice" && isPractice) {
-      return `Xung đột mục kế hoạch (${item.id}): bài luyện tập (${item.lessonId}) bắt buộc phải có itemKind = 'practice'.`;
+      return { error: `Xung đột mục kế hoạch (${item.id}): bài luyện tập (${item.lessonId}) bắt buộc phải có itemKind = 'practice'.` };
     }
   }
 
@@ -942,7 +1061,7 @@ async function detectLessonImportCollision(
         existingLv.title_vi !== lv.titleVi ||
         existingLv.objective_vi !== lv.objectiveVi
       ) {
-        return `Xung đột phiên bản bài học (${lv.lessonId} v${lv.version}): tiêu đề hoặc mục tiêu trong tệp khác với bản chụp đã lưu trong hệ thống.`;
+        return { error: `Xung đột phiên bản bài học (${lv.lessonId} v${lv.version}): tiêu đề hoặc mục tiêu trong tệp khác với bản chụp đã lưu trong hệ thống.` };
       }
       continue;
     }
@@ -952,7 +1071,24 @@ async function detectLessonImportCollision(
         lv.titleVi !== existing.title_vi ||
         lv.objectiveVi !== existing.objective_vi
       ) {
-        return `Xung đột phiên bản bài học (${lv.lessonId} v${lv.version}): không được phép chèn bản chụp phiên bản mới cho bài học chung từ tệp sao lưu.`;
+        return { error: `Xung đột phiên bản bài học (${lv.lessonId} v${lv.version}): không được phép chèn bản chụp phiên bản mới cho bài học chung từ tệp sao lưu.` };
+      }
+    }
+  }
+
+  const hasExplicitLessonVersionsInPreflight =
+    Array.isArray(data.lessonVersions) && data.lessonVersions.length > 0;
+  if (!hasExplicitLessonVersionsInPreflight) {
+    for (const importedLesson of data.lessons) {
+      const existingLv = existingVersionByKey.get(`${importedLesson.id}@${importedLesson.version}`);
+      if (
+        existingLv &&
+        (existingLv.title_vi !== importedLesson.titleVi ||
+          existingLv.objective_vi !== importedLesson.objectiveVi)
+      ) {
+        return {
+          error: `Xung đột phiên bản bài học (${importedLesson.id} v${importedLesson.version}): tiêu đề hoặc mục tiêu trong tệp khác với bản chụp đã lưu trong hệ thống.`,
+        };
       }
     }
   }
@@ -975,7 +1111,7 @@ async function detectLessonImportCollision(
         byId.answer_key !== importedAnswerJson ||
         byId.explanation_vi !== step.explanationVi
       ) {
-        return `Xung đột bước học (${step.id}): nội dung bước học trong tệp khác với bản ghi đã tồn tại trong cơ sở dữ liệu.`;
+        return { error: `Xung đột bước học (${step.id}): nội dung bước học trong tệp khác với bản ghi đã tồn tại trong cơ sở dữ liệu.` };
       }
     }
     const byPos = existingStepByPosKey.get(`${step.lessonId}@${step.contentVersion}#${step.position}`);
@@ -987,63 +1123,111 @@ async function detectLessonImportCollision(
         byPos.answer_key !== importedAnswerJson ||
         byPos.explanation_vi !== step.explanationVi
       ) {
-        return `Xung đột bước học tại bài ${step.lessonId} (v${step.contentVersion}, bước ${step.position}): nội dung trong tệp khác với bản chụp đã lưu.`;
+        return { error: `Xung đột bước học tại bài ${step.lessonId} (v${step.contentVersion}, bước ${step.position}): nội dung trong tệp khác với bản chụp đã lưu.` };
       }
     }
     if (!byId && !byPos) {
       const existing = existingLessonById.get(step.lessonId);
       if (existing && (existing.ownership_type ?? "catalogue") !== "family") {
-        return `Xung đột bước học (${step.id}): không được phép chèn bước học mới vào bài học chung (${step.lessonId}) từ tệp sao lưu.`;
+        return { error: `Xung đột bước học (${step.id}): không được phép chèn bước học mới vào bài học chung (${step.lessonId}) từ tệp sao lưu.` };
       }
     }
   }
 
-  return null;
+  return {
+    error: null,
+    existingLessonById,
+    existingVersionKeys: new Set(existingVersionByKey.keys()),
+    existingStepIds: new Set(existingStepById.keys()),
+  };
 }
 
-async function importCollections(
+/**
+ * Build every write of a restore, in FK-safe execution order, for ONE `db.batch`.
+ *
+ * Nothing here awaits a write and nothing reads the database: validation, the
+ * catalogue/collision preflight, and the "this parent already has a learner"
+ * check all ran before the caller reached this point. That is what lets the
+ * entire restore — learners, family lessons, evidence, derived rows, and the
+ * import's own audit proof — commit or roll back as a single transaction,
+ * instead of leaving residual half-imports to be compensated afterwards.
+ */
+function buildImportStatements(
   db: Db,
-  data: ExportBody,
-  importingParentId: string,
-): Promise<void> {
+  input: {
+    data: ExportBody;
+    importingParentId: string;
+    existingLessonById: Map<string, LessonRow>;
+    existingVersionKeys: Set<string>;
+    existingStepIds: Set<string>;
+    importAuditDetail: string;
+    now: number;
+  },
+): D1PreparedStatement[] {
+  const {
+    data,
+    importingParentId,
+    existingLessonById,
+    existingVersionKeys,
+    existingStepIds,
+    now,
+  } = input;
+  const statements: D1PreparedStatement[] = [];
+  // `lesson_versions` and `lesson_steps` are immutable insert-only snapshot tables:
+  // rows already present in D1 were verified equivalent during preflight and are
+  // skipped here, while every snapshot absent at preflight uses a plain `INSERT`
+  // (never `OR IGNORE`) so a concurrent version publication between preflight and
+  // `db.batch` aborts and rolls back the entire restore with 409 Conflict.
+  const plannedVersionKeys = new Set<string>(existingVersionKeys);
+  const plannedStepIds = new Set<string>(existingStepIds);
+
+  // Statement 0 carries the single-active-learner guard inside its own SQL: its
+  // `parent_id` binds through a subquery that yields NULL when this parent
+  // already has an active learner, and `learners.parent_id` is NOT NULL, so a
+  // concurrent restore that won the race makes this batch abort before any row
+  // of the losing restore is written. Later learners in the same payload (legacy
+  // multi-learner files) insert plainly because statement 0 already proved the
+  // parent was free.
+  data.learners.forEach((learner, index) => {
+    statements.push(
+      repo.createLearnerStatement(db, {
+        id: learner.id,
+        parentId: importingParentId,
+        nickname: learner.nickname,
+        birthYear: learner.birthYear,
+        grade: learner.grade,
+        timezone: learner.timezone,
+        now: learner.createdAt,
+        guardParentHasNoActiveLearner: index === 0,
+      }),
+    );
+  });
+
   for (const schoolYear of data.schoolYears) {
-    await repo.createSchoolYear(db, {
-      id: schoolYear.id,
-      learnerId: schoolYear.learnerId,
-      label: schoolYear.label,
-      startsOn: schoolYear.startsOn,
-      endsOn: schoolYear.endsOn,
-      grade: schoolYear.grade,
-      // `SchoolYearExport` carries no timestamp: a restored row is stamped with
-      // the moment of import, which is the honest created_at for this record.
-      now: Date.now(),
-    });
+    statements.push(
+      repo.createSchoolYearStatement(db, {
+        id: schoolYear.id,
+        learnerId: schoolYear.learnerId,
+        label: schoolYear.label,
+        startsOn: schoolYear.startsOn,
+        endsOn: schoolYear.endsOn,
+        grade: schoolYear.grade,
+        // `SchoolYearExport` carries no timestamp: a restored row is stamped with
+        // the moment of import, which is the honest created_at for this record.
+        now,
+      }),
+    );
   }
 
-  for (const skill of data.skills) {
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO skills (id, subject_id, code, name_vi, name_en, grade_from, grade_to)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-      )
-      .bind(skill.id, skill.subjectId, skill.code, skill.nameVi, skill.nameEn, skill.gradeFrom, skill.gradeTo)
-      .run();
-  }
-
-  for (const row of data.skillPrerequisites) {
-    await db
-      .prepare("INSERT OR IGNORE INTO skill_prerequisites (skill_id, prerequisite_id) VALUES (?1, ?2)")
-      .bind(row.skillId, row.prerequisiteId)
-      .run();
-  }
-
+  // Global catalogue rows (`subjects`, `skills`, `skill_prerequisites`,
+  // `curriculum_objectives`) are verified in `detectLessonImportCollision` before
+  // any learner is created, so nothing here writes to shared catalogue tables.
   const hasExplicitLessonVersions =
     Array.isArray(data.lessonVersions) && data.lessonVersions.length > 0;
-  const lessonsById = new Map(data.lessons.map((l) => [l.id, l]));
-  const existingLessons = await repo.listLessons(db);
-  const existingLessonById = new Map(existingLessons.map((l) => [l.id, l]));
+  const importedLessonById = new Map(data.lessons.map((l) => [l.id, l]));
+
   const isFamilyLesson = (lessonId: string): boolean => {
-    const imported = lessonsById.get(lessonId);
+    const imported = importedLessonById.get(lessonId);
     if (imported) {
       const existing = existingLessonById.get(lessonId);
       if (existing) {
@@ -1061,7 +1245,7 @@ async function importCollections(
     );
   };
   const isPracticeLesson = (lessonId: string): boolean => {
-    const imported = lessonsById.get(lessonId);
+    const imported = importedLessonById.get(lessonId);
     if (imported && (resolveImportedOwnership(imported) === "family" || imported.purpose === "practice")) {
       return true;
     }
@@ -1077,116 +1261,141 @@ async function importCollections(
     if (ownershipType !== "family") {
       continue;
     }
-    const ownerParentId = importingParentId;
-    const purpose = "practice";
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO lessons
-           (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
-            grade_from, grade_to, version, ownership_type, owner_parent_id, purpose,
-            source_lesson_id, source_version, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
-      )
-      .bind(
-        lesson.id,
-        lesson.subjectId,
-        lesson.skillId,
-        lesson.titleVi,
-        lesson.titleEn,
-        lesson.objectiveVi,
-        lesson.objectiveEn,
-        lesson.gradeFrom,
-        lesson.gradeTo,
-        lesson.version,
-        ownershipType,
-        ownerParentId,
-        purpose,
-        lesson.sourceLessonId ?? null,
-        lesson.sourceVersion ?? null,
-        lesson.createdAt,
-        lesson.updatedAt,
-      )
-      .run();
+    // A family lesson already present here belongs to this parent (preflight
+    // proved it), so its header is left untouched and only additive snapshots
+    // are restored below. An absent one is inserted WITHOUT `OR IGNORE`: if
+    // another family claimed that lesson id between preflight and this batch,
+    // the UNIQUE violation aborts and rolls back the loser's whole restore
+    // rather than silently attaching this family's rows to a foreign lesson.
+    if (!existingLessonById.has(lesson.id)) {
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO lessons
+               (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en,
+                grade_from, grade_to, version, ownership_type, owner_parent_id, purpose,
+                source_lesson_id, source_version, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+          )
+          .bind(
+            lesson.id,
+            lesson.subjectId,
+            lesson.skillId,
+            lesson.titleVi,
+            lesson.titleEn,
+            lesson.objectiveVi,
+            lesson.objectiveEn,
+            lesson.gradeFrom,
+            lesson.gradeTo,
+            lesson.version,
+            ownershipType,
+            importingParentId,
+            "practice",
+            lesson.sourceLessonId ?? null,
+            lesson.sourceVersion ?? null,
+            lesson.createdAt,
+            lesson.updatedAt,
+          ),
+      );
+    }
 
     // Only synthesize a fallback `lesson_versions` row when the backup is a legacy
-    // pre-0009 export that did not include `lessonVersions`. When `lessonVersions`
-    // is present, historical version snapshots must come strictly from `data.lessonVersions`.
-    if (!hasExplicitLessonVersions) {
-      await db
-        .prepare(
-          `INSERT OR IGNORE INTO lesson_versions
-             (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-        )
-        .bind(
-          lesson.id,
-          lesson.version,
-          lesson.titleVi,
-          lesson.titleEn,
-          lesson.objectiveVi,
-          lesson.objectiveEn,
-          lesson.updatedAt,
-        )
-        .run();
+    // pre-0009 export that did not include `lessonVersions` and that version snapshot
+    // was absent at preflight. When `lessonVersions` is present, historical version
+    // snapshots must come strictly from `data.lessonVersions`.
+    const fallbackVersionKey = `${lesson.id}@${lesson.version}`;
+    if (!hasExplicitLessonVersions && !plannedVersionKeys.has(fallbackVersionKey)) {
+      plannedVersionKeys.add(fallbackVersionKey);
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO lesson_versions
+               (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+          )
+          .bind(
+            lesson.id,
+            lesson.version,
+            lesson.titleVi,
+            lesson.titleEn,
+            lesson.objectiveVi,
+            lesson.objectiveEn,
+            lesson.updatedAt,
+          ),
+      );
     }
   }
 
   for (const lv of data.lessonVersions ?? []) {
-    const parentLesson = lessonsById.get(lv.lessonId);
+    const parentLesson = importedLessonById.get(lv.lessonId);
     if (!parentLesson || !isFamilyLesson(lv.lessonId) || lv.version < 1 || lv.version > parentLesson.version) {
       continue;
     }
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO lesson_versions
-           (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-      )
-      .bind(lv.lessonId, lv.version, lv.titleVi, lv.titleEn, lv.objectiveVi, lv.objectiveEn, lv.createdAt)
-      .run();
+    const versionKey = `${lv.lessonId}@${lv.version}`;
+    if (plannedVersionKeys.has(versionKey)) {
+      continue;
+    }
+    plannedVersionKeys.add(versionKey);
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO lesson_versions
+             (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        )
+        .bind(lv.lessonId, lv.version, lv.titleVi, lv.titleEn, lv.objectiveVi, lv.objectiveEn, lv.createdAt),
+    );
   }
 
   for (const step of data.lessonSteps) {
     if (!isFamilyLesson(step.lessonId)) {
       continue;
     }
-    const parentLesson = lessonsById.get(step.lessonId);
-    if (parentLesson && !hasExplicitLessonVersions) {
-      await db
+    const parentLesson = importedLessonById.get(step.lessonId);
+    const stepVersionKey = `${step.lessonId}@${step.contentVersion}`;
+    if (parentLesson && !hasExplicitLessonVersions && !plannedVersionKeys.has(stepVersionKey)) {
+      plannedVersionKeys.add(stepVersionKey);
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO lesson_versions
+               (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+          )
+          .bind(
+            parentLesson.id,
+            step.contentVersion,
+            parentLesson.titleVi,
+            parentLesson.titleEn,
+            parentLesson.objectiveVi,
+            parentLesson.objectiveEn,
+            parentLesson.createdAt,
+          ),
+      );
+    }
+    if (plannedStepIds.has(step.id)) {
+      continue;
+    }
+    plannedStepIds.add(step.id);
+    statements.push(
+      db
         .prepare(
-          `INSERT OR IGNORE INTO lesson_versions
-             (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+          `INSERT INTO lesson_steps
+             (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
         )
         .bind(
-          parentLesson.id,
+          step.id,
+          step.lessonId,
+          step.position,
+          step.kind,
+          JSON.stringify(step.content),
+          JSON.stringify(step.answerKey),
+          step.explanationVi,
           step.contentVersion,
-          parentLesson.titleVi,
-          parentLesson.titleEn,
-          parentLesson.objectiveVi,
-          parentLesson.objectiveEn,
-          parentLesson.createdAt,
-        )
-        .run();
-    }
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO lesson_steps
-           (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-      )
-      .bind(
-        step.id,
-        step.lessonId,
-        step.position,
-        step.kind,
-        JSON.stringify(step.content),
-        JSON.stringify(step.answerKey),
-        step.explanationVi,
-        step.contentVersion,
-        step.sourceStepId ?? null,
-      )
-      .run();
+          step.sourceStepId ?? null,
+        ),
+    );
   }
 
   // Fail-closed authorization on import:
@@ -1200,18 +1409,19 @@ async function importCollections(
       typeof approval.lessonVersion === "number" && Number.isInteger(approval.lessonVersion) && approval.lessonVersion >= 1
         ? approval.lessonVersion
         : 1;
-    const learnerId = approval.learnerId ?? null;
     const importedStatus = approval.status === "approved" ? "draft" : approval.status;
-    await repo.setApproval(db, {
-      id: approval.id,
-      learnerId,
-      lessonId: approval.lessonId,
-      version,
-      status: importedStatus,
-      decidedBy: approval.decidedBy,
-      note: approval.note,
-      now: approval.decidedAt,
-    });
+    statements.push(
+      ...repo.setApprovalStatements(db, {
+        id: approval.id,
+        learnerId: approval.learnerId ?? null,
+        lessonId: approval.lessonId,
+        version,
+        status: importedStatus,
+        decidedBy: approval.decidedBy,
+        note: approval.note,
+        now: approval.decidedAt,
+      }),
+    );
   }
 
   for (const session of data.learningSessions) {
@@ -1219,7 +1429,6 @@ async function importCollections(
       typeof session.continuationDeadline === "number" && Number.isFinite(session.continuationDeadline)
         ? session.continuationDeadline
         : null;
-    const importNow = Date.now();
     // Fail-closed: an imported `in_progress` session never retains an open
     // continuation window from JSON claims (`continuationDeadline = null` or a
     // future timestamp), nor is it granted a fresh `now + 30 min` grace window.
@@ -1231,42 +1440,44 @@ async function importCollections(
     const effectiveStatus = session.status === "in_progress" ? "abandoned" : session.status;
     const continuationDeadline =
       session.status === "in_progress"
-        ? Math.min(explicitDeadline !== null ? explicitDeadline : session.startedAt, session.startedAt, importNow)
+        ? Math.min(explicitDeadline !== null ? explicitDeadline : session.startedAt, session.startedAt, now)
         : explicitDeadline;
 
     const sessionPurpose = isPracticeLesson(session.lessonId)
       ? "practice"
       : (session.purpose ?? "official");
 
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO learning_sessions
-           (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline, purpose)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
-      )
-      .bind(
-        session.id,
-        session.learnerId,
-        session.lessonId,
-        session.lessonVersion,
-        session.schoolYearId,
-        session.startedAt,
-        session.endedAt,
-        effectiveStatus,
-        session.stepsSeen,
-        continuationDeadline,
-        sessionPurpose,
-      )
-      .run();
+    statements.push(
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_sessions
+             (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline, purpose)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+        )
+        .bind(
+          session.id,
+          session.learnerId,
+          session.lessonId,
+          session.lessonVersion,
+          session.schoolYearId,
+          session.startedAt,
+          session.endedAt,
+          effectiveStatus,
+          session.stepsSeen,
+          continuationDeadline,
+          sessionPurpose,
+        ),
+    );
   }
 
   // Attempts, derived evidence, and review schedules are one logical unit: the
   // evidence counts and due dates are a function of the attempt history, so a
   // commit that lands some attempts without their matching evidence would leave
   // the restored record describing a learner who never did what the rows say.
-  // They therefore accumulate into a single statement list and commit together.
-  const evidenceStatements: D1PreparedStatement[] = [];
-
+  // Layers 2 and 3 (ADR-005) are derived from `learningAttempts` for the same
+  // reason: an observation naming an attempt this commit did not write would be
+  // a dangling reference, and an estimate certifying a ledger prefix that is not
+  // there would be a claim the file cannot back.
   const sessionsById = new Map(data.learningSessions.map((s) => [s.id, s]));
   for (const attempt of data.learningAttempts) {
     const parentSession = sessionsById.get(attempt.sessionId);
@@ -1275,7 +1486,7 @@ async function importCollections(
       (parentSession ? isPracticeLesson(parentSession.lessonId) || parentSession.purpose === "practice" : false)
         ? "practice"
         : (attempt.purpose ?? "official");
-    evidenceStatements.push(
+    statements.push(
       repo.attemptInsert(db, {
         id: attempt.id,
         sessionId: attempt.sessionId,
@@ -1298,7 +1509,7 @@ async function importCollections(
   // Evidence is restored verbatim, INCLUDING a parent correction: the import
   // must not silently re-derive and thereby overwrite a recorded decision.
   for (const row of data.skillEvidence) {
-    evidenceStatements.push(
+    statements.push(
       repo.skillEvidenceUpsert(db, {
         id: row.id,
         learnerId: row.learnerId,
@@ -1317,7 +1528,7 @@ async function importCollections(
   }
 
   for (const row of data.reviewSchedule) {
-    evidenceStatements.push(
+    statements.push(
       repo.reviewScheduleUpsert(db, {
         id: row.id,
         learnerId: row.learnerId,
@@ -1332,13 +1543,8 @@ async function importCollections(
     );
   }
 
-  // Layers 2 and 3 (ADR-005). Both are derived from `learningAttempts`, so they
-  // ride in the same batch as the attempts for the same reason the evidence
-  // counters do: an observation that names an attempt this commit did not write
-  // would be a dangling reference, and an estimate certifying a ledger prefix
-  // that is not there would be a claim the file cannot back.
   for (const row of data.skillEvidenceObservations ?? []) {
-    evidenceStatements.push(
+    statements.push(
       repo.evidenceObservationInsert(db, {
         id: row.id,
         learnerId: row.learnerId,
@@ -1354,7 +1560,7 @@ async function importCollections(
   }
 
   for (const row of data.skillEstimates ?? []) {
-    evidenceStatements.push(
+    statements.push(
       repo.skillEstimateUpsert(db, {
         id: row.id,
         learnerId: row.learnerId,
@@ -1380,142 +1586,127 @@ async function importCollections(
     );
   }
 
-  if (evidenceStatements.length > 0) {
-    await db.batch(evidenceStatements);
-  }
-
   // Goals are written directly rather than through `createGoal`, which would
   // force every restored goal back to `active` and lose its real status.
   for (const goal of data.learningGoals) {
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO learning_goals
-           (id, learner_id, subject_id, title_vi, note, target_date, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-      )
-      .bind(
-        goal.id,
-        goal.learnerId,
-        goal.subjectId,
-        goal.titleVi,
-        goal.note,
-        goal.targetDate,
-        goal.status,
-        goal.createdAt,
-        goal.updatedAt,
-      )
-      .run();
-  }
-
-  for (const obj of data.curriculumObjectives ?? []) {
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO curriculum_objectives
-           (id, subject_id, grade, code, title_vi, description_vi, skill_id, provenance, source_ref, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
-      )
-      .bind(
-        obj.id,
-        obj.subjectId,
-        obj.grade,
-        obj.code,
-        obj.titleVi,
-        obj.descriptionVi,
-        obj.skillId,
-        obj.provenance,
-        obj.sourceRef,
-        obj.createdAt,
-      )
-      .run();
+    statements.push(
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_goals
+             (id, learner_id, subject_id, title_vi, note, target_date, status, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        )
+        .bind(
+          goal.id,
+          goal.learnerId,
+          goal.subjectId,
+          goal.titleVi,
+          goal.note,
+          goal.targetDate,
+          goal.status,
+          goal.createdAt,
+          goal.updatedAt,
+        ),
+    );
   }
 
   for (const intake of data.curriculumIntakes ?? []) {
-    await repo.upsertCurriculumIntake(db, {
-      intake: {
-        id: intake.id,
-        learner_id: intake.learnerId,
-        school_year_label: intake.schoolYearLabel,
-        grade: intake.grade,
-        subject_id: intake.subjectId,
-        textbook_series: intake.textbookSeries,
-        current_unit: intake.currentUnit,
-        current_lesson: intake.currentLesson,
-        weekly_sessions: intake.weeklySessions,
-        session_duration_minutes: intake.sessionDurationMinutes,
-        material_reference: intake.materialReference,
-        learning_goals_vi: intake.learningGoalsVi,
-        provenance: intake.provenance,
-        created_at: intake.createdAt,
-        updated_at: intake.updatedAt,
-      },
-    });
+    statements.push(
+      repo.upsertCurriculumIntakeStatement(db, {
+        intake: {
+          id: intake.id,
+          learner_id: intake.learnerId,
+          school_year_label: intake.schoolYearLabel,
+          grade: intake.grade,
+          subject_id: intake.subjectId,
+          textbook_series: intake.textbookSeries,
+          current_unit: intake.currentUnit,
+          current_lesson: intake.currentLesson,
+          weekly_sessions: intake.weeklySessions,
+          session_duration_minutes: intake.sessionDurationMinutes,
+          material_reference: intake.materialReference,
+          learning_goals_vi: intake.learningGoalsVi,
+          provenance: intake.provenance,
+          created_at: intake.createdAt,
+          updated_at: intake.updatedAt,
+        },
+      }),
+    );
   }
 
   for (const meta of data.lessonMetadata ?? []) {
     if (!isFamilyLesson(meta.lessonId)) {
       continue;
     }
-    await repo.upsertLessonMetadata(db, {
-      lessonId: meta.lessonId,
-      objectiveId: meta.objectiveId,
-      provenance: meta.provenance,
-      sourceRef: meta.sourceRef,
-      expectedDurationMinutes: meta.expectedDurationMinutes,
-      reviewRecommendationVi: meta.reviewRecommendationVi,
-      isBaseline: false,
-      now: meta.updatedAt,
-    });
+    statements.push(
+      repo.upsertLessonMetadataStatement(db, {
+        lessonId: meta.lessonId,
+        objectiveId: meta.objectiveId,
+        provenance: meta.provenance,
+        sourceRef: meta.sourceRef,
+        expectedDurationMinutes: meta.expectedDurationMinutes,
+        reviewRecommendationVi: meta.reviewRecommendationVi,
+        isBaseline: false,
+        now: meta.updatedAt,
+      }),
+    );
   }
 
   for (const b of data.baselineAssessments ?? []) {
-    await repo.upsertBaselineAssessment(db, {
-      id: b.id,
-      learnerId: b.learnerId,
-      subjectId: b.subjectId,
-      sessionId: b.sessionId,
-      status: b.status,
-      observedSummaryVi: b.observedSummaryVi,
-      supportedSummaryVi: b.supportedSummaryVi,
-      needsObservationJson: b.needsObservationJson,
-      suggestedLessonsJson: b.suggestedLessonsJson,
-      parentReviewRequired: b.parentReviewRequired === 1,
-      now: b.createdAt,
-      completedAt: b.completedAt,
-    });
+    statements.push(
+      repo.upsertBaselineAssessmentStatement(db, {
+        id: b.id,
+        learnerId: b.learnerId,
+        subjectId: b.subjectId,
+        sessionId: b.sessionId,
+        status: b.status,
+        observedSummaryVi: b.observedSummaryVi,
+        supportedSummaryVi: b.supportedSummaryVi,
+        needsObservationJson: b.needsObservationJson,
+        suggestedLessonsJson: b.suggestedLessonsJson,
+        parentReviewRequired: b.parentReviewRequired === 1,
+        now: b.createdAt,
+        completedAt: b.completedAt,
+      }),
+    );
   }
 
   for (const item of data.learningPlanItems ?? []) {
-    await repo.insertPlanItem(db, {
-      item: {
-        id: item.id,
-        learner_id: item.learnerId,
-        school_year_label: item.schoolYearLabel,
-        week_index: item.weekIndex,
-        day_of_week: item.dayOfWeek,
-        scheduled_date: item.scheduledDate,
-        subject_id: item.subjectId,
-        skill_id: item.skillId,
-        lesson_id: item.lessonId,
-        item_kind: item.itemKind,
-        status: item.status,
-        duration_minutes: item.durationMinutes,
-        parent_note: item.parentNote,
-        reason_vi: item.reasonVi,
-        created_at: item.createdAt,
-        updated_at: item.updatedAt,
-      },
-    });
+    statements.push(
+      repo.insertPlanItemStatement(db, {
+        item: {
+          id: item.id,
+          learner_id: item.learnerId,
+          school_year_label: item.schoolYearLabel,
+          week_index: item.weekIndex,
+          day_of_week: item.dayOfWeek,
+          scheduled_date: item.scheduledDate,
+          subject_id: item.subjectId,
+          skill_id: item.skillId,
+          lesson_id: item.lessonId,
+          item_kind: item.itemKind,
+          status: item.status,
+          duration_minutes: item.durationMinutes,
+          parent_note: item.parentNote,
+          reason_vi: item.reasonVi,
+          created_at: item.createdAt,
+          updated_at: item.updatedAt,
+        },
+      }),
+    );
   }
 
   for (const refl of data.sessionReflections ?? []) {
-    await repo.insertSessionReflection(db, {
-      id: refl.id,
-      sessionId: refl.sessionId,
-      learnerId: refl.learnerId,
-      feeling: refl.feeling,
-      noteVi: refl.noteVi,
-      now: refl.createdAt,
-    });
+    statements.push(
+      repo.insertSessionReflectionStatement(db, {
+        id: refl.id,
+        sessionId: refl.sessionId,
+        learnerId: refl.learnerId,
+        feeling: refl.feeling,
+        noteVi: refl.noteVi,
+        now: refl.createdAt,
+      }),
+    );
   }
 
   // Restore hint disclosure floors so an export -> delete -> import round-trip
@@ -1572,20 +1763,57 @@ async function importCollections(
     }
   }
 
+  // The restored `hint.requested` rows and the `data.imported` proof row are the
+  // last statements of the same batch. `audit_events` is append-only and cannot
+  // be deleted, so writing them here — inside the transaction that writes the
+  // history they attest to — is what keeps a failed restore from leaving
+  // permanent audit rows describing a record that never landed.
   for (const entry of restoredHintFloor.values()) {
-    await repo.recordAudit(db, {
-      id: crypto.randomUUID(),
-      actor: `learner:${entry.learnerId}`,
-      action: "hint.requested",
-      subject: entry.stepId,
-      detail: JSON.stringify({
-        sessionId: entry.sessionId,
-        level: entry.level,
-        restoredFromImport: true,
+    statements.push(
+      repo.auditInsert(db, {
+        id: crypto.randomUUID(),
+        actor: `learner:${entry.learnerId}`,
+        action: "hint.requested",
+        subject: entry.stepId,
+        detail: JSON.stringify({
+          sessionId: entry.sessionId,
+          level: entry.level,
+          restoredFromImport: true,
+        }),
+        now: entry.createdAt,
       }),
-      now: entry.createdAt,
-    });
+    );
   }
+
+  statements.push(
+    repo.auditInsert(db, {
+      id: crypto.randomUUID(),
+      actor: `parent:${importingParentId}`,
+      action: "data.imported",
+      subject: null,
+      detail: input.importAuditDetail,
+      now,
+    }),
+  );
+
+  return statements;
+}
+
+/**
+ * Does this D1 error mean the platform refused the batch for being too large?
+ *
+ * A restore is all-or-nothing: if the statement list exceeds what the platform
+ * accepts, the right outcome is a visible failure with zero writes, never a
+ * silently chunked restore that could land half a record.
+ */
+function isOversizedBatchError(message: string): boolean {
+  return [
+    /too many sql variables/i,
+    /too many (?:bound )?parameters/i,
+    /exceeded (?:the )?maximum number of (?:queries|statements)/i,
+    /exceed(?:ed|s)? (?:the )?(?:maximum |max )?(?:batch|statement) (?:size|count|limit)/i,
+    /batch (?:size|statement count) (?:limit )?exceeded/i,
+  ].some((pattern) => pattern.test(message));
 }
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */

@@ -387,8 +387,14 @@ try {
   assert(exportRes.status === 200, `exportRecord returned HTTP ${exportRes.status}`);
   const exportedEnvelope = await exportRes.json();
   assert(exportedEnvelope.learners?.length === undefined && exportedEnvelope.data.learners.length === 1, "exported 1 learner");
-  assert(exportedEnvelope.data.lessons.length === 51, `expected 51 lessons (50 catalogue + 1 family) in export, got ${exportedEnvelope.data.lessons.length}`);
-  assert(exportedEnvelope.data.lessonVersions.length === 52, `expected 52 lessonVersions (50 catalogue v1 + 2 family v1/v2) in export, got ${exportedEnvelope.data.lessonVersions.length}`);
+  assert(
+    exportedEnvelope.data.lessons.length === LESSONS.length + 1,
+    `expected ${LESSONS.length + 1} lessons (${LESSONS.length} catalogue + 1 family) in export, got ${exportedEnvelope.data.lessons.length}`,
+  );
+  assert(
+    exportedEnvelope.data.lessonVersions.length === LESSONS.length + 2,
+    `expected ${LESSONS.length + 2} lessonVersions (${LESSONS.length} catalogue v1 + 2 family v1/v2) in export, got ${exportedEnvelope.data.lessonVersions.length}`,
+  );
   assert(exportedEnvelope.data.learningSessions.length === 2, "expected 2 sessions in export");
   assert(exportedEnvelope.data.learningAttempts.length === 2, "expected 2 attempts in export");
   assert(exportedEnvelope.data.skillEvidence.length === 1, "expected 1 skillEvidence in export");
@@ -478,8 +484,11 @@ try {
   const importReport = await importRes.json();
   assert(importReport.ok === true, "importReport.ok must be true");
   assert(importReport.counts.learners === 1, "restored 1 learner");
-  assert(importReport.counts.lessons === 51, "restored 51 lessons");
-  assert(importReport.counts.lessonVersions === 52, "restored 52 lessonVersions");
+  assert(importReport.counts.lessons === LESSONS.length + 1, `restored ${LESSONS.length + 1} lessons`);
+  assert(
+    importReport.counts.lessonVersions === LESSONS.length + 2,
+    `restored ${LESSONS.length + 2} lessonVersions`,
+  );
   assert(importReport.counts.learningSessions === 2, "restored 2 learningSessions");
   assert(importReport.counts.learningAttempts === 2, "restored 2 learningAttempts");
   assert(importReport.counts.skillEvidence === 1, "restored 1 skillEvidence");

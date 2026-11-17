@@ -22,12 +22,12 @@ import {
 const REPO_ROOT = join(import.meta.dirname, "..", "..");
 const QA_CLI_SCRIPT = join(REPO_ROOT, "scripts", "qa-content.mjs");
 
-describe("G13 Offline Content QA Gate — shipped 50-lesson corpus", () => {
-  it("verifies all 50 shipped lessons (257 steps) with 0 math, leakage, rights, or safety findings", () => {
+describe("G13 Offline Content QA Gate — shipped 100-lesson corpus", () => {
+  it("verifies all 100 shipped lessons (507 steps) with 0 math, leakage, rights, or safety findings", () => {
     const report = runContentQaGate(LESSONS);
     expect(report.ok).toBe(true);
-    expect(report.lessonsChecked).toBe(50);
-    expect(report.stepsChecked).toBe(257);
+    expect(report.lessonsChecked).toBe(100);
+    expect(report.stepsChecked).toBe(507);
     expect(report.mathErrorsCount).toBe(0);
     expect(report.mathErrorRate).toBe(0);
     expect(report.mathErrorRate).toBeLessThan(MATH_ERROR_RATE_CEILING);

@@ -25,7 +25,7 @@ npm run household:preflight
 ```
 Lệnh sẽ trả về báo cáo JSON xác nhận:
 - Tệp cấu hình `.dev.vars` đã có đầy đủ khóa bảo mật phiên và mật khẩu phụ huynh.
-- Cơ sở dữ liệu D1 cục bộ nguyên vẹn (`integrityCheck: "ok"`), đúng phiên bản lược đồ mới nhất (`schemaVersion` ≥ 15) và đủ 50 bài học trong danh mục.
+- Cơ sở dữ liệu D1 cục bộ nguyên vẹn (`integrityCheck: "ok"`), đủ các bảng bảo vệ lược đồ bắt buộc (`schemaVersion` ≥ 15; bản lược đồ mới nhất hiện tại là `17`) và đủ 100 bài học trong danh mục.
 - Hồ sơ hộ gia đình sạch tuyệt đối (chỉ có 1 phụ huynh, 1 học sinh đã đăng ký, 0 trung tâm/lớp học mô phỏng).
 - Trạng thái `readyForLearnerSession: true` (đã có bài học được phụ huynh duyệt cho bé).
 
@@ -54,12 +54,12 @@ Mặc định, khi bài học mới được đưa vào hệ thống, bài học
 4. Khi đã duyệt, bài học sẽ lập tức xuất hiện trên giao diện học tập của bé. Phụ huynh có thể thu hồi phê duyệt bất kỳ lúc nào nếu muốn điều chỉnh lộ trình học.
 
 ### Phê duyệt nhanh hàng loạt từ Terminal (`npm run household:approve-lessons`):
-Nếu phụ huynh muốn duyệt nhanh toàn bộ các bài học theo khối lớp của bé (mặc định là **Lớp 4** với 25 bài học thuộc 5 môn học) mà không cần bấm từng bài trên giao diện web:
+Nếu phụ huynh muốn duyệt nhanh toàn bộ các bài học theo khối lớp của bé (mặc định là **Lớp 4** với 50 bài học thuộc 5 môn học — gồm 45 bài chính khóa cộng 5 bài khảo sát đầu vào Lớp 4, trên tổng số 100 bài của cả hai khối Lớp 4–5) mà không cần bấm từng bài trên giao diện web:
 ```bash
 # Duyệt toàn bộ bài học thuộc khối lớp của con (mặc định Lớp 4)
 npm run household:approve-lessons
 
-# Hoặc duyệt theo bộ lọc cụ thể (theo khối lớp, môn học, mã bài học, hoặc toàn bộ 50 bài Lớp 4–5)
+# Hoặc duyệt theo bộ lọc cụ thể (theo khối lớp, môn học, mã bài học, hoặc toàn bộ 100 bài Lớp 4–5)
 npm run household:approve-lessons -- --grade 4 --subject math
 npm run household:approve-lessons -- --lesson math-g4-fractions-equivalent
 npm run household:approve-lessons -- --all
@@ -128,7 +128,7 @@ Tại trang **"Quản lý dữ liệu"** (`/parent/data`):
 - Do bảng nhật ký kiểm toán `audit_events` được bảo vệ chỉ-ghi-thêm (append-only) bởi trigger SQLite, lệnh xóa dữ liệu thông thường (`npm run db:reset-data`) sẽ chủ động từ chối chạy khi đã có dòng nhật ký trong cơ sở dữ liệu.
 - Nếu cơ sở dữ liệu cục bộ vô tình bị lẫn dữ liệu thử nghiệm hoặc phụ huynh muốn làm mới hoàn toàn môi trường học tập mà vẫn giữ lại hồ sơ định danh của gia đình:
   ```bash
-  # Lưu trữ nguyên vẹn tệp SQLite hiện tại vào thư mục backups/ và cấp phát lại DB sạch (giữ lại Phụ huynh, học sinh đã đăng ký, Năm học và 50 bài học)
+  # Lưu trữ nguyên vẹn tệp SQLite hiện tại vào thư mục backups/ và cấp phát lại DB sạch (giữ lại Phụ huynh, học sinh đã đăng ký, Năm học và 100 bài học)
   npm run db:reprovision-household
 
   # Hoặc cấp phát lại DB sạch kèm duyệt sẵn toàn bộ bài học theo khối lớp của con

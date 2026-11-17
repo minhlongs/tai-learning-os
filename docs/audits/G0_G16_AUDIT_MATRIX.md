@@ -31,21 +31,21 @@ Bất kỳ dòng **HOLD/FAIL/PARTIAL** nào ở G0, G2, G3, G4, G12 hoặc G16 �
 | G1 | Nhất quán mô hình năng lực | **PASS** | `src/` + `test/`: **0** `EMERGING`; 5 trạng thái khớp `COMPETENCY_STATES` |
 | G2 | Kiểm thử không phụ thuộc mạng | **PASS** | `context.route("**/*", …)` chủ động chặn mọi URL ngoài localhost (**8** điểm gắn `attachZeroOutboundGuard`, **0** request ra ngoài trên **60/60** test E2E + mở `viewer.html` qua `file://` khi offline) |
 | G3 | Bí mật & mặc định an toàn | **PASS** | 0 bí mật mặc định; **14** test `config-guard` + **6** test `deployment-lock` |
-| G4 | Không lộ khoá đáp án | **PASS** | **25** trường đáp án bị bóc bởi `toLearnerExercise()`; `validate:lessons` **0** lỗi trên 50 bài (257 bước) |
-| G5 | Chấm điểm xác định | **PASS** | **31** test đơn vị chấm điểm + bộ kiểm chứng đại số phân số tỷ lệ `bigint` trên 257 bước |
+| G4 | Không lộ khoá đáp án | **PASS** | **25** trường đáp án bị bóc bởi `toLearnerExercise()`; `validate:lessons` **0** lỗi trên 100 bài (507 bước) |
+| G5 | Chấm điểm xác định | **PASS** | **31** test đơn vị chấm điểm + bộ kiểm chứng đại số phân số tỷ lệ `bigint` trên 507 bước |
 | G6 | Bằng chứng độc lập | **PASS** | `independentMinCorrect: 2` + `independentMinDistinctSessions: 2` (**5** tham chiếu `sessionId` trong `competency.ts`); mở khóa lần thử đầu khi `now >= due_at` giúp bài 1–1 đạt `RETAINED` mà vẫn giữ Cổng A2 trước hạn; `recomputeLearnerState` khớp 100% sổ cái |
 | G7 | Lịch ôn tập | **PASS** | bậc `[1,3,7,14]` → **0**; `ts-fsrs` **6.0.0**; mô phỏng **3.650 ngày** (`npm run review:simulate`, `Asia/Ho_Chi_Minh`): bậc cũ phình **146,89 lượt/ngày** ở Năm 10 so với FSRS-6 **9,14 lượt/ngày** (lịch) / **8,92 lượt/ngày** (học kỳ), **0** reset sai sau Tết/hè |
-| G8 | Phủ chương trình | **PARTIAL** | 50/50 bài có mục tiêu; 40/40 mục tiêu được seed; 16 test đồ thị; **3,57%** phủ quỹ tiết Lớp 4–5 |
+| G8 | Phủ chương trình | **PARTIAL** | 100/100 bài có mục tiêu; 90/90 mục tiêu được seed; 16 test đồ thị; **7,14%** phủ quỹ tiết Lớp 4–5 (**17,86%** bài chuẩn hoá Lớp 4–5) |
 | G9 | Giới hạn phiên học | **PASS** | Trần **Dừng Mềm 25 phút** (`MAX_LEARNER_SESSION_MS = 25 * 60 * 1000`) + nghỉ mắt **15 phút** + gia hạn mật khẩu phụ huynh `+15 phút` có kiểm toán (`session.time_extended` / `session.rest_overridden`); **0** bảng xếp hạng hay daily streak |
 | G10 | Khả năng tiếp cận | **PASS** | `@axe-core/playwright` quét `wcag2a/2aa/21a/21aa/22aa` (**0** vi phạm `critical`/`serious`) + kiểm tra khung chạm `>= 48×48px` trên cả Desktop, Tablet và Mobile (**60/60** E2E xanh) |
-| G11 | Nguyên tử hoá ghi chéo bảng | **PASS** | **16** điểm `batch(`; **4** test rollback/race; **9** test hình dạng batch (`batched-write-shape.test.ts`) |
-| G12 | Sao lưu & khôi phục | **PASS** | Drill `ok:true`; **`restoreMs: 96`** < 60 giây; **`recordsLost: 0`** / 548 bản ghi; kèm gói di sản mở 10 năm (`CLR 2.0 + CASE 1.1 + xAPI 2.0 + viewer.html` ngoại tuyến) |
-| G13 | Kiểm chứng nội dung bằng công cụ | **PASS** | `npm run qa:content` (`ok: true`, **257/257** bước sạch, `mathErrorsCount: 0`, `promptfooconfig.yaml` offline `echo` provider `sharing: false`, đối chiếu `bigint`/SymPy trên **109** cặp phân số, bắt **7/7** đột biến) |
+| G11 | Nguyên tử hoá ghi chéo bảng | **PASS** | **17** điểm `batch(`; **4** test rollback/race; **9** test hình dạng batch (`batched-write-shape.test.ts`) + chia khúc `IN (...)` tối đa 80 tham số khi tổng số bài `> 100` |
+| G12 | Sao lưu & khôi phục | **PASS** | Drill `ok:true`; **`restoreMs: 107`** < 60 giây; **`recordsLost: 0`** / 1.096 bản ghi (`101` bài học); kèm gói di sản mở 10 năm (`CLR 2.0 + CASE 1.1 + xAPI 2.0 + viewer.html` ngoại tuyến) |
+| G13 | Kiểm chứng nội dung bằng công cụ | **PASS** | `npm run qa:content` (`ok: true`, **507/507** bước sạch trên **100** bài, `mathErrorsCount: 0` trên **103** bước toán, `promptfooconfig.yaml` offline `echo` provider `sharing: false`, đối chiếu `bigint`/SymPy trên **211** cặp phân số, bắt **7/7** đột biến) |
 | G14 | Đo lường thực nghiệm | **PARTIAL** | Giao thức đã dựng: `retention:report` → `NO_DATA` trên DB hộ gia đình thật (0 lần học); `retention:drill` → `MEASURED` (`probes 4/3`, rate `0.5` / `0.666…`); **7/7** mutation bị bắt; **0** số đo thật vì chưa có dữ liệu 14–30 ngày |
 | G15 | Mô hình chi phí | **PASS** | `npm run tco:verify` (`ok: true`): TCO hộ gia đình Mission A **9.630.000 VNĐ/năm** (cơ sở) / **9.850.000 VNĐ/năm** (thận trọng) < trần `10.000.000 VNĐ/năm`, `0 VNĐ` đám mây; độ nhạy Mission B cô lập chấm `PASS` cho B2B2C trung tâm (`82,57%`, `28,9x` LTV/CAC) và `REJECT` cho B2C lẻ / Chat LLM không giới hạn |
 | G16 | Phê duyệt của chủ sở hữu | **HOLD** | 0 bản ký duyệt; 3 điều kiện tiên quyết pháp lý & chủ sở hữu còn mở (`PRODUCTION DEPLOY BLOCKED`) |
 
-**Kết luận:** **14 PASS** (`G0, G1, G2, G3, G4, G5, G6, G7, G9, G10, G11, G12, G13, G15`), **2 PARTIAL** (`G8, G14`), **1 HOLD** (`G16`). Toàn bộ các cổng kỹ thuật trong phạm vi Mission A Phase 2 đã đóng bằng bằng chứng đo được; `G8` (mở rộng số lượng bài học ngoài 50 bài mẫu) và `G14` (chờ dữ liệu học thực tế 14–30 ngày) giữ nhãn `PARTIAL` trung thực, và `G16` giữ khoá `HOLD` đúng theo chính sách `PR-MERGE AUTHORIZED / PRODUCTION DEPLOY BLOCKED`.
+**Kết luận:** **14 PASS** (`G0, G1, G2, G3, G4, G5, G6, G7, G9, G10, G11, G12, G13, G15`), **2 PARTIAL** (`G8, G14`), **1 HOLD** (`G16`). Toàn bộ các cổng kỹ thuật trong phạm vi Mission A đã đóng bằng bằng chứng đo được trên kho nội dung Wave 2 (**100 bài học**, **507 bước**, **90 kỹ năng**, **90 mục tiêu**); `G8` (phủ **7,14%** quỹ tiết Lớp 4–5 trên 100 bài đã phát hành) và `G14` (chờ dữ liệu học thực tế 14–30 ngày) giữ nhãn `PARTIAL` trung thực, và `G16` giữ khoá `HOLD` đúng theo chính sách `PR-MERGE AUTHORIZED / PRODUCTION DEPLOY BLOCKED`.
 
 ---
 
@@ -170,12 +170,12 @@ npm run validate:lessons
   ✓ hints        Gợi ý tăng dần / progressive hints
   ✓ explanation  Lời giải không chỉ vị trí đáp án / explanation does not cite a choice letter
   ✓ answer-leak  Không rò đáp án xuống trình duyệt / no answer reaches the browser
-validate:lessons OK — 50 lessons (257 steps) verified with 0 schema/answer-leak/pedagogy issues.
+validate:lessons OK — 100 lessons (507 steps) verified with 0 schema/answer-leak/pedagogy issues.
 ```
 
 **Đo được:** **25** lần xuất hiện của năm trường đáp án trong `exercise.ts`; `toLearnerExercise()` bóc toàn bộ chúng khỏi payload gửi xuống trình duyệt. Bộ xuất di sản mở (`CLR 2.0`, `CASE 1.1`, `xAPI 2.0`, `viewer.html`) cũng được kiểm chứng bằng `test/unit/open-portability.test.ts` rằng **0** khoá đáp án lọt ra ngoài.
 
-**Phán quyết: PASS.** *(Ghi chú giữ nguyên từ đợt trước: 10 dòng cảnh báo `advisory` trên hai bài Tiếng Việt nhắc chữ cái lựa chọn trong lời giải sau khi làm đúng không phải lỗi rò đáp án và không sửa trong đợt này do ràng buộc không biên tập lại nội dung 50 bài đã ship.)*
+**Phán quyết: PASS.** *(Ghi chú giữ nguyên từ đợt trước: 10 dòng cảnh báo `advisory` trên hai bài Tiếng Việt Wave 1 nhắc chữ cái lựa chọn trong lời giải sau khi làm đúng không phải lỗi rò đáp án; toàn bộ 50 bài mới của Wave 2 đạt **0** cảnh báo `advisory`.)*
 
 ---
 
@@ -191,7 +191,7 @@ grep -c "  it(" test/unit/answer-validation.test.ts
 31
 ```
 
-**Đo được:** **31** test đơn vị chấm điểm (`answer-validation.test.ts`), cộng thêm bộ kiểm chứng phân số chính xác `bigint` trong `src/shared/content/qa-gate.ts` đối chiếu chéo `gradeSubmission` trên toàn bộ **257** bước bài học.
+**Đo được:** **31** test đơn vị chấm điểm (`answer-validation.test.ts`), cộng thêm bộ kiểm chứng phân số chính xác `bigint` trong `src/shared/content/qa-gate.ts` đối chiếu chéo `gradeSubmission` trên toàn bộ **507** bước bài học.
 
 **Phán quyết: PASS.**
 
@@ -271,13 +271,13 @@ npx vitest run --config vitest.integration.config.ts \
 **Kết quả nguyên văn:**
 ```
 wrote /Users/macbook/projects/tai-learning-os/docs/CURRICULUM_COVERAGE_MATRIX.md
-lessons 50 · objectives 40 · uncovered 0 · dangling edges 0
-50
+lessons 100 · objectives 90 · uncovered 0 · dangling edges 0
+100
  Test Files  1 passed (1)
       Tests  16 passed (16)
 ```
 
-**Đo được:** **50/50** bài học có `objectiveId` hợp lệ, **40/40** mục tiêu được seed, **0** cạnh treo hay chu trình. Về quy mô nội dung, 50 bài mẫu chiếm **3,57%** quỹ tiết Lớp 4–5 năm môn (việc biên soạn thêm bài học mới nằm ngoài phạm vi đợt đóng cổng kỹ thuật này).
+**Đo được:** **100/100** bài học có `objectiveId` hợp lệ, **90/90** mục tiêu được seed (`72` `gdpt_2018_objective` + `18` `original_supplemental`), **90/90** kỹ năng có bài học, **82** cạnh tiên quyết, **0** cạnh treo hay chu trình. Về quy mô nội dung, 100 bài đã phát hành (50 Lớp 4 + 50 Lớp 5, cân bằng 20 bài/môn trên cả 5 môn) chiếm **7,14%** quỹ tiết Lớp 4–5 (`1.400` tiết) và **17,86%** số bài chuẩn hoá Lớp 4–5 (`560` bài).
 
 **Phán quyết: PARTIAL.**
 
@@ -345,12 +345,12 @@ npx vitest run --config vitest.integration.config.ts test/integration/batched-wr
 
 **Kết quả nguyên văn:**
 ```
-16
+17
  Test Files  1 passed (1)
       Tests  9 passed (9)
 ```
 
-**Đo được:** **16** điểm gọi `.batch(` trong `src/`; **4** bài test rollback/race trong `evidence-and-ledger-integrity.test.ts`; **9** bài test hình dạng batch trong `batched-write-shape.test.ts` (bao gồm bài thứ 9 mới bổ sung cho `POST /api/data/export-portability`: `0` batch, đúng `1` lệnh ghi chứng từ `data.portability_exported` ở độ sâu `0` vào `audit_events`). Ngoài ra các tuyến gia hạn phiên học (`learner.ts:1053,1089,1135`) và xuất di sản (`portability.ts:34`) đều là các chứng từ kiểm toán đơn câu lệnh thuộc bộ ngoại lệ hợp lệ đã liệt kê.
+**Đo được:** **17** điểm gọi `.batch(` trong `src/`; **4** bài test rollback/race trong `evidence-and-ledger-integrity.test.ts`; **9** bài test hình dạng batch trong `batched-write-shape.test.ts` (bao gồm bài thứ 9 mới bổ sung cho `POST /api/data/export-portability`: `0` batch, đúng `1` lệnh ghi chứng từ `data.portability_exported` ở độ sâu `0` vào `audit_events`), cùng cơ chế chia khúc `IN (...)` tối đa 80 tham số trong `repositories.ts` để tương thích với giới hạn 100 tham số bind của Cloudflare D1 khi tổng số bài học vượt quá 100. Ngoài ra các tuyến gia hạn phiên học (`learner.ts:1053,1089,1135`) và xuất di sản (`portability.ts:34`) đều là các chứng từ kiểm toán đơn câu lệnh thuộc bộ ngoại lệ hợp lệ đã liệt kê.
 
 **Phán quyết: PASS.**
 
@@ -366,14 +366,14 @@ npx vitest run test/unit/open-portability.test.ts
 
 **Kết quả nguyên văn:**
 ```json
-{"ok":true,"drill":"backup-restore-aes-256-gcm","lessonsExported":51,"countsRestored":{"learners":1,"schoolYears":1,"subjects":5,"skills":41,"skillPrerequisites":33,"curriculumObjectives":40,"curriculumIntakes":1,"lessons":51,"lessonVersions":52,"lessonSteps":259,"lessonMetadata":51,"reviewApprovals":1,"learningSessions":2,"learningAttempts":2,"skillEvidence":1,"skillEvidenceObservations":1,"skillEstimates":1,"reviewSchedule":1,"baselineAssessments":1,"learningPlanItems":1,"sessionReflections":1,"learningGoals":1,"auditEvents":1},"restoreMs":96,"recordsBackedUp":548,"recordsLost":0,"approvalFailClosedToDraft":true}
+{"ok":true,"drill":"backup-restore-aes-256-gcm","lessonsExported":101,"countsRestored":{"learners":1,"schoolYears":1,"subjects":5,"skills":90,"skillPrerequisites":82,"curriculumObjectives":90,"curriculumIntakes":1,"lessons":101,"lessonVersions":102,"lessonSteps":509,"lessonMetadata":101,"reviewApprovals":1,"learningSessions":2,"learningAttempts":2,"skillEvidence":1,"skillEvidenceObservations":1,"skillEstimates":1,"reviewSchedule":1,"baselineAssessments":1,"learningPlanItems":1,"sessionReflections":1,"learningGoals":1,"auditEvents":1},"restoreMs":107,"recordsBackedUp":1096,"recordsLost":0,"approvalFailClosedToDraft":true}
 ```
 ```
  ✓ test/unit/open-portability.test.ts (5 tests) 699ms
 ```
 
 **Đo được:**
-- Sao lưu & khôi phục AES-256-GCM: **`restoreMs: 96`** (< ngân sách 60.000 ms hơn 625 lần), **`recordsLost: 0`** trên **548** bản ghi, `approvalFailClosedToDraft: true`.
+- Sao lưu & khôi phục AES-256-GCM: **`restoreMs: 107`** (< ngân sách 60.000 ms hơn 560 lần), **`recordsLost: 0`** trên **1.096** bản ghi (`101` bài học = `100` bài danh mục + `1` bài gia đình), `approvalFailClosedToDraft: true`.
 - Hồ sơ di sản mở 10 năm (`src/shared/portability/`, `POST /api/data/export-portability`, `npm run export:portability`): xuất đầy đủ **1EdTech CLR 2.0**, **1EdTech CASE 1.1**, **IEEE xAPI 2.0 JSONL** và trình xem ngoại tuyến tự chứa **`viewer.html`** (`default-src 'none'`), mở trực tiếp qua `file://` không cần mạng hay máy chủ ứng dụng, và bảo toàn nguyên vẹn từng byte mã băm SHA-256 của tệp SQLite khi chạy từ CLI chỉ-đọc.
 
 **Phán quyết: PASS.** *(Ghi chú kiến trúc giữ nguyên từ ADR-003: mã hóa sao lưu dùng `AES-256-GCM` + `PBKDF2-SHA256` 600.000 vòng tích hợp sẵn trong `node:crypto` thay vì nhị phân rời `age`.)*
@@ -399,7 +399,7 @@ Trích xuất kết quả JSON từ `npm run qa:content`:
   "gate": "G13",
   "command": "qa:content",
   "sympyBackend": "ts-deterministic-rational-verifier (python sympy optional, not installed)",
-  "sympyCrossCheck": { "ok": true, "sympyAvailable": false, "checkedPairs": 109, "mismatchesCount": 0 },
+  "sympyCrossCheck": { "ok": true, "sympyAvailable": false, "checkedPairs": 211, "mismatchesCount": 0 },
   "promptfooOfflineConfig": {
     "ok": true,
     "hasSharingDisabled": true,
@@ -408,9 +408,9 @@ Trích xuất kết quả JSON từ `npm run qa:content`:
   },
   "corpus": {
     "ok": true,
-    "lessonsChecked": 50,
-    "stepsChecked": 257,
-    "mathStepsChecked": 53,
+    "lessonsChecked": 100,
+    "stepsChecked": 507,
+    "mathStepsChecked": 103,
     "mathErrorsCount": 0,
     "mathErrorRate": 0,
     "answerLeakCount": 0,
@@ -424,7 +424,7 @@ Trích xuất kết quả JSON từ `npm run qa:content`:
 ```
 
 **Đo được:**
-- Toàn bộ **50** bài học (**257** bước, **53** bước toán, **109** cặp biểu thức phân số/số thập phân) đạt `mathErrorsCount: 0` (`mathErrorRate: 0 <= 0.5%`), `answerLeakCount: 0`, `promptInjectionCount: 0`, `gamificationViolationCount: 0`, `rightsViolationCount: 0`.
+- Toàn bộ **100** bài học (**507** bước, **103** bước toán, **211** cặp biểu thức phân số/số thập phân) đạt `mathErrorsCount: 0` (`mathErrorRate: 0 <= 0.5%`), `answerLeakCount: 0`, `promptInjectionCount: 0`, `gamificationViolationCount: 0`, `rightsViolationCount: 0`.
 - `promptfooconfig.yaml` được neo cứng ở chế độ ngoại tuyến tuyệt đối (`sharing: false`, `id: echo`, `zeroNetworkProviders: true`) — không bao giờ gọi API LLM bên ngoài.
 - Khi máy có cài `python3` + `sympy`, `qa-content.mjs` tự động chạy thêm đối chiếu chéo `python3 -I` cô lập; khi máy không cài `sympy`, trình kiểm chứng số học tỷ lệ chính xác `bigint` của TypeScript đảm nhiệm đầy đủ (cả hai đường thực thi đều được kiểm thử trong `test/unit/qa-content.test.ts`).
 - Tự kiểm chứng đột biến nội bộ bắt gọn **7/7** lỗi cố ý (sai đáp án phép cộng số thập phân, nhiễu trùng giá trị phân số `2/4 == 3/6`, mẫu số bằng 0, rò `[ANSWER: b]`, thiếu `sourceRef`, cài chữ `daily streak`/`leaderboard`, và prompt injection).
@@ -573,8 +573,8 @@ npm run retention:report
 npm run retention:drill
 
 # Bộ kiểm thử đầy đủ (Unit + Integration + Playwright E2E)
-npm run verify            # 29 tệp / 401 unit test + lint + typecheck + QA/sim/TCO + build
-npm run test:integration  # 20 tệp / 207 integration test
+npm run verify            # 29 tệp / 404 unit test + lint + typecheck + QA/sim/TCO + build
+npm run test:integration  # 20 tệp / 210 integration test
 npm run test:e2e          # 60 Playwright E2E test (Desktop + Tablet + Mobile)
 ```
 
@@ -583,6 +583,6 @@ npm run test:e2e          # 60 Playwright E2E test (Desktop + Tablet + Mobile)
 ## Điều tài liệu này **không** khẳng định
 
 - **Không khẳng định được phép triển khai công cộng (`wrangler deploy`).** Cổng **G16 (HOLD)** vẫn chặn cứng mọi triển khai ra ngoài máy cục bộ của gia đình cho tới khi có phê duyệt pháp lý và chữ ký chủ sở hữu.
-- **Không khẳng định nội dung chương trình Lớp 4–5 đã viết xong.** 50 bài hiện có chiếm **3,57%** quỹ tiết Lớp 4–5 năm môn (**G8 PARTIAL**); hạ tầng đồ thị và cổng QA ngoại tuyến (`G13`) đã sẵn sàng cho các đợt biên soạn tiếp theo.
+- **Không khẳng định nội dung chương trình Lớp 4–5 đã viết xong.** 100 bài hiện có chiếm **7,14%** quỹ tiết Lớp 4–5 năm môn (**17,86%** bài chuẩn hoá Lớp 4–5, **G8 PARTIAL**); hạ tầng đồ thị và cổng QA ngoại tuyến (`G13`) đã sẵn sàng cho các đợt biên soạn tiếp theo.
 - **Không khẳng định đã có dữ liệu ghi nhớ thực nghiệm của học sinh thật.** Cơ sở dữ liệu hộ gia đình hiện có `0` lượt làm bài nên `retention:report` trả về `NO_DATA` (**G14 PARTIAL**).
 - **Không chạy migration tự động lên tệp SQLite hộ gia đình hiện hữu.** Tệp DB hộ gia đình đang ở `schemaVersion = 14` được giữ nguyên vẹn từng byte (`SHA-256: d8828c6a…`) đúng theo yêu cầu của chủ sở hữu.

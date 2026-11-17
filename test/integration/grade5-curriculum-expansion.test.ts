@@ -120,31 +120,8 @@ describe("Grade 5 curriculum expansion", () => {
       .all<{ id: string; subject_id: string; grade_from: number; grade_to: number }>();
     const skillIds = (skills.results ?? []).map((row) => row.id).sort();
 
-    expect(skillIds).toHaveLength(20);
-    expect(skillIds).toEqual(
-      [
-        "deb-argument-structure",
-        "deb-civil-disagreement",
-        "deb-fallacies",
-        "deb-source-credibility",
-        "eng-comparatives",
-        "eng-daily-routine",
-        "eng-directions",
-        "eng-past-simple",
-        "math-circle",
-        "math-dec-add-sub",
-        "math-dec-place-value",
-        "math-percent",
-        "sci-energy-forms",
-        "sci-environment",
-        "sci-food-chains",
-        "sci-life-cycles",
-        "vie-figurative",
-        "vie-inference",
-        "vie-paragraph-structure",
-        "vie-sentence-linking",
-      ].sort(),
-    );
+    expect(skillIds).toHaveLength(45);
+    expect(skillIds).toEqual(GRADE5_CORE_LESSONS.map((lesson) => lesson.skillId).sort());
 
     // Each prerequisite edge points at a skill that exists in the catalogue.
     const edges = await env.DB
@@ -165,10 +142,10 @@ describe("Grade 5 curriculum expansion", () => {
         true,
       );
     }
-    expect((edges.results ?? []).length).toBe(20);
+    expect((edges.results ?? []).length).toBe(45);
   });
 
-  it("2. Seeds all 50 lessons, keeping Grade 4 and Grade 5 versions distinct", async () => {
+  it("2. Seeds all 100 lessons, keeping Grade 4 and Grade 5 versions distinct", async () => {
     const rows = await env.DB.prepare("select id from lessons").all<{ id: string }>();
     const lessonIds = (rows.results ?? []).map((row) => row.id);
 
@@ -329,5 +306,46 @@ describe("Grade 5 curriculum expansion", () => {
     });
     expect(finishRes.status).toBe(200);
     expect(((await finishRes.json()) as FinalizeSessionResponse).status).toBe("completed");
+  });
+
+  it("5. Scales past D1's 100-bind ceiling when family forks bring total lessons > 100", async () => {
+    const now = Date.now();
+    const passHash = await hashPassword("ParentPass123!", 100_000);
+    await env.DB
+      .prepare(
+        "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+      )
+      .bind("parent-scale", "Mẹ Quy Mô", passHash, now)
+      .run();
+    await env.DB
+      .prepare(
+        "INSERT INTO learners (id, parent_id, nickname, grade, created_at, updated_at) VALUES (?1, ?2, ?3, 5, ?4, ?4)",
+      )
+      .bind("learner-scale", "parent-scale", "Bé Quy Mô", now)
+      .run();
+
+    const parentJar = await createAuthenticatedJar("parent-scale", "Mẹ Quy Mô", "parent");
+
+    for (const sourceLessonId of GRADE5_CORE_LESSONS.slice(0, 3).map((lesson) => lesson.id)) {
+      const forkRes = await callWithJar(parentJar, "/api/parent/lessons/fork", {
+        method: "POST",
+        json: { sourceLessonId },
+      });
+      expect(forkRes.status, sourceLessonId).toBe(200);
+    }
+
+    const listRes = await callWithJar(parentJar, "/api/parent/lessons");
+    expect(listRes.status).toBe(200);
+    const listBody = (await listRes.json()) as ParentLessonListResponse;
+    expect(listBody.lessons.length).toBe(103);
+
+    const exportRes = await callWithJar(parentJar, "/api/data/export", { method: "POST", json: {} });
+    expect(exportRes.status).toBe(200);
+
+    const portabilityRes = await callWithJar(parentJar, "/api/data/export-portability", {
+      method: "POST",
+      json: {},
+    });
+    expect(portabilityRes.status).toBe(200);
   });
 });

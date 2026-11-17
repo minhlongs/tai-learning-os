@@ -8,11 +8,15 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { listShippedMigrationFiles } from "../../scripts/migrate-local-d1.mjs";
 import { matchRoute } from "../../src/client/routing";
+import { LESSONS } from "../../src/shared/content/index";
 import {
   inspectDevVarsText,
   inspectHouseholdPreflight,
 } from "../../src/worker/db/household-preflight";
-import { restoreHouseholdIdentity } from "../../src/worker/db/reprovision-household";
+import {
+  SHIPPED_CATALOGUE_LESSON_COUNT,
+  restoreHouseholdIdentity,
+} from "../../src/worker/db/reprovision-household";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..");
@@ -129,8 +133,11 @@ function createD1AdapterOver(raw: DatabaseSync): D1Database {
   return db;
 }
 
-function seed50CatalogueLessons(raw: DatabaseSync): void {
-  for (let i = 1; i <= 50; i++) {
+function seedCatalogueLessons(
+  raw: DatabaseSync,
+  count: number = SHIPPED_CATALOGUE_LESSON_COUNT,
+): void {
+  for (let i = 1; i <= count; i++) {
     const lessonId = `lesson-${i}`;
     raw
       .prepare(
@@ -240,7 +247,10 @@ describe("Node 26 synchronous TypeScript specifier loader", () => {
         encoding: "utf8",
       },
     );
-    expect(output).toContain("validate:lessons OK — 50 lessons (257 steps)");
+    const expectedSteps = LESSONS.reduce((sum, lesson) => sum + lesson.steps.length, 0);
+    expect(output).toContain(
+      `validate:lessons OK — ${LESSONS.length} lessons (${expectedSteps} steps)`,
+    );
   });
 });
 
@@ -276,7 +286,7 @@ describe("read-only household preflight check", () => {
 
   it("inspects a clean household database strictly read-only and reports approved-lesson readiness", async () => {
     const { db, raw } = createInMemoryMigratedD1();
-    seed50CatalogueLessons(raw);
+    seedCatalogueLessons(raw);
 
     const secretHash =
       "pbkdf2-sha256:600000$00112233445566778899aabbccddeeff$deadbeefcafe0123456789abcdef0123456789abcdef0123456789abcdef0123";
@@ -443,7 +453,7 @@ describe("read-only household preflight check", () => {
 
   it("marks integrity as skipped rather than failing when D1 refuses PRAGMA integrity_check", async () => {
     const { db, raw } = createInMemoryMigratedD1();
-    seed50CatalogueLessons(raw);
+    seedCatalogueLessons(raw);
     await restoreHouseholdIdentity(
       db,
       {
@@ -500,7 +510,7 @@ describe("read-only household preflight check", () => {
 
   it("reports ok=false and actionable Vietnamese guidance when .dev.vars or household identity is missing", async () => {
     const { db, raw } = createInMemoryMigratedD1();
-    seed50CatalogueLessons(raw);
+    seedCatalogueLessons(raw);
 
     const missingSecretReport = await inspectHouseholdPreflight(db, {
       devVarsPresent: false,
@@ -520,6 +530,95 @@ describe("read-only household preflight check", () => {
     expect(missingHouseholdReport.household.hasParent).toBe(false);
     expect(missingHouseholdReport.household.hasLearner).toBe(false);
     expect(missingHouseholdReport.nextActionVi).toContain("/login");
+  });
+
+  it("refuses a v16 household database with only 50 catalogue lessons (even when 60 family lessons exist) with exact db:migrate && seed:demo guidance, then passes after upgrading to v17 + 100 catalogue lessons", async () => {
+    const { db, raw } = createInMemoryMigratedD1(16);
+    seedCatalogueLessons(raw, 50);
+
+    await restoreHouseholdIdentity(
+      db,
+      {
+        parent: {
+          id: "parent-household",
+          password_hash: "pbkdf2-sha256:600000$abc$def",
+          display_name: "Phụ huynh",
+          created_at: 1793275984978,
+          updated_at: 1793275985198,
+        },
+        learner: {
+          id: "learner-mau",
+          parent_id: "parent-household",
+          nickname: "Bé Mẫu",
+          birth_year: 2017,
+          grade: 4,
+          timezone: "Asia/Ho_Chi_Minh",
+          created_at: 1793468880199,
+          updated_at: 1793468880199,
+        },
+        schoolYear: null,
+      },
+      1793500000000,
+    );
+
+    // Add 60 parent-authored family lessons so total lessons = 110 (>= 100),
+    // proving family lessons cannot mask missing Wave-2 catalogue lessons.
+    for (let i = 1; i <= 60; i++) {
+      const familyLessonId = `family-lesson-${i}`;
+      raw
+        .prepare(
+          "INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, ownership_type, owner_parent_id, created_at, updated_at) VALUES (?, 'math', NULL, ?, ?, 'obj', 'obj', 4, 4, 1, 'family', 'parent-household', 1000, 1000)",
+        )
+        .run(familyLessonId, `Bài gia đình ${i}`, `Family Lesson ${i}`);
+      raw
+        .prepare(
+          "INSERT INTO lesson_versions (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at) VALUES (?, 1, ?, ?, 'obj', 'obj', 1000)",
+        )
+        .run(familyLessonId, `Bài gia đình ${i}`, `Family Lesson ${i}`);
+    }
+
+    const beforeUpgradeError = await inspectHouseholdPreflight(db, {
+      devVarsPresent: true,
+      hasSessionSecret: true,
+      hasParentPasswordHash: true,
+    }).then(
+      () => null,
+      (err: unknown) => err as Error,
+    );
+
+    expect(beforeUpgradeError).not.toBeNull();
+    expect(beforeUpgradeError?.message).toBe(
+      `Household DB preflight failed: expected at least ${SHIPPED_CATALOGUE_LESSON_COUNT} catalogue lessons and ${SHIPPED_CATALOGUE_LESSON_COUNT} lesson_versions, found lessons=50, lessonVersions=50. Run \`npm run db:migrate && npm run seed:demo\` to sync the catalogue.`,
+    );
+
+    // Apply migration 0017 and seed the remaining 50 catalogue lessons -> must pass
+    const wave2Sql = readFileSync(
+      join(MIGRATIONS_DIR, "0017_grade4_grade5_curriculum_wave2.sql"),
+      "utf8",
+    );
+    raw.exec(wave2Sql);
+    for (let i = 51; i <= SHIPPED_CATALOGUE_LESSON_COUNT; i++) {
+      const lessonId = `lesson-${i}`;
+      raw
+        .prepare(
+          "INSERT INTO lessons (id, subject_id, skill_id, title_vi, title_en, objective_vi, objective_en, grade_from, grade_to, version, created_at, updated_at) VALUES (?, 'math', NULL, ?, ?, 'obj', 'obj', 4, 4, 1, 1000, 1000)",
+        )
+        .run(lessonId, `Bài ${i}`, `Lesson ${i}`);
+      raw
+        .prepare(
+          "INSERT INTO lesson_versions (lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at) VALUES (?, 1, ?, ?, 'obj', 'obj', 1000)",
+        )
+        .run(lessonId, `Bài ${i}`, `Lesson ${i}`);
+    }
+
+    const upgradedReport = await inspectHouseholdPreflight(db, {
+      devVarsPresent: true,
+      hasSessionSecret: true,
+      hasParentPasswordHash: true,
+    });
+    expect(upgradedReport.database.schemaVersion).toBe(17);
+    expect(upgradedReport.database.lessonsCount).toBe(SHIPPED_CATALOGUE_LESSON_COUNT);
+    expect(upgradedReport.database.lessonVersionsCount).toBe(SHIPPED_CATALOGUE_LESSON_COUNT);
   });
 });
 
@@ -552,7 +651,7 @@ function createDiskMigratedSqliteFixture(
       const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
       raw.exec(sqlText);
     }
-    seed50CatalogueLessons(raw);
+    seedCatalogueLessons(raw);
   } finally {
     // Leave the `-wal`/`-shm` sidecars on disk, as a live household database does.
     raw.close();

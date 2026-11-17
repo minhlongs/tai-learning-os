@@ -36,7 +36,7 @@ Các điểm ghi trong mã nguồn:
 - `src/worker/routes/parent.ts:722`, `:1114` — sửa tay của phụ huynh và các thao tác quản trị
 - `src/worker/routes/consents.ts:143` — đồng thuận
 - `src/worker/routes/organization-lessons.ts:225` — duyệt bài học của tổ chức
-- `src/worker/routes/data.ts:1384` — khôi phục bản sao lưu (attempt + evidence + observation + review schedule cùng một batch)
+- `src/worker/routes/data.ts:735` — khôi phục toàn bộ bản sao lưu trong một batch duy nhất (hồ sơ người học + bài riêng gia đình + bằng chứng + diễn giải + kiểm toán)
 
 ### Bằng chứng
 
@@ -59,6 +59,12 @@ Test thứ ba, và là test canh **hình dạng** batch chứ không chỉ hậu
 **Mất / chấp nhận:**
 - `db.batch` không cho phép đọc kết quả của câu lệnh trước để quyết định câu lệnh sau trong cùng batch. Vì vậy `attempt_no` phải được tính **trước** khi vào batch (`COALESCE(MAX(attempt_no), 0) + 1` tại `src/worker/db/repositories.ts:1260`) và được **kiểm chứng lại bên trong** câu lệnh INSERT bằng một subquery điều kiện — nếu giữa lúc đọc và lúc ghi có ai chen vào, câu INSERT không khớp điều kiện và batch thất bại, rồi toàn bộ được thử lại. Xem `ADR-001` về `attemptNo`, và `test/integration/evidence-and-ledger-integrity.test.ts:485` — *"recovers from a true UNIQUE(learner_id, step_id, attempt_no) race between summary read and batch commit, recomputing mastery as assisted"*.
 - Một batch hỏng nghĩa là **toàn bộ** lượt làm bài bị từ chối, kể cả khi chỉ phần audit lỗi. Trẻ có thể thấy lỗi cho một câu trả lời đúng. Đây là đánh đổi đã chọn: thà bắt làm lại còn hơn ghi một nửa sự thật.
+
+### Bất biến khôi phục bản sao lưu (`POST /api/data/import`)
+
+Toàn bộ luồng khôi phục hồ sơ người học (`src/worker/routes/data.ts:735`) dựng trước danh sách câu lệnh theo thứ tự an toàn khoá ngoại rồi thực thi trong **một `env.DB.batch([...])` duy nhất**, không có bất kỳ lệnh ghi `await` nào chạy trước nó. Ràng buộc "phụ huynh chưa có hồ sơ đang hoạt động" được kiểm chứng ngay ở câu lệnh đầu tiên của batch qua subquery điều kiện trên `learners.parent_id`; mọi bài học riêng gia đình cùng bản chụp bất biến (`lesson_versions`, `lesson_steps`) chưa có mặt lúc tiền kiểm đều được chèn tường minh (không dùng `OR IGNORE`) để bất kỳ chỉnh sửa đồng thời nào xen vào giữa tiền kiểm và batch đều huỷ toàn bộ giao dịch với mã `409`, trong khi các bản chụp bất biến đã tồn tại và khớp nội dung ở bước tiền kiểm được giữ nguyên.
+
+**Đánh đổi đã chọn:** Cơ chế cắt nhỏ theo số lượng câu lệnh (statement-count chunking) và xoá bù khi lỗi giữa chừng đã được gỡ bỏ hoàn toàn để giữ tính nguyên tử đầu-cuối. Nếu nền tảng từ chối một batch vượt ngưỡng câu lệnh cho phép, yêu cầu khôi phục thất bại đóng (fail-closed) với không một bản ghi nào được ghi xuống cơ sở dữ liệu và trả thông báo tiếng Việt rõ ràng, thay vì ghi dở dang hoặc để lại thay đổi dư thừa trên bài học riêng có sẵn của gia đình.
 
 ---
 

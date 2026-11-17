@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { LESSONS } from "../../src/shared/content/index";
+import { WAVE1_LEGACY_IDS } from "../../src/shared/content/wave1-legacy";
 import { LESSON_STEP_KINDS } from "../../src/shared/schemas/attempt";
 import { correctChoiceId, gradeSubmission } from "../../src/shared/schemas/answer";
 import { validateExercise } from "../../src/shared/schemas/exercise";
@@ -11,25 +12,25 @@ import type { LessonDefinition } from "../../src/shared/content/types";
  * a lesson reaches the learner. So these tests hold the same bar the seed holds:
  * a lesson that would fail seeding is a lesson that must not ship.
  *
- * They also hold the content promises the product made. Fifty lessons across
- * five subjects, each with an independent attempt and a transfer check, each
- * step explainable in Vietnamese — because a child who cannot follow the
+ * They also hold the content promises the product made. One hundred lessons
+ * across five subjects, each with an independent attempt and a transfer check,
+ * each step explainable in Vietnamese — because a child who cannot follow the
  * explanation has been given a right answer with no reason.
  */
 
 describe("lesson registry — shape", () => {
-  it("covers five active subjects (10 Math, 10 English, 10 Vietnamese, 10 Science, 10 Debate = 50 lessons including 10 baselines)", () => {
-    expect(LESSONS).toHaveLength(50);
+  it("covers five active subjects (20 Math, 20 English, 20 Vietnamese, 20 Science, 20 Debate = 100 lessons including 10 baselines)", () => {
+    expect(LESSONS).toHaveLength(100);
 
     const bySubject = new Map<string, number>();
     for (const lesson of LESSONS) {
       bySubject.set(lesson.subjectId, (bySubject.get(lesson.subjectId) ?? 0) + 1);
     }
-    expect(bySubject.get("math")).toBe(10);
-    expect(bySubject.get("english")).toBe(10);
-    expect(bySubject.get("vietnamese")).toBe(10);
-    expect(bySubject.get("science")).toBe(10);
-    expect(bySubject.get("debate")).toBe(10);
+    expect(bySubject.get("math")).toBe(20);
+    expect(bySubject.get("english")).toBe(20);
+    expect(bySubject.get("vietnamese")).toBe(20);
+    expect(bySubject.get("science")).toBe(20);
+    expect(bySubject.get("debate")).toBe(20);
 
     const baselineLessons = LESSONS.filter((lesson) => lesson.isBaseline);
     expect(baselineLessons).toHaveLength(10);
@@ -64,7 +65,7 @@ describe("lesson registry — shape", () => {
     const counts = new Map<string, number>();
     for (const id of grade5ChoiceIds) counts.set(id, (counts.get(id) ?? 0) + 1);
 
-    expect(grade5ChoiceIds).toHaveLength(125);
+    expect(grade5ChoiceIds).toHaveLength(250);
     // Every position must be used, and none may dominate: a distribution where
     // one letter holds even a third of the answers is guessable.
     expect([...counts.keys()].sort()).toEqual(["a", "b", "c", "d"]);
@@ -86,9 +87,173 @@ describe("lesson registry — shape", () => {
     expect(distinctPatterns, "distinct Grade 5 answer sequences").toBeGreaterThan(1);
   });
 
+  it("distributes Grade 4 answers so no single position is guessable", () => {
+    const grade4ChoiceIds = LESSONS.filter(
+      (lesson) => lesson.gradeFrom === 4 && lesson.gradeTo === 4,
+    ).flatMap((lesson) =>
+      lesson.steps.flatMap((step) => {
+        if (step.content.type === "fraction_visual") return [];
+        return [correctChoiceId(step.content)];
+      }),
+    );
+    const counts = new Map<string, number>();
+    for (const id of grade4ChoiceIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+
+    expect([...counts.keys()].sort()).toEqual(["a", "b", "c", "d"]);
+    for (const [choiceId, count] of counts) {
+      expect(count / grade4ChoiceIds.length, `choice "${choiceId}" share`).toBeLessThanOrEqual(0.3);
+    }
+
+    const patterns = LESSONS.filter(
+      (lesson) => lesson.gradeFrom === 4 && lesson.gradeTo === 4 && lesson.steps.length >= 5,
+    ).map((lesson) =>
+      lesson.steps
+        .map((step) => (step.content.type === "fraction_visual" ? "-" : correctChoiceId(step.content)))
+        .join(""),
+    );
+    expect(new Set(patterns).size, "distinct Grade 4 answer sequences").toBeGreaterThan(1);
+  });
+
+  it("keeps choice lengths balanced so clicking the longest option cannot game mastery", () => {
+    // Wave 1 shipped before choice-length parity was gated; any lesson added from
+    // Wave 2 onward is held to the strict per-subject and per-step ceilings so a
+    // learner cannot pass FSRS/BKT thresholds by picking the longest string.
+    const wave1LegacyIds = WAVE1_LEGACY_IDS;
+
+    const postWave1BySubject = new Map<
+      string,
+      { total: number; ranks: [number, number, number, number] }
+    >();
+    const maxRatioViolations: string[] = [];
+    const medianRatioViolations: string[] = [];
+    const monoRankLessons: string[] = [];
+    const indistinguishableDilution: string[] = [];
+    // Distinguishable rows are aggregated per subject, then checked once, so a
+    // subject with many tied rows cannot hide a real tell in the average.
+    const distinguishableBySubject = new Map<string, { total: number; longest: number }>();
+
+    for (const lesson of LESSONS) {
+      if (wave1LegacyIds.has(lesson.id)) continue;
+      const lessonRanks: number[] = [];
+
+      for (const step of lesson.steps) {
+        if (step.content.type === "fraction_visual") continue;
+        const indexed = step.content.choices.map((choice, index) => ({
+          choice,
+          index,
+          len: choice.label_vi.trim().length,
+        }));
+        const correctEntry = indexed.find((entry) => entry.choice.correct);
+        const distractorLens = indexed
+          .filter((entry) => !entry.choice.correct)
+          .map((entry) => entry.len)
+          .sort((a, b) => a - b);
+        if (!correctEntry || distractorLens.length === 0) continue;
+
+        const descending = [...indexed].sort(
+          (a, b) => b.len - a.len || a.index - b.index,
+        );
+        const rank = descending.findIndex((entry) => entry.choice.correct);
+        lessonRanks.push(rank);
+
+        const bucket = postWave1BySubject.get(lesson.subjectId) ?? {
+          total: 0,
+          ranks: [0, 0, 0, 0],
+        };
+        bucket.total += 1;
+        if (rank >= 0 && rank < 4) {
+          bucket.ranks[rank] += 1;
+        }
+        postWave1BySubject.set(lesson.subjectId, bucket);
+
+        const correctLen = correctEntry.len;
+        const maxDistractorLen = distractorLens[distractorLens.length - 1] ?? 0;
+        const medianDistractorLen =
+          distractorLens[Math.floor((distractorLens.length - 1) / 2)] ?? 0;
+
+        // A step where every choice is within 2 characters of every other carries
+        // no length signal at all, so it cannot be evidence of a tell and must not
+        // dilute the count of steps that can.
+        const allLens = indexed.map((entry) => entry.len);
+        const lengthSpread = Math.max(...allLens) - Math.min(...allLens);
+        if (lengthSpread > 2) {
+          const dist = distinguishableBySubject.get(lesson.subjectId) ?? {
+            total: 0,
+            longest: 0,
+          };
+          dist.total += 1;
+          if (distractorLens.every((len) => len < correctLen)) dist.longest += 1;
+          distinguishableBySubject.set(lesson.subjectId, dist);
+        }
+
+        if (correctLen >= 20 && maxDistractorLen > 0 && correctLen > maxDistractorLen * 1.6) {
+          maxRatioViolations.push(
+            `${lesson.id}#${step.position} (${correctLen} vs max ${maxDistractorLen})`,
+          );
+        }
+        if (
+          correctLen >= 25 &&
+          medianDistractorLen > 0 &&
+          correctLen > medianDistractorLen * 1.75
+        ) {
+          medianRatioViolations.push(
+            `${lesson.id}#${step.position} (${correctLen} vs median ${medianDistractorLen})`,
+          );
+        }
+      }
+
+      if (lessonRanks.length >= 4 && new Set(lessonRanks).size === 1) {
+        monoRankLessons.push(`${lesson.id} (all rank #${(lessonRanks[0] ?? 0) + 1})`);
+      }
+    }
+
+    for (const [subjectId, dist] of distinguishableBySubject) {
+      if (dist.total > 0 && dist.longest / dist.total > 0.4) {
+        indistinguishableDilution.push(
+          `${subjectId}: correct is strictly longest in ${dist.longest}/${dist.total} distinguishable steps`,
+        );
+      }
+    }
+
+    expect(
+      maxRatioViolations,
+      "steps where correct label > 1.6x longest distractor",
+    ).toEqual([]);
+    expect(
+      medianRatioViolations,
+      "steps where correct label > 1.75x median distractor (single-padded-decoy check)",
+    ).toEqual([]);
+    expect(
+      monoRankLessons,
+      "lessons where every MC step shares the exact same length rank",
+    ).toEqual([]);
+    // Rank share alone can pass on the strength of tied rows: a maths step whose
+    // four options are bare numerals ("5", "7", "12", "15") puts the correct
+    // answer at a random rank no matter how the labels are written. Those rows
+    // dilute the picture, so the tell is also measured only across steps whose
+    // choice lengths actually differ enough tobe distinguishable.
+    expect(
+      indistinguishableDilution,
+      "steps where the correct answer is strictly longest among choices that differ by >2 chars",
+    ).toEqual([]);
+    expect(postWave1BySubject.size).toBe(5);
+    for (const [subjectId, { total, ranks }] of postWave1BySubject) {
+      expect(
+        ranks[0] / total,
+        `${subjectId} post-Wave-1 rank #1 (longest) floor so longest is not an auto-elimination tell`,
+      ).toBeGreaterThanOrEqual(0.1);
+      ranks.forEach((count, rankIndex) => {
+        expect(
+          count / total,
+          `${subjectId} post-Wave-1 rank #${rankIndex + 1} share`,
+        ).toBeLessThanOrEqual(0.4);
+      });
+    }
+  });
+
   it("uses unique skill ids across core (non-baseline) lessons, so a core lesson cannot shadow another's evidence", () => {
     const coreLessons = LESSONS.filter((lesson) => !lesson.isBaseline);
-    expect(coreLessons).toHaveLength(40);
+    expect(coreLessons).toHaveLength(90);
     const skillIds = coreLessons.map((lesson) => lesson.skillId);
     expect(new Set(skillIds).size).toBe(skillIds.length);
   });
