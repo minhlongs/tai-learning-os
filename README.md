@@ -44,8 +44,8 @@ npm install
 # Áp dụng migrations vào D1 cục bộ
 npm run db:migrate
 
-# Nạp danh mục 5 môn học và 50 bài học mẫu cho Lớp 4–5
-# Seed 50 sample lessons for Grades 4–5 across Math, English, Vietnamese, Science, and Critical Thinking (10 lessons per subject)
+# Nạp danh mục 5 môn học và 100 bài học mẫu cho Lớp 4–5
+# Seed 100 sample lessons for Grades 4–5 across Math, English, Vietnamese, Science, and Critical Thinking (20 lessons per subject)
 npm run seed:demo
 ```
 
@@ -72,10 +72,10 @@ npm run typecheck
 # Kiểm tra quy chuẩn mã nguồn (linter)
 npm run lint
 
-# Chạy toàn bộ Unit Tests (401 tests across 29 files)
+# Chạy toàn bộ Unit Tests (404 tests across 29 files)
 npm run test
 
-# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (207 tests across 20 files)
+# Chạy toàn bộ Integration Tests với Worker + SQLite D1 (211 tests across 20 files)
 npm run test:integration
 
 # Chạy Playwright End-to-End Tests (60 tests, Desktop + Tablet + Mobile, kèm chặn mạng G2 & WCAG 2.2 AA axe G10)
@@ -128,7 +128,7 @@ tai-learning-os/
 │   ├── PARENT_OPERATIONS.md   # Cẩm nang vận hành dành cho phụ huynh
 │   ├── ROADMAP_90_DAYS.md     # Kế hoạch phát triển và điều kiện triển khai
 │   └── audits/                # Báo cáo kiểm định chất lượng Cổng 01, 02 & 03 (Forensic Audit)
-├── migrations/                # D1 SQL Migrations (0001..0016)
+├── migrations/                # D1 SQL Migrations (0001..0017)
 ├── scripts/                   # Các script công cụ cục bộ (seed, reset, export, hash)
 ├── src/
 │   ├── client/                # React 19 SPA (Screens, Components, Styles)

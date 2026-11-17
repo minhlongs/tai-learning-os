@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { listShippedMigrationFiles } from "../../scripts/migrate-local-d1.mjs";
 import {
+  SHIPPED_CATALOGUE_LESSON_COUNT,
   extractHouseholdIdentity,
   restoreHouseholdIdentity,
   verifyCleanHouseholdState,
@@ -201,8 +202,8 @@ describe("household D1 database clean reprovisioning", () => {
 
     // Open a clean migrated D1 instance
     const { db: cleanDb, raw: cleanRaw } = createInMemoryMigratedD1();
-    // Seed 50 stub lessons to satisfy the 50-lesson catalogue baseline check
-    for (let i = 1; i <= 50; i++) {
+    // Seed stub lessons to satisfy the shipped catalogue baseline check
+    for (let i = 1; i <= SHIPPED_CATALOGUE_LESSON_COUNT; i++) {
       const lessonId = `lesson-${i}`;
       cleanRaw
         .prepare(
@@ -220,9 +221,9 @@ describe("household D1 database clean reprovisioning", () => {
     const report = await verifyCleanHouseholdState(cleanDb);
 
     expect(report).toEqual({
-      schemaVersion: 16,
-      lessonsCount: 50,
-      lessonVersionsCount: 50,
+      schemaVersion: MIGRATION_FILES.length,
+      lessonsCount: SHIPPED_CATALOGUE_LESSON_COUNT,
+      lessonVersionsCount: SHIPPED_CATALOGUE_LESSON_COUNT,
       parentsCount: 1,
       learnersCount: 1,
       schoolYearsCount: 1,
@@ -257,7 +258,7 @@ describe("household D1 database clean reprovisioning", () => {
 
   it("fails verification if simulated organizations, sessions, or unexpected audit actions exist", async () => {
     const { db, raw } = createInMemoryMigratedD1();
-    for (let i = 1; i <= 50; i++) {
+    for (let i = 1; i <= SHIPPED_CATALOGUE_LESSON_COUNT; i++) {
       const lessonId = `lesson-${i}`;
       raw
         .prepare(

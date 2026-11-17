@@ -10,11 +10,15 @@
  *      current school-year record via `extractHouseholdIdentity(db)`.
  *   2. Disposes the D1 proxy and archives the `.wrangler/state` SQLite files into
  *      `backups/household-db-archive-<timestamp>/`.
- *   3. Opens a brand-new local D1 database, applies all shipped migrations (`0001`–`0016`),
- *      seeds the 50 shipped catalogue lessons, restores the household identity via
+ *   3. Opens a brand-new local D1 database, applies all shipped migrations (`0001`–`0017`),
+ *      seeds the 100 shipped catalogue lessons, restores the household identity via
  *      `restoreHouseholdIdentity(db, snapshot, now)`, and verifies the resulting
  *      clean state via `verifyCleanHouseholdState(db)`.
  */
+
+import { LESSONS } from "../../shared/content/index";
+
+export const SHIPPED_CATALOGUE_LESSON_COUNT = LESSONS.length;
 
 export interface HouseholdParentSnapshot {
   id: string;
@@ -338,8 +342,8 @@ export async function assertMinimumSchemaVersion(
 }
 
 /**
- * Verifies that a reprovisioned household D1 database has all schema v15 protections,
- * all 50 shipped catalogue lessons, zero simulated B2B2C or E2E rows, and only
+ * Verifies that a reprovisioned household D1 database has all schema v15+ protections,
+ * all 100 shipped catalogue lessons, zero simulated B2B2C or E2E rows, and only
  * legitimate household identity provenance in `audit_events`.
  */
 export async function verifyCleanHouseholdState(
@@ -380,8 +384,8 @@ export async function verifyCleanHouseholdState(
     .prepare(
       `SELECT
          (SELECT MAX(version) FROM schema_versions) AS schema_version,
-         (SELECT COUNT(*) FROM lessons) AS lessons_count,
-         (SELECT COUNT(*) FROM lesson_versions) AS lesson_versions_count,
+         (SELECT COUNT(*) FROM lessons WHERE ownership_type = 'catalogue') AS lessons_count,
+         (SELECT COUNT(*) FROM lesson_versions WHERE lesson_id IN (SELECT id FROM lessons WHERE ownership_type = 'catalogue')) AS lesson_versions_count,
          (SELECT COUNT(*) FROM parents) AS parents_count,
          (SELECT COUNT(*) FROM learners) AS learners_count,
          (SELECT COUNT(*) FROM school_years) AS school_years_count,
@@ -437,9 +441,12 @@ export async function verifyCleanHouseholdState(
     auditActions,
   };
 
-  if (report.lessonsCount !== 50 || report.lessonVersionsCount !== 50) {
+  if (
+    report.lessonsCount !== SHIPPED_CATALOGUE_LESSON_COUNT ||
+    report.lessonVersionsCount !== SHIPPED_CATALOGUE_LESSON_COUNT
+  ) {
     throw new Error(
-      `Household DB verification failed: expected 50 catalogue lessons and 50 lesson_versions, found lessons=${report.lessonsCount}, lessonVersions=${report.lessonVersionsCount}`,
+      `Household DB verification failed: expected ${SHIPPED_CATALOGUE_LESSON_COUNT} catalogue lessons and ${SHIPPED_CATALOGUE_LESSON_COUNT} lesson_versions, found lessons=${report.lessonsCount}, lessonVersions=${report.lessonVersionsCount}`,
     );
   }
   if (

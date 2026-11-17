@@ -3,7 +3,7 @@
  *
  * Verifies local `.dev.vars` key presence (boolean only, never secret values),
  * SQLite `PRAGMA integrity_check`, household D1 isolation invariants (triggers,
- * unique attempt index, schema v15+, 50+ catalogue lessons, single parent/learner,
+ * unique attempt index, schema v15+, 100+ catalogue lessons, single parent/learner,
  * zero B2B2C organizations/classrooms, and zero foreign audit actors), household
  * identity presence (`parents`, `learners`, `school_years`), and the count of
  * parent-approved active lessons for the registered household learner without
@@ -11,6 +11,7 @@
  */
 
 import {
+  SHIPPED_CATALOGUE_LESSON_COUNT,
   assertMinimumSchemaVersion,
   extractHouseholdIdentity,
   verifyCleanHouseholdState,
@@ -129,8 +130,8 @@ async function inspectHouseholdDatabaseState(
     .prepare(
       `SELECT
          (SELECT MAX(version) FROM schema_versions) AS schema_version,
-         (SELECT COUNT(*) FROM lessons) AS lessons_count,
-         (SELECT COUNT(*) FROM lesson_versions) AS lesson_versions_count,
+         (SELECT COUNT(*) FROM lessons WHERE ownership_type = 'catalogue') AS lessons_count,
+         (SELECT COUNT(*) FROM lesson_versions WHERE lesson_id IN (SELECT id FROM lessons WHERE ownership_type = 'catalogue')) AS lesson_versions_count,
          (SELECT COUNT(*) FROM parents) AS parents_count,
          (SELECT COUNT(*) FROM learners) AS learners_count,
          (SELECT COUNT(*) FROM school_years) AS school_years_count,
@@ -189,8 +190,8 @@ async function inspectHouseholdDatabaseState(
   };
 
   const isPristinePostReprovision =
-    report.lessonsCount === 50 &&
-    report.lessonVersionsCount === 50 &&
+    report.lessonsCount === SHIPPED_CATALOGUE_LESSON_COUNT &&
+    report.lessonVersionsCount === SHIPPED_CATALOGUE_LESSON_COUNT &&
     report.schoolYearsCount <= 1 &&
     report.auditEventsCount <= 2 &&
     report.learningSessionsCount === 0 &&
@@ -204,9 +205,12 @@ async function inspectHouseholdDatabaseState(
     return verifyCleanHouseholdState(db);
   }
 
-  if (report.lessonsCount < 50 || report.lessonVersionsCount < 50) {
+  if (
+    report.lessonsCount < SHIPPED_CATALOGUE_LESSON_COUNT ||
+    report.lessonVersionsCount < SHIPPED_CATALOGUE_LESSON_COUNT
+  ) {
     throw new Error(
-      `Household DB preflight failed: expected at least 50 catalogue lessons and 50 lesson_versions, found lessons=${report.lessonsCount}, lessonVersions=${report.lessonVersionsCount}`,
+      `Household DB preflight failed: expected at least ${SHIPPED_CATALOGUE_LESSON_COUNT} catalogue lessons and ${SHIPPED_CATALOGUE_LESSON_COUNT} lesson_versions, found lessons=${report.lessonsCount}, lessonVersions=${report.lessonVersionsCount}. Run \`npm run db:migrate && npm run seed:demo\` to sync the catalogue.`,
     );
   }
   if (

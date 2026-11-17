@@ -907,4 +907,128 @@ describe("Family Practice Lessons, Mastery Isolation, and Version-Safe Backup", 
     };
     expect(completedPlan.items.find((i) => i.id === practiceItem!.id)?.status).toBe("completed");
   });
+
+  it("rolls back a late import failure atomically across a 1,100-attempt history so a corrected retry succeeds in one batch", async () => {
+    const parentId = crypto.randomUUID();
+    const learnerId = crypto.randomUUID();
+    const now = Date.now();
+    const jar = await createJar(parentId, "Phụ huynh khôi phục", "parent");
+
+    await env.DB.prepare(
+      "INSERT INTO parents (id, password_hash, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+    )
+      .bind(parentId, "hash", "Phụ huynh khôi phục", now)
+      .run();
+    await repo.createLearner(env.DB, {
+      id: learnerId,
+      parentId,
+      nickname: "Bé Kiên",
+      birthYear: 2015,
+      grade: 4,
+      timezone: "Asia/Ho_Chi_Minh",
+      now,
+    });
+
+    const lessonRow = await env.DB.prepare(
+      "SELECT id, skill_id FROM lessons WHERE ownership_type = 'catalogue' LIMIT 1",
+    ).first<{ id: string; skill_id: string }>();
+    const stepRow = (await repo.listStepsForLesson(env.DB, lessonRow!.id, 1))[0]!;
+
+    const exportRes = await callWithJar(jar, "/api/data/export", { method: "POST" });
+    expect(exportRes.status).toBe(200);
+    const baseEnvelope = (await exportRes.json()) as ExportEnvelope;
+
+    await callWithJar(jar, "/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: "XOA Bé Kiên" },
+    });
+
+    // Build a multi-year-scale history (>1,000 attempts) executed inside the
+    // single atomic restore batch.
+    const sessionId = crypto.randomUUID();
+    const largeEnvelope: ExportEnvelope = JSON.parse(JSON.stringify(baseEnvelope));
+    largeEnvelope.data.learningSessions.push({
+      id: sessionId,
+      learnerId,
+      lessonId: lessonRow!.id,
+      lessonVersion: 1,
+      schoolYearId: null,
+      startedAt: now - 60_000,
+      endedAt: now,
+      status: "completed",
+      stepsSeen: 1,
+      continuationDeadline: null,
+      purpose: "official",
+    });
+    for (let index = 0; index < 1_100; index += 1) {
+      largeEnvelope.data.learningAttempts.push({
+        id: crypto.randomUUID(),
+        sessionId,
+        learnerId,
+        lessonId: lessonRow!.id,
+        stepId: stepRow.id,
+        stepVersion: 1,
+        skillId: lessonRow!.skill_id,
+        submitted: { kind: "choice", choiceId: "a" },
+        outcome: "correct",
+        // Repeats of the same step cannot be independent evidence, so a history
+        // this long is honestly assisted.
+        evidenceKind: "assisted",
+        helpLevel: 1,
+        attemptNo: index + 1,
+        purpose: "official",
+        createdAt: now - 50_000 + index,
+      });
+    }
+
+    // Corrupt a late collection (goals run after learners, sessions, and
+    // evidence inside the single db.batch) with a dangling foreign key so the
+    // transaction aborts after the learner and all 1,100 attempts have executed.
+    const brokenEnvelope: ExportEnvelope = JSON.parse(JSON.stringify(largeEnvelope));
+    brokenEnvelope.data.learningGoals.push({
+      id: crypto.randomUUID(),
+      learnerId,
+      subjectId: "subject-does-not-exist",
+      titleVi: "Mục tiêu hỏng khóa ngoại",
+      note: null,
+      targetDate: null,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const failedRes = await callWithJar(jar, "/api/data/import", {
+      method: "POST",
+      json: brokenEnvelope,
+    });
+    const failedBody = await failedRes.text();
+    expect(failedRes.status, failedBody).toBe(500);
+
+    // Neither the partial learner nor any of its 1,100 attempts may remain.
+    expect(await repo.listLearnersForParent(env.DB, parentId)).toEqual([]);
+    const orphanAttempts = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM learning_attempts WHERE session_id = ?1",
+    )
+      .bind(sessionId)
+      .first<{ count: number }>();
+    expect(orphanAttempts?.count).toBe(0);
+
+    // Because the single db.batch rolled back completely, the parent is not
+    // locked out by the single-learner-per-machine guard: the repaired backup
+    // restores cleanly on the immediate retry.
+    const retryRes = await callWithJar(jar, "/api/data/import", {
+      method: "POST",
+      json: largeEnvelope,
+    });
+    expect(retryRes.status).toBe(200);
+
+    const restoredLearners = await repo.listLearnersForParent(env.DB, parentId);
+    expect(restoredLearners).toHaveLength(1);
+    const restoredCount = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM learning_attempts WHERE learner_id = ?1",
+    )
+      .bind(restoredLearners[0]!.id)
+      .first<{ count: number }>();
+    expect(restoredCount?.count).toBe(1_100);
+  });
 });

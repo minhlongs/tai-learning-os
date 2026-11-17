@@ -59,9 +59,51 @@ const SCHEMA_VERSION_INSERT_PATTERN =
 
 /**
  * Every shipped migration filename (0001_initial_schema.sql through
- * 0014_grade5_curriculum_expansion.sql), discovered dynamically in application order.
+ * 0014_grade5_curriculum_expansion.sql and subsequent waves through
+ * 0017_grade4_grade5_curriculum_wave2.sql), discovered dynamically in
+ * application order.
  */
 const MIGRATION_NAMES = listShippedMigrationFiles();
+
+export interface ShippedMigrationDescriptor {
+  readonly filename: string;
+  readonly recordedVersion: number | null;
+}
+
+function deriveShippedMigrations(): readonly ShippedMigrationDescriptor[] {
+  const seenVersions = new Set<number>();
+  return MIGRATION_NAMES.map((filename, index) => {
+    const text = readFileSync(join(MIGRATIONS_DIR, filename), "utf8");
+    const match = SCHEMA_VERSION_INSERT_PATTERN.exec(text);
+    if (!match) {
+      if (index === 0 && filename === "0001_initial_schema.sql") {
+        return { filename, recordedVersion: null };
+      }
+      throw new Error(
+        `Pilot schema verification failed: migration ${filename} does not record a schema_versions row`,
+      );
+    }
+    const recordedVersion = Number(match[1]);
+    if (!Number.isFinite(recordedVersion)) {
+      throw new Error(
+        `Pilot schema verification failed: migration ${filename} recorded invalid version`,
+      );
+    }
+    if (seenVersions.has(recordedVersion)) {
+      throw new Error(
+        `Pilot schema verification failed: duplicate schema_versions entry ${recordedVersion} in ${filename}`,
+      );
+    }
+    seenVersions.add(recordedVersion);
+    return { filename, recordedVersion };
+  });
+}
+
+const SHIPPED_MIGRATIONS = deriveShippedMigrations();
+
+export function listShippedPilotMigrations(): readonly ShippedMigrationDescriptor[] {
+  return SHIPPED_MIGRATIONS;
+}
 
 /**
  * Highest version the shipped migrations actually record. Fails closed when no
@@ -69,10 +111,9 @@ const MIGRATION_NAMES = listShippedMigrationFiles();
  * schema look complete.
  */
 export function latestShippedSchemaVersion(): number {
-  const versions = MIGRATION_NAMES.map((name) => {
-    const text = readFileSync(join(MIGRATIONS_DIR, name), "utf8");
-    return Number(SCHEMA_VERSION_INSERT_PATTERN.exec(text)?.[1]);
-  }).filter((version) => Number.isFinite(version));
+  const versions = SHIPPED_MIGRATIONS.map((migration) => migration.recordedVersion).filter(
+    (version): version is number => version !== null && Number.isFinite(version),
+  );
 
   if (versions.length === 0) {
     throw new Error(
@@ -80,6 +121,34 @@ export function latestShippedSchemaVersion(): number {
     );
   }
   return Math.max(...versions);
+}
+
+/**
+ * Select the shipped migration filenames that still need to run against a pilot
+ * database.
+ *
+ * - `recordedVersions === null` means `schema_versions` does not exist yet
+ *   (fresh database), so every shipped migration runs in order starting from
+ *   `0001_initial_schema.sql`.
+ * - When `recordedVersions` is a set (`schema_versions` already exists),
+ *   `0001_initial_schema.sql` (`recordedVersion === null`) is never selected so
+ *   an existing database never replays `CREATE TABLE schema_versions`, and only
+ *   migrations whose `recordedVersion` is absent from `recordedVersions` run.
+ */
+export function selectPendingPilotMigrations(
+  recordedVersions: ReadonlySet<number> | null,
+  migrations: readonly ShippedMigrationDescriptor[] = SHIPPED_MIGRATIONS,
+): string[] {
+  if (recordedVersions === null) {
+    return migrations.map((migration) => migration.filename);
+  }
+  return migrations
+    .filter(
+      (migration) =>
+        migration.recordedVersion !== null &&
+        !recordedVersions.has(migration.recordedVersion),
+    )
+    .map((migration) => migration.filename);
 }
 
 const PILOT_RUNTIME_DIR = join(tmpdir(), "tai-learning-os-pilot-runtime");
@@ -244,15 +313,9 @@ const FIXTURE_TABLES = [
   ),
 ].sort();
 
-/** Every shipped migration, split into executable statements in file order. */
-function migrationStatements(): string[] {
-  const statements: string[] = [];
-  for (const name of MIGRATION_NAMES) {
-    for (const statement of splitSqlStatements(readFileSync(join(MIGRATIONS_DIR, name), "utf8"))) {
-      if (statement) statements.push(statement);
-    }
-  }
-  return statements;
+/** Executable SQL statements for a single shipped migration file. */
+function migrationFileStatements(filename: string): string[] {
+  return splitSqlStatements(readFileSync(join(MIGRATIONS_DIR, filename), "utf8")).filter(Boolean);
 }
 
 /**
@@ -260,27 +323,55 @@ function migrationStatements(): string[] {
  * integrity controls are present, so the fixture never runs against a
  * half-applied schema.
  *
- * Idempotent: migration 0001 creates its tables with plain `CREATE TABLE` — none
- * of the 17 are `IF NOT EXISTS` — so replaying it against an already-migrated
- * database raises "table schema_versions already exists". A database whose
- * schema already reached the shipped newest version is therefore left as it
- * stands, and only a database that is behind gets the statements applied.
- * `test-db.ts` sidesteps this by dropping its tables first; this module cannot
- * drop, because the pilot database may carry fixture rows worth keeping.
+ * Incremental & idempotent: migration 0001 creates its tables with plain
+ * `CREATE TABLE` — none of the 17 are `IF NOT EXISTS` — so replaying 0001
+ * against an already-migrated database raises "table schema_versions already
+ * exists". When `schema_versions` already exists, `selectPendingPilotMigrations`
+ * inspects the recorded version set and runs only the unapplied migrations in
+ * order (never replaying 0001). On a fresh database where `schema_versions`
+ * does not exist yet, every shipped migration runs from 0001 through the latest.
  */
-async function applySchema(db: D1Database): Promise<void> {
+export async function applyPilotSchema(db: D1Database): Promise<void> {
+  const schemaTable = await db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_versions'")
+    .first<{ name: string }>();
+
+  let recordedVersions: Set<number> | null = null;
+  if (schemaTable) {
+    const rows =
+      (
+        await db
+          .prepare("SELECT version FROM schema_versions ORDER BY version ASC")
+          .all<{ version: number }>()
+      ).results ?? [];
+    recordedVersions = new Set(
+      rows.map((row) => Number(row.version)).filter((version) => Number.isFinite(version)),
+    );
+  }
+
+  const pendingFiles = selectPendingPilotMigrations(recordedVersions);
+  for (const filename of pendingFiles) {
+    const statements = migrationFileStatements(filename);
+    if (statements.length === 0) continue;
+    if (filename === "0001_initial_schema.sql") {
+      // 0001 contains `PRAGMA foreign_keys = ON;`, which SQLite executes as a
+      // no-op inside an explicit transaction (`db.batch`), so run 0001 directly.
+      for (const statement of statements) {
+        await db.prepare(statement).run();
+      }
+    } else {
+      await db.batch(statements.map((statement) => db.prepare(statement)));
+    }
+  }
+
   const latestVersion = latestShippedSchemaVersion();
   const currentVersion = await db
     .prepare("SELECT MAX(version) AS max_version FROM schema_versions")
-    .first<{ max_version: number | null }>()
-    .catch(() => null);
-
-  if (currentVersion && Number(currentVersion.max_version ?? 0) >= latestVersion) {
-    // Already at the shipped schema. Skip replay, still verify integrity below.
-  } else {
-    for (const statement of migrationStatements()) {
-      await db.prepare(statement).run();
-    }
+    .first<{ max_version: number | null }>();
+  if (Number(currentVersion?.max_version ?? 0) < latestVersion) {
+    throw new Error(
+      `Pilot schema verification failed: expected schema_versions >= ${latestVersion}, found ${String(currentVersion?.max_version)}`,
+    );
   }
 
   const triggers = (
@@ -357,7 +448,7 @@ export async function openPilotDatabase(): Promise<PilotProxy> {
     },
   };
   try {
-    await applySchema(db);
+    await applyPilotSchema(db);
   } catch (error) {
     await proxy.dispose();
     throw error;

@@ -9,8 +9,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { listShippedMigrationFiles } from "../../scripts/migrate-local-d1.mjs";
+import { createSqliteD1Adapter, splitSqlStatements } from "../../scripts/seed-lessons.mjs";
 
 /**
  * Static guard for pilot-fixture database isolation.
@@ -218,5 +220,100 @@ describe("pilot database isolation", () => {
     // The real temp directory is outside the repository, so the external case is
     // genuinely external and not merely spelled that way.
     expect(isInside(REPO_ROOT, realpathSync(tmpdir()))).toBe(false);
+  });
+
+  it("selects only pending migrations for behind-version pilot DBs and accounts for filename-vs-version drift", async () => {
+    const { listShippedPilotMigrations, selectPendingPilotMigrations } = await import(
+      "../integration/pilot-database.js"
+    );
+
+    const descriptors = listShippedPilotMigrations();
+    const byName = new Map(descriptors.map((entry) => [entry.filename, entry.recordedVersion]));
+
+    // Shipped drift: 0001 records nothing, 0002 records 1, 0003 records 3, 0017 records 17.
+    expect(byName.get("0001_initial_schema.sql")).toBeNull();
+    expect(byName.get("0002_reference_content.sql")).toBe(1);
+    expect(byName.get("0003_curriculum_and_trust_closure.sql")).toBe(3);
+    expect(byName.get("0017_grade4_grade5_curriculum_wave2.sql")).toBe(17);
+
+    // Fresh database (`schema_versions` absent => null) runs every migration from 0001.
+    expect(selectPendingPilotMigrations(null)).toEqual(MIGRATION_NAMES_FOR_VERSION_CHECK);
+
+    // Existing database at v16 selects only 0017 (and any future >17 migrations, capped here to <=17).
+    const v16Recorded = new Set([1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    const throughV17 = descriptors.filter(
+      (entry) => entry.recordedVersion === null || entry.recordedVersion <= 17,
+    );
+    expect(selectPendingPilotMigrations(v16Recorded, throughV17)).toEqual([
+      "0017_grade4_grade5_curriculum_wave2.sql",
+    ]);
+
+    // Existing database never replays 0001_initial_schema.sql even if schema_versions is empty.
+    const fromEmptyExisting = selectPendingPilotMigrations(new Set<number>(), throughV17);
+    expect(fromEmptyExisting).not.toContain("0001_initial_schema.sql");
+    expect(fromEmptyExisting[0]).toBe("0002_reference_content.sql");
+
+    // Up-to-date database selects zero migrations.
+    const allRecorded = new Set(
+      descriptors
+        .map((entry) => entry.recordedVersion)
+        .filter((version): version is number => version !== null),
+    );
+    expect(selectPendingPilotMigrations(allRecorded)).toEqual([]);
+  });
+
+  it("incrementally upgrades a persisted v16 pilot database to latest without replaying 0001", async () => {
+    const { applyPilotSchema, latestShippedSchemaVersion } = await import(
+      "../integration/pilot-database.js"
+    );
+
+    const rawDb = new DatabaseSync(":memory:");
+    try {
+      rawDb.exec("PRAGMA foreign_keys = ON;");
+      const preV17Files = MIGRATION_NAMES_FOR_VERSION_CHECK.filter(
+        (name) => Number(name.slice(0, 4)) <= 16,
+      );
+      for (const filename of preV17Files) {
+        const sql = readFileSync(join(REPO_ROOT, "migrations", filename), "utf8");
+        for (const stmt of splitSqlStatements(sql)) {
+          if (stmt) rawDb.exec(stmt);
+        }
+      }
+
+      // Seed a sentinel parent row to verify existing pilot rows survive incremental replay.
+      rawDb
+        .prepare(
+          "INSERT INTO parents (id, display_name, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run("pilot-sentinel-parent", "Phụ huynh mẫu", "hash", 1700000000000, 1700000000000);
+
+      const beforeRow = rawDb
+        .prepare("SELECT MAX(version) AS max_version FROM schema_versions")
+        .get() as { max_version: number };
+      expect(Number(beforeRow.max_version)).toBe(16);
+
+      const db = createSqliteD1Adapter(rawDb) as D1Database;
+      await applyPilotSchema(db);
+
+      const afterRow = rawDb
+        .prepare("SELECT MAX(version) AS max_version FROM schema_versions")
+        .get() as { max_version: number };
+      expect(Number(afterRow.max_version)).toBe(latestShippedSchemaVersion());
+
+      const wave2Skill = rawDb
+        .prepare("SELECT id FROM skills WHERE id = 'math-frac-identify'")
+        .get() as { id: string } | undefined;
+      expect(wave2Skill?.id).toBe("math-frac-identify");
+
+      const sentinelParent = rawDb
+        .prepare("SELECT id FROM parents WHERE id = 'pilot-sentinel-parent'")
+        .get() as { id: string } | undefined;
+      expect(sentinelParent?.id).toBe("pilot-sentinel-parent");
+
+      // Re-running on an already-current database is a clean no-op.
+      await expect(applyPilotSchema(db)).resolves.toBeUndefined();
+    } finally {
+      rawDb.close();
+    }
   });
 });

@@ -156,7 +156,7 @@ export async function findLearnerForParent(
   return row ?? null;
 }
 
-export async function createLearner(
+export function createLearnerStatement(
   db: Db,
   input: {
     id: string;
@@ -166,9 +166,35 @@ export async function createLearner(
     grade: number | null;
     timezone: string;
     now: number;
+    guardParentHasNoActiveLearner?: boolean;
   },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  if (input.guardParentHasNoActiveLearner) {
+    return db
+      .prepare(
+        `INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at)
+         VALUES (
+           ?1,
+           (
+             SELECT ?2
+             WHERE NOT EXISTS (
+               SELECT 1 FROM learners WHERE parent_id = ?2 AND archived_at IS NULL
+             )
+           ),
+           ?3, ?4, ?5, ?6, ?7, ?7
+         )`,
+      )
+      .bind(
+        input.id,
+        input.parentId,
+        input.nickname,
+        input.birthYear,
+        input.grade,
+        input.timezone,
+        input.now,
+      );
+  }
+  return db
     .prepare(
       `INSERT INTO learners (id, parent_id, nickname, birth_year, grade, timezone, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
@@ -181,8 +207,22 @@ export async function createLearner(
       input.grade,
       input.timezone,
       input.now,
-    )
-    .run();
+    );
+}
+
+export async function createLearner(
+  db: Db,
+  input: {
+    id: string;
+    parentId: string;
+    nickname: string;
+    birthYear: number | null;
+    grade: number | null;
+    timezone: string;
+    now: number;
+  },
+): Promise<void> {
+  await createLearnerStatement(db, input).run();
 }
 
 export async function updateLearner(
@@ -251,17 +291,23 @@ export async function findActiveSchoolYear(
   return row ?? null;
 }
 
-export async function createSchoolYear(
+export function createSchoolYearStatement(
   db: Db,
   input: { id: string; learnerId: string; label: string; startsOn: string; endsOn: string; grade: number | null; now: number },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO school_years (id, learner_id, label, starts_on, ends_on, grade, created_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
     )
-    .bind(input.id, input.learnerId, input.label, input.startsOn, input.endsOn, input.grade, input.now)
-    .run();
+    .bind(input.id, input.learnerId, input.label, input.startsOn, input.endsOn, input.grade, input.now);
+}
+
+export async function createSchoolYear(
+  db: Db,
+  input: { id: string; learnerId: string; label: string; startsOn: string; endsOn: string; grade: number | null; now: number },
+): Promise<void> {
+  await createSchoolYearStatement(db, input).run();
 }
 
 export async function upsertSchoolYear(
@@ -542,52 +588,99 @@ export async function listStepsForLesson(
   return result.results ?? [];
 }
 
+/**
+ * Cloudflare D1 enforces a hard ceiling of 100 bound parameters per SQL statement.
+ * Keep dynamic `IN (...)` chunks well below 100 so extra scalar parameters never overflow.
+ */
+const D1_IN_CHUNK_SIZE = 80;
+
+function chunkItems<T>(items: readonly T[], chunkSize = D1_IN_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+function compareTextBinary(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export async function findStepsForLessons(db: Db, lessonIds: readonly string[]): Promise<LessonStepRow[]> {
-  if (lessonIds.length === 0) return [];
-  const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
-  const result = await db
-    .prepare(
-      `SELECT ls.id, ls.lesson_id, ls.position, ls.kind, ls.content, ls.answer_key, ls.explanation_vi, ls.content_version, ls.source_step_id
-       FROM lesson_steps ls
-       JOIN lessons l ON l.id = ls.lesson_id AND ls.content_version = l.version
-       WHERE ls.lesson_id IN (${placeholders}) ORDER BY ls.lesson_id, ls.position ASC`,
-    )
-    .bind(...lessonIds)
-    .all<LessonStepRow>();
-  return result.results ?? [];
+  const uniqueIds = Array.from(new Set(lessonIds));
+  if (uniqueIds.length === 0) return [];
+  const chunkResults = await Promise.all(
+    chunkItems(uniqueIds).map(async (chunk) => {
+      const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
+      const result = await db
+        .prepare(
+          `SELECT ls.id, ls.lesson_id, ls.position, ls.kind, ls.content, ls.answer_key, ls.explanation_vi, ls.content_version, ls.source_step_id
+           FROM lesson_steps ls
+           JOIN lessons l ON l.id = ls.lesson_id AND ls.content_version = l.version
+           WHERE ls.lesson_id IN (${placeholders}) ORDER BY ls.lesson_id, ls.position ASC`,
+        )
+        .bind(...chunk)
+        .all<LessonStepRow>();
+      return result.results ?? [];
+    }),
+  );
+  return chunkResults
+    .flat()
+    .sort((a, b) => compareTextBinary(a.lesson_id, b.lesson_id) || a.position - b.position);
 }
 
 export async function findAllStepsForLessons(db: Db, lessonIds: readonly string[]): Promise<LessonStepRow[]> {
-  if (lessonIds.length === 0) return [];
-  const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
-  const result = await db
-    .prepare(
-      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id
-       FROM lesson_steps
-       WHERE lesson_id IN (${placeholders})
-       ORDER BY lesson_id ASC, content_version ASC, position ASC`,
-    )
-    .bind(...lessonIds)
-    .all<LessonStepRow>();
-  return result.results ?? [];
+  const uniqueIds = Array.from(new Set(lessonIds));
+  if (uniqueIds.length === 0) return [];
+  const chunkResults = await Promise.all(
+    chunkItems(uniqueIds).map(async (chunk) => {
+      const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
+      const result = await db
+        .prepare(
+          `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id
+           FROM lesson_steps
+           WHERE lesson_id IN (${placeholders})
+           ORDER BY lesson_id ASC, content_version ASC, position ASC`,
+        )
+        .bind(...chunk)
+        .all<LessonStepRow>();
+      return result.results ?? [];
+    }),
+  );
+  return chunkResults
+    .flat()
+    .sort(
+      (a, b) =>
+        compareTextBinary(a.lesson_id, b.lesson_id) ||
+        a.content_version - b.content_version ||
+        a.position - b.position,
+    );
 }
 
 export async function findLessonVersionsForLessons(
   db: Db,
   lessonIds: readonly string[],
 ): Promise<LessonVersionRow[]> {
-  if (lessonIds.length === 0) return [];
-  const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
-  const result = await db
-    .prepare(
-      `SELECT lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at
-       FROM lesson_versions
-       WHERE lesson_id IN (${placeholders})
-       ORDER BY lesson_id ASC, version ASC`,
-    )
-    .bind(...lessonIds)
-    .all<LessonVersionRow>();
-  return result.results ?? [];
+  const uniqueIds = Array.from(new Set(lessonIds));
+  if (uniqueIds.length === 0) return [];
+  const chunkResults = await Promise.all(
+    chunkItems(uniqueIds).map(async (chunk) => {
+      const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
+      const result = await db
+        .prepare(
+          `SELECT lesson_id, version, title_vi, title_en, objective_vi, objective_en, created_at
+           FROM lesson_versions
+           WHERE lesson_id IN (${placeholders})
+           ORDER BY lesson_id ASC, version ASC`,
+        )
+        .bind(...chunk)
+        .all<LessonVersionRow>();
+      return result.results ?? [];
+    }),
+  );
+  return chunkResults
+    .flat()
+    .sort((a, b) => compareTextBinary(a.lesson_id, b.lesson_id) || a.version - b.version);
 }
 
 export async function findLessonVersionsForPairs(
@@ -607,18 +700,9 @@ export async function findStepsForLessonVersionPairs(
 ): Promise<LessonStepRow[]> {
   if (pairs.length === 0) return [];
   const lessonIds = Array.from(new Set(pairs.map((p) => p.lessonId)));
-  const placeholders = lessonIds.map((_, i) => `?${i + 1}`).join(",");
-  const result = await db
-    .prepare(
-      `SELECT id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id
-       FROM lesson_steps
-       WHERE lesson_id IN (${placeholders})
-       ORDER BY lesson_id ASC, content_version ASC, position ASC`,
-    )
-    .bind(...lessonIds)
-    .all<LessonStepRow>();
+  const allRows = await findAllStepsForLessons(db, lessonIds);
   const allowedKeys = new Set(pairs.map((p) => `${p.lessonId}:::${p.version}`));
-  return (result.results ?? []).filter((r) => allowedKeys.has(`${r.lesson_id}:::${r.content_version}`));
+  return allRows.filter((r) => allowedKeys.has(`${r.lesson_id}:::${r.content_version}`));
 }
 
 export async function findStep(db: Db, stepId: string): Promise<LessonStepRow | null> {
@@ -1064,21 +1148,28 @@ export async function clampSessionContinuationDeadlines(
   sessionIds: string[],
   revokedAt: number,
 ): Promise<void> {
-  if (sessionIds.length === 0) return;
+  const uniqueIds = Array.from(new Set(sessionIds));
+  if (uniqueIds.length === 0) return;
   const deadline = revokedAt + SESSION_CONTINUATION_GRACE_MS;
-  const placeholders = sessionIds.map((_, i) => `?${i + 2}`).join(",");
-  await db
-    .prepare(
-      `UPDATE learning_sessions
-       SET continuation_deadline = CASE
-         WHEN continuation_deadline IS NULL THEN ?1
-         WHEN continuation_deadline > ?1 THEN ?1
-         ELSE continuation_deadline
-       END
-       WHERE id IN (${placeholders}) AND status = 'in_progress'`,
-    )
-    .bind(deadline, ...sessionIds)
-    .run();
+  const statements = chunkItems(uniqueIds).map((chunk) => {
+    const placeholders = chunk.map((_, i) => `?${i + 2}`).join(",");
+    return db
+      .prepare(
+        `UPDATE learning_sessions
+         SET continuation_deadline = CASE
+           WHEN continuation_deadline IS NULL THEN ?1
+           WHEN continuation_deadline > ?1 THEN ?1
+           ELSE continuation_deadline
+         END
+         WHERE id IN (${placeholders}) AND status = 'in_progress'`,
+      )
+      .bind(deadline, ...chunk);
+  });
+  if (statements.length === 1) {
+    await statements[0]!.run();
+    return;
+  }
+  await db.batch(statements);
 }
 
 export function clampContinuationDeadlinesForLearnerLessonStatement(
@@ -2240,11 +2331,11 @@ export async function findCurriculumIntake(
   return row ?? null;
 }
 
-export async function upsertCurriculumIntake(
+export function upsertCurriculumIntakeStatement(
   db: Db,
   input: { intake: CurriculumIntakeRow },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO curriculum_intakes
          (id, learner_id, school_year_label, grade, subject_id, textbook_series, current_unit,
@@ -2279,8 +2370,14 @@ export async function upsertCurriculumIntake(
       input.intake.provenance,
       input.intake.created_at,
       input.intake.updated_at,
-    )
-    .run();
+    );
+}
+
+export async function upsertCurriculumIntake(
+  db: Db,
+  input: { intake: CurriculumIntakeRow },
+): Promise<void> {
+  await upsertCurriculumIntakeStatement(db, input).run();
 }
 
 /* ── Lesson metadata ────────────────────────────────────────────────────── */
@@ -2296,7 +2393,7 @@ export async function listLessonMetadata(db: Db): Promise<LessonMetadataRow[]> {
   return result.results ?? [];
 }
 
-export async function upsertLessonMetadata(
+export function upsertLessonMetadataStatement(
   db: Db,
   input: {
     lessonId: string;
@@ -2308,8 +2405,8 @@ export async function upsertLessonMetadata(
     isBaseline: boolean;
     now: number;
   },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO lesson_metadata
          (lesson_id, objective_id, provenance, source_ref, expected_duration_minutes,
@@ -2333,8 +2430,23 @@ export async function upsertLessonMetadata(
       input.reviewRecommendationVi,
       input.isBaseline ? 1 : 0,
       input.now,
-    )
-    .run();
+    );
+}
+
+export async function upsertLessonMetadata(
+  db: Db,
+  input: {
+    lessonId: string;
+    objectiveId: string | null;
+    provenance: LessonMetadataRow["provenance"];
+    sourceRef: string | null;
+    expectedDurationMinutes: number;
+    reviewRecommendationVi: string | null;
+    isBaseline: boolean;
+    now: number;
+  },
+): Promise<void> {
+  await upsertLessonMetadataStatement(db, input).run();
 }
 
 export async function findLessonMetadata(db: Db, lessonId: string): Promise<LessonMetadataRow | null> {
@@ -2449,7 +2561,7 @@ export async function completeBaselineAssessment(
     .run();
 }
 
-export async function upsertBaselineAssessment(
+export function upsertBaselineAssessmentStatement(
   db: Db,
   input: {
     id: string;
@@ -2465,8 +2577,8 @@ export async function upsertBaselineAssessment(
     now: number;
     completedAt: number | null;
   },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO baseline_assessments
          (id, learner_id, subject_id, session_id, status, observed_summary_vi,
@@ -2496,8 +2608,27 @@ export async function upsertBaselineAssessment(
       input.parentReviewRequired ? 1 : 0,
       input.now,
       input.completedAt,
-    )
-    .run();
+    );
+}
+
+export async function upsertBaselineAssessment(
+  db: Db,
+  input: {
+    id: string;
+    learnerId: string;
+    subjectId: string;
+    sessionId: string | null;
+    status: BaselineAssessmentRow["status"];
+    observedSummaryVi: string | null;
+    supportedSummaryVi: string | null;
+    needsObservationJson: string;
+    suggestedLessonsJson: string;
+    parentReviewRequired: boolean;
+    now: number;
+    completedAt: number | null;
+  },
+): Promise<void> {
+  await upsertBaselineAssessmentStatement(db, input).run();
 }
 
 /* ── Learning plan items ────────────────────────────────────────────────── */
@@ -2535,11 +2666,11 @@ export async function deleteScheduledPlanItemsForLearner(
     .run();
 }
 
-export async function insertPlanItem(
+export function insertPlanItemStatement(
   db: Db,
   input: { item: LearningPlanItemRow },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO learning_plan_items
          (id, learner_id, school_year_label, week_index, day_of_week, scheduled_date,
@@ -2564,8 +2695,14 @@ export async function insertPlanItem(
       input.item.reason_vi,
       input.item.created_at,
       input.item.updated_at,
-    )
-    .run();
+    );
+}
+
+export async function insertPlanItem(
+  db: Db,
+  input: { item: LearningPlanItemRow },
+): Promise<void> {
+  await insertPlanItemStatement(db, input).run();
 }
 
 export async function updatePlanItem(
@@ -2699,17 +2836,23 @@ export function sessionReflectionInsertGuarded(
     .bind(input.id, input.sessionId, input.learnerId, input.feeling, input.noteVi, input.now);
 }
 
-export async function insertSessionReflection(
+export function insertSessionReflectionStatement(
   db: Db,
   input: { id: string; sessionId: string; learnerId: string; feeling: SessionReflectionRow["feeling"]; noteVi: string | null; now: number },
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO session_reflections (id, session_id, learner_id, feeling, note_vi, created_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
     )
-    .bind(input.id, input.sessionId, input.learnerId, input.feeling, input.noteVi, input.now)
-    .run();
+    .bind(input.id, input.sessionId, input.learnerId, input.feeling, input.noteVi, input.now);
+}
+
+export async function insertSessionReflection(
+  db: Db,
+  input: { id: string; sessionId: string; learnerId: string; feeling: SessionReflectionRow["feeling"]; noteVi: string | null; now: number },
+): Promise<void> {
+  await insertSessionReflectionStatement(db, input).run();
 }
 
 export async function findSessionReflection(

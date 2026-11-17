@@ -4,8 +4,8 @@ The schema is the contract. It began as
 [`migrations/0001_initial_schema.sql`](../migrations/0001_initial_schema.sql)
 ("Schema v1": 17 tables, 7 indexes) plus the reference catalogue in
 [`migrations/0002_reference_content.sql`](../migrations/0002_reference_content.sql),
-and has grown through sixteen migrations, the last being
-[`0016_learning_attempts_append_only_update_guard.sql`](../migrations/0016_learning_attempts_append_only_update_guard.sql).
+and has grown through seventeen migrations, the last being
+[`0017_grade4_grade5_curriculum_wave2.sql`](../migrations/0017_grade4_grade5_curriculum_wave2.sql).
 
 Applying every file in `migrations/` to an empty SQLite database yields
 **35 tables, 4 triggers, and 87 indexes**, where 50 of the 87 indexes are the
@@ -273,13 +273,13 @@ The full minimization table, and the controls that keep these fields out, are in
 ```
  migrations/0001_initial_schema.sql   ──▶  CREATE TABLE schema_versions
  migrations/0002_reference_content.sql ──▶  INSERT INTO schema_versions (1, …)
- migrations/0003 … 0016                ──▶  INSERT INTO schema_versions (3 … 16, …)
+ migrations/0003 … 0017                ──▶  INSERT INTO schema_versions (3 … 17, …)
 ```
 
 - **Written by:** each migration inserts its own row. `0002` inserts `version = 1`,
   `applied_at = strftime('%s','now') * 1000` (unix epoch **ms**, not seconds), and
   the description `'Initial schema: parents through audit_events'`; `0003` through
-  `0016` insert `3` through `16` the same way. Nothing records `version = 2`: the
+  `0017` insert `3` through `17` the same way. Nothing records `version = 2`: the
   file numbered `0002` is the reference catalogue and is the one that stamped v1,
   so the numbering in `schema_versions` is the migration's own claim about the
   schema, not an echo of its filename. A gap in that column is not a missing
@@ -379,21 +379,21 @@ work"* and *"contains no learner data."* It is the first of six migrations that
 install reference rows; the numbers below are the state after **all sixteen**
 migrations have run, not the state after 0002 alone.
 
-| Measure | 0002 alone | After all 16 | Added by |
+| Measure | 0002 alone | After all 17 | Added by |
 |---|---|---|---|
 | Subjects | 5 rows, 3 active | 5 rows, 5 active | `0010` activates `science` and `debate` |
-| Skills | 12 | **41** | `0008` +1, `0010` +4, `0011` +4, `0014` +20 |
-| Prerequisite edges | 6 | **33** | `0008` +1, `0010` +2, `0011` +4, `0014` +20 |
-| Curriculum objectives | 0 (table absent) | **40** | `0003` +10, `0008` +2, `0010` +4, `0011` +4, `0014` +20 |
+| Skills | 12 | **90** | `0008` +1, `0010` +4, `0011` +4, `0014` +20, `0017` +49 |
+| Prerequisite edges | 6 | **82** | `0008` +1, `0010` +2, `0011` +4, `0014` +20, `0017` +49 |
+| Curriculum objectives | 0 (table absent) | **90** | `0003` +10, `0008` +2, `0010` +4, `0011` +4, `0014` +20, `0017` +50 |
 
-The 41 skills split across the five subjects as math 9, English 8, Vietnamese 8,
-science 8, debate 8, and across grade bands as `grade_from` 3 → 7, 4 → 14,
-5 → 20. The 40 objectives split by provenance as 32 `gdpt_2018_objective` and
-8 `original_supplemental`. Measuring this is a query, not a reading of the SQL:
+The 90 skills split evenly across the five subjects (18 each in math, English,
+Vietnamese, science, and debate), and across grade bands as `grade_from` 3 → 7,
+4 → 38, 5 → 45. The 90 objectives split by provenance as 72 `gdpt_2018_objective`
+and 18 `original_supplemental`. Measuring this is a query, not a reading of the SQL:
 `SELECT COUNT(*) FROM skills` against a database with every migration applied.
 
 - **`schema_versions`** — one row per migration. `0002` stamps `version = 1`
-  (the schema it builds on), and `0003`–`0016` stamp 3–16. No row records
+  (the schema it builds on), and `0003`–`0017` stamp 3–17. No row records
   `version = 2`; see §4 for why that is not a missing migration.
 - **Subjects — 5 rows, all active** (`0002` inserts them; `0010` flips
   `science` and `debate` from `active = 0` to `active = 1`):
@@ -406,17 +406,17 @@ science 8, debate 8, and across grade bands as `grade_from` 3 → 7, 4 → 14,
   | `science` | Khoa học | Science | 1 |
   | `debate` | Tư duy phản biện | Reasoning & Debate | 1 |
 
-- **Skills — 41 rows** across the five active subjects (including `sci-water-cycle`,
+- **Skills — 90 rows** across the five active subjects (including `sci-water-cycle`,
   `sci-plant-needs`, `deb-claim-reason`, `deb-fact-opinion`, all of which arrive
   after `0002`), each with a stable `code` (e.g. `MATH.FRAC.EQUIV`,
   `ENG.DIALOG.GREET`, `VIE.READ.EVID`, `SCI.G4.WATER.CYCLE`,
   `DEB.G4.CLAIM.REASON`) and a `grade_from` / `grade_to` band.
-- **Prerequisites — 33 edges**, a deterministic skill dependency graph. The 6
+- **Prerequisites — 82 edges**, a deterministic skill dependency graph. The 6
   edges written by `0002` are `math-frac-equiv → math-frac-identify`,
   `math-frac-compare → math-frac-equiv`, `math-word-problem → math-frac-identify`,
   `eng-sentence-basic → eng-voc-noun`, `eng-voc-home → eng-voc-noun`,
-  `vie-evidence → vie-reading-main`; `0008`, `0010`, `0011`, and `0014` add the
-  remaining 27 edges (including `sci-plant-needs → sci-water-cycle` and
+  `vie-evidence → vie-reading-main`; `0008`, `0010`, `0011`, `0014`, and `0017` add the
+  remaining 76 edges (including `sci-plant-needs → sci-water-cycle` and
   `deb-fact-opinion → deb-claim-reason`).
 
 **Lessons are not in SQL.** The migration header explains: lessons live in

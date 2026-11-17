@@ -36,7 +36,9 @@ import {
   splitSqlStatements,
 } from "../../scripts/seed-lessons.mjs";
 import { parseUnlockCliArgs, unlockParentAuthThrottles } from "../../scripts/unlock-parent.mjs";
+import { LESSONS } from "../../src/shared/content/index";
 import { inspectHouseholdPreflight } from "../../src/worker/db/household-preflight";
+import { SHIPPED_CATALOGUE_LESSON_COUNT } from "../../src/worker/db/reprovision-household";
 
 const HERE = new URL(".", import.meta.url).pathname;
 const REPO_ROOT = join(HERE, "..", "..");
@@ -672,8 +674,8 @@ describe("unlockParentAuthThrottles", () => {
     try {
       const raw = openWritable(fixture.sqlitePath);
       try {
-        // Seed 50 catalogue lessons so preflight's catalogue invariant is satisfied.
-        for (let i = 1; i <= 50; i += 1) {
+        // Seed catalogue lessons so preflight's catalogue invariant is satisfied.
+        for (let i = 1; i <= SHIPPED_CATALOGUE_LESSON_COUNT; i += 1) {
           const id = `cat-lesson-${i}`;
           const grade = i <= 25 ? 4 : 5;
           raw
@@ -748,7 +750,7 @@ describe("unlockParentAuthThrottles", () => {
 });
 
 describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero platform proxy)", () => {
-  it("parses --target-root and seeds all 50 shipped catalogue lessons idempotently", async () => {
+  it("parses --target-root and seeds all shipped catalogue lessons idempotently", async () => {
     expect(parseSeedLessonsCliArgs([])).toEqual({ targetRoot: process.cwd() });
     expect(parseSeedLessonsCliArgs(["--target-root", "/tmp/seed-root"])).toEqual({
       targetRoot: "/tmp/seed-root",
@@ -764,7 +766,7 @@ describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero platfo
     const fixture = createMigratedFixture("seed-lessons-cli");
     try {
       const first = await runSeedLessonsOnRoot(fixture.tmpRoot);
-      expect(first).toEqual({ inserted: 50, rewritten: 0, unchanged: 0 });
+      expect(first).toEqual({ inserted: SHIPPED_CATALOGUE_LESSON_COUNT, rewritten: 0, unchanged: 0 });
 
       const run = spawnSync(process.execPath, [SEED_CLI, "--target-root", fixture.tmpRoot], {
         cwd: REPO_ROOT,
@@ -772,7 +774,9 @@ describe("seed-lessons and reset-local-d1 CLI scripts (DatabaseSync, zero platfo
       });
       expect(run.status).toBe(0);
       expect(run.stderr).toBe("");
-      expect(run.stdout).toContain("seeded: 0 inserted, 0 content-changed, 50 unchanged");
+      expect(run.stdout).toContain(
+        `seeded: 0 inserted, 0 content-changed, ${SHIPPED_CATALOGUE_LESSON_COUNT} unchanged`,
+      );
     } finally {
       fixture.cleanup();
     }
@@ -930,12 +934,15 @@ describe("reprovision-household-db CLI script (byte-for-byte archive + clean rep
       expect(result.preservedParentDisplayName).toBe("Phụ huynh");
       expect(result.preservedLearnerNickname).toBe("Bé Mẫu");
       expect(result.preservedSchoolYearLabel).toBe("2026-2027");
-      expect(result.lessonsInserted).toBe(50);
+      const expectedGrade4Lessons = LESSONS.filter(
+        (lesson) => lesson.gradeFrom <= 4 && lesson.gradeTo >= 4,
+      ).length;
+      expect(result.lessonsInserted).toBe(SHIPPED_CATALOGUE_LESSON_COUNT);
       expect(result.verification.schemaVersion).toBe(SHIPPED_SCHEMA_VERSION);
-      expect(result.verification.lessonsCount).toBe(50);
+      expect(result.verification.lessonsCount).toBe(SHIPPED_CATALOGUE_LESSON_COUNT);
       expect(result.verification.organizationsCount).toBe(0);
       expect(result.lessonApprovals?.ok).toBe(true);
-      expect(result.lessonApprovals?.newlyApprovedCount).toBe(25);
+      expect(result.lessonApprovals?.newlyApprovedCount).toBe(expectedGrade4Lessons);
       expect(result.lessonApprovals?.readyForLearnerSession).toBe(true);
 
       // Verify the archived SQLite file in backups/ has the exact same SHA-256 byte-for-byte.
@@ -959,7 +966,7 @@ describe("reprovision-household-db CLI script (byte-for-byte archive + clean rep
           "ok",
         );
         expect(preflight.ok).toBe(true);
-        expect(preflight.approvedLessonsCount).toBe(25);
+        expect(preflight.approvedLessonsCount).toBe(expectedGrade4Lessons);
         expect(preflight.readyForLearnerSession).toBe(true);
       } finally {
         ro.close();
@@ -1040,7 +1047,7 @@ describe("migrate-local-d1 CLI script (DatabaseSync, read-only zero-write fast p
     const files = listShippedMigrationFiles();
     expect(files).toHaveLength(MIGRATION_FILES.length);
     expect(files[0]).toBe("0001_initial_schema.sql");
-    expect(files.at(-1)).toBe("0016_learning_attempts_append_only_update_guard.sql");
+    expect(files.at(-1)).toBe("0017_grade4_grade5_curriculum_wave2.sql");
     expect(files.every((f) => /^\d{4}_.*\.sql$/.test(f))).toBe(true);
 
     // Contiguous 0001..N with no gaps and no duplicates: the schema version is

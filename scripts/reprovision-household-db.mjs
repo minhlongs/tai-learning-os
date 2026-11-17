@@ -19,7 +19,7 @@
  *      directory under `backups/household-db-archive-<timestamp>/`, preserving the
  *      archived SQLite file's SHA-256 byte-for-byte.
  *   3. Opens a fresh local D1 SQLite file via `DatabaseSync`, applies all shipped
- *      migrations (`0001`–`0014`) + records them in `d1_migrations`, seeds all 50
+ *      migrations (`0001`–`0017`) + records them in `d1_migrations`, seeds all 100
  *      catalogue lessons via `seedLessons`, restores the household identity via
  *      `restoreHouseholdIdentity`, verifies the resulting clean state via
  *      `verifyCleanHouseholdState`, and optionally approves the learner's grade
@@ -143,8 +143,8 @@ export async function reprovisionHouseholdDatabase(options = {}) {
     }
   }
 
-  // Step 3: Open a fresh local D1 SQLite database, apply migrations 0001..0014,
-  //         seed 50 lessons, restore household identity, verify clean state,
+  // Step 3: Open a fresh local D1 SQLite database, apply migrations 0001..0017,
+  //         seed 100 lessons, restore household identity, verify clean state,
   //         and optionally approve the learner's grade lessons.
   mkdirSync(d1StateDir, { recursive: true });
   const targetSqliteFile = existingSqliteFile ?? DEFAULT_D1_SQLITE_FILENAME;

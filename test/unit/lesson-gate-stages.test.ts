@@ -419,8 +419,8 @@ describe("content gate — every stage can refuse", () => {
 });
 
 describe("content gate — the shipped registry passes", () => {
-  it("reports zero blocking problems for the 50 shipped lessons through both gates", () => {
-    expect(LESSONS.length).toBe(50);
+  it("reports zero blocking problems for the 100 shipped lessons through both gates", () => {
+    expect(LESSONS.length).toBe(100);
     expect(validateRegistry()).toEqual([]);
     expect(validateAuthoringStages().filter((problem) => problem.severity === "blocking")).toEqual([]);
   });
@@ -434,7 +434,7 @@ describe("content gate — the shipped registry passes", () => {
     expect(validateRegistry({ skills, objectives })).toEqual([]);
   });
 
-  it("reports zero total problems (blocking or advisory) across all 50 shipped lessons", () => {
+  it("reports zero total problems (blocking or advisory) across all 100 shipped lessons", () => {
     expect(validateAuthoringStages()).toEqual([]);
   });
 });

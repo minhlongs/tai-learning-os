@@ -43,9 +43,9 @@ import { openTestDatabase, type TestProxy } from "./test-db";
  *     flow with one proof row; there is no second write to pair it with.
  *   - `DELETE /api/data/learner` writes `learner.deleted` *before* the cascade,
  *     so the proof survives the deletion it records.
- *   - `POST /api/data/import` writes `data.imported` after its collections have
- *     landed, and replays restored `hint.requested` rows one at a time. The
- *     imported attempts, evidence, and review schedule are batched.
+ *   - `POST /api/data/import` executes the entire learner restore — learners,
+ *     family lessons, sessions, attempts, derived evidence, and all restored
+ *     `hint.requested` plus `data.imported` audit rows — in one atomic `db.batch`.
  *   - `POST /api/learner/hints` writes one guarded `hint.requested` row and
  *     withholds the hint if that write fails, so the failure mode is safe.
  *   - Every `recordAudit(...)` caller outside the flows above writes one row.
@@ -498,8 +498,8 @@ describe("single-statement paths are single on purpose", () => {
   });
 });
 
-describe("import restores grouped evidence as a batch and names its unbatched rows", () => {
-  it("batches restored attempts and evidence, and writes the proof rows singly", async () => {
+describe("import restores the entire record in one atomic batch", () => {
+  it("commits restored learners, attempts, evidence, and audit rows in a single batch", async () => {
     const lessonId = await approveFirstLesson();
     const session = await startLesson(lessonId);
     await answerFirstStepCorrectly(session);
@@ -518,6 +518,7 @@ describe("import restores grouped evidence as a batch and names its unbatched ro
     const imported = await call("/api/data/import", { method: "POST", json: envelope });
     expect(imported.status, "the export must round-trip before the shape means anything").toBe(200);
 
+    expect(state.batchCalls, "entire learner restore commits in one atomic db.batch").toBe(1);
     expect(batched("learning_attempts").length).toBeGreaterThanOrEqual(1);
     expect(batched("skill_evidence").length).toBeGreaterThanOrEqual(1);
     expect(unbatched("learning_attempts")).toHaveLength(0);
@@ -529,10 +530,10 @@ describe("import restores grouped evidence as a batch and names its unbatched ro
     expect(unbatched("skill_evidence_observation")).toHaveLength(0);
     expect(unbatched("skill_estimate")).toHaveLength(0);
 
-    // At least `data.imported`, and one restored `hint.requested` per hint the
-    // file recorded. Enumerated, not asserted away: they are proof rows written
-    // after the group they describe has already landed.
-    expect(unbatched("audit_events").length).toBeGreaterThanOrEqual(1);
+    // Restored `hint.requested` rows and the `data.imported` proof row commit
+    // inside the same single `db.batch` as the learner and evidence rows.
+    expect(batched("audit_events").length).toBeGreaterThanOrEqual(1);
+    expect(unbatched("audit_events")).toHaveLength(0);
 
     const restoredLearner = await proxy.env.DB.prepare(
       "SELECT id FROM learners WHERE nickname = ?1",

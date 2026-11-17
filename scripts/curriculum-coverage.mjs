@@ -158,7 +158,7 @@ async function buildReport(db, seeded) {
   const cycles = findCycles(edges);
 
   // Objectives carrying more than one lesson. The baseline diagnostics share an
-  // objective with the topic lesson they diagnose, which is why 50 lessons fit
+  // objective with the topic lesson they diagnose, which is why 100 lessons fit
   // inside fewer objectives.
   const byObjective = new Map();
   for (const lesson of lessons) {
@@ -285,7 +285,7 @@ function renderMarkdown(report) {
     "> ```",
     ">",
     "> Script mở một cơ sở dữ liệu cách ly trong `tmpdir()`, chạy lại toàn bộ migration đã phát hành,",
-    "> seed 50 bài qua chính `seedLessons()`, rồi đọc ngược kết quả từ SQLite. Mọi con số dưới đây là",
+    `> seed ${report.lessonCount} bài qua chính \`seedLessons()\`, rồi đọc ngược kết quả từ SQLite. Mọi con số dưới đây là`,
     "> kết quả truy vấn, không phải số chép tay.",
     "",
     "---",
@@ -354,7 +354,7 @@ function renderMarkdown(report) {
     "**Độ đầy đủ ánh xạ / Mapping completeness:** mọi bài đều có mục tiêu, mọi mục tiêu đều có bài.",
     "Đây là điều kiện về **cấu trúc**, không phải về **quy mô**.",
     "",
-    "**Phủ chương trình / Curriculum coverage:** 50 bài mẫu so với chương trình thật:",
+    `**Phủ chương trình / Curriculum coverage:** ${report.lessonCount} bài đã phát hành so với chương trình thật:`,
     "",
     "| Mẫu số / Denominator | Tổng / Total | Tỉ lệ / Ratio |",
     "| --- | --- | --- |",
@@ -367,7 +367,7 @@ function renderMarkdown(report) {
     "",
     "---",
     "",
-    "## 4. Ma trận 50 bài / The 50-lesson matrix",
+    `## 4. Ma trận ${report.lessonCount} bài / The ${report.lessonCount}-lesson matrix`,
     "",
     "| # | Môn / Subject | Lớp / Grade | Bài học / Lesson | Kỹ năng / Skill | Mục tiêu (YCCĐ) / Objective | Xuất xứ / Provenance | Chẩn đoán / Baseline |",
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -426,9 +426,9 @@ function renderMarkdown(report) {
     "",
     "## 8. Phạm vi tài liệu này / Scope of this document",
     "",
-    "Tài liệu này **không** nói rằng chương trình Grade 4–5 đã được viết xong. Nó nói rằng 50 bài",
+    `Tài liệu này **không** nói rằng chương trình Grade 4–5 đã được viết xong. Nó nói rằng ${report.lessonCount} bài`,
     "đang có được ánh xạ đầy đủ, không mồ côi, và rằng phần còn thiếu là một con số đã biết.",
-    "/ *This document does not claim the Grade 4–5 programme is written. It claims the 50 existing*",
+    `/ *This document does not claim the Grade 4–5 programme is written. It claims the ${report.lessonCount} existing*`,
     "*lessons are fully and honestly mapped, and that the remainder is a known number.*",
     "",
     "Không bài học nào trong `src/shared/content/` bị sửa bởi quá trình sinh tài liệu này.",

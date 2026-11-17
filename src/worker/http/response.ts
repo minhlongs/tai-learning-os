@@ -75,12 +75,17 @@ export const rateLimited = (retryAfterSec?: number): Response => {
   );
 };
 
-export const serverError = (): Response =>
-  apiError("server_error", "Đã có lỗi hệ thống. Vui lòng thử lại.", 500);
+export const serverError = (msg = "Đã có lỗi hệ thống. Vui lòng thử lại."): Response =>
+  apiError("server_error", msg, 500);
 
 /**
  * Reject requests that cannot be JSON, or that hide a payload where none is
  * expected. Cheap input validation before any handler logic runs.
+ *
+ * `maxBytes` is a byte budget, so the post-read check measures UTF-8 bytes.
+ * `String.length` counts UTF-16 code units, and Vietnamese diacritics take
+ * two bytes each (three for some code points), which would let a payload
+ * declared in bytes slip past a limit expressed in characters.
  */
 export async function readJsonBody(request: Request, maxBytes = 64_000): Promise<
   { ok: true; body: unknown } | { ok: false; response: Response }
@@ -95,7 +100,7 @@ export async function readJsonBody(request: Request, maxBytes = 64_000): Promise
   }
   try {
     const text = await request.text();
-    if (text.length > maxBytes) {
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
       return { ok: false, response: badRequest("Dữ liệu gửi lên quá lớn.") };
     }
     return { ok: true, body: JSON.parse(text) as unknown };

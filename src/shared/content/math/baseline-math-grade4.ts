@@ -16,7 +16,7 @@ export const baselineMathGrade4: LessonDefinition = {
   objectiveEn: "Gentle baseline check of fraction identification and foundational numeracy.",
   gradeFrom: 4,
   gradeTo: 4,
-  objectiveId: "obj-math-frac-intro",
+  objectiveId: "obj-math-frac-identify",
   provenance: "original_supplemental",
   sourceRef: "Bài khảo sát đầu vào biên soạn độc lập cho TAI Learning OS theo khung GDPT 2018",
   expectedDurationMinutes: 15,

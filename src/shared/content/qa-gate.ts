@@ -1,7 +1,7 @@
 /**
  * Deterministic Offline Content QA Gate (Gate G13 — `npm run qa:content`).
  *
- * Verifies both the 50 shipped lessons (`LESSONS`) and any candidate Level-1 AI
+ * Verifies both the 100 shipped lessons (`LESSONS`) and any candidate Level-1 AI
  * draft lesson array completely offline, with zero network calls:
  *
  *   1. Exact `bigint` Rational & Math AST equivalence verification:
@@ -504,7 +504,7 @@ function toSympyRationalExpr(q: ParsedQuantity): string {
 
 /**
  * Run the deterministic offline Content QA Gate over `lessons` (defaults to the
- * 50 shipped lessons in `LESSONS`).
+ * 100 shipped lessons in `LESSONS`).
  */
 export function runContentQaGate(
   lessons: readonly LessonDefinition[] = LESSONS,

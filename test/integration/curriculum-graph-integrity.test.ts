@@ -163,26 +163,26 @@ describe("the prerequisite graph is a teachable order", () => {
     expect(forward.map((edge) => `${edge.skill_id} <- ${edge.prerequisite_id}`)).toEqual([]);
   });
 
-  it("has exactly the measured 33 edges across 5 subjects", () => {
-    expect(edges).toHaveLength(33);
+  it("has the measured 82 edges across 5 subjects", () => {
+    expect(edges).toHaveLength(82);
     const bySubject = new Map<string, number>();
     for (const edge of edges) {
       const subject = skills.get(edge.skill_id)!.subject_id;
       bySubject.set(subject, (bySubject.get(subject) ?? 0) + 1);
     }
     expect(Object.fromEntries(bySubject)).toEqual({
-      math: 7,
-      english: 6,
-      vietnamese: 6,
-      science: 7,
-      debate: 7,
+      math: 16,
+      english: 16,
+      vietnamese: 16,
+      science: 17,
+      debate: 17,
     });
   });
 });
 
 describe("every lesson is reachable from the curriculum graph", () => {
-  it("seeds exactly the 50 registry lessons", () => {
-    expect(lessons).toHaveLength(50);
+  it("seeds all 100 registry lessons", () => {
+    expect(lessons).toHaveLength(100);
     expect(lessons.map((lesson) => lesson.lesson_id).sort()).toEqual(
       LESSONS.map((lesson) => lesson.id).sort(),
     );
@@ -215,6 +215,22 @@ describe("every lesson is reachable from the curriculum graph", () => {
     );
     expect(orphans.map((lesson) => `${lesson.lesson_id} -> ${lesson.skill_id}`)).toEqual([]);
   });
+
+  it("maps every lesson to an objective attached to that lesson's own skill", () => {
+    const byObjectiveId = new Map(objectives.map((objective) => [objective.id, objective]));
+    const mismatched = lessons.filter((lesson) => {
+      if (lesson.objective_id === null) return false;
+      const objective = byObjectiveId.get(lesson.objective_id);
+      if (objective === undefined) return false;
+      return objective.skill_id !== lesson.skill_id;
+    });
+    expect(
+      mismatched.map(
+        (lesson) =>
+          `${lesson.lesson_id} (skill=${String(lesson.skill_id)}) -> ${String(lesson.objective_id)} (skill=${String(byObjectiveId.get(lesson.objective_id!)?.skill_id)})`,
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("every objective is a real curriculum target", () => {
@@ -237,25 +253,21 @@ describe("every objective is a real curriculum target", () => {
     expect(outside.map((objective) => objective.id)).toEqual([]);
   });
 
-  it("seeds 40 objectives: 32 national outcomes and 8 supplemental ones", () => {
-    expect(objectives).toHaveLength(40);
+  it("seeds 90 objectives: 72 national outcomes and 18 supplemental ones", () => {
+    expect(objectives).toHaveLength(90);
     const national = objectives.filter((objective) => objective.subject_id !== "debate");
-    expect(national, "every non-debate objective cites a GDPT 2018 code").toHaveLength(32);
-    expect(objectives.length - national.length).toBe(8);
+    expect(national, "every non-debate objective cites a GDPT 2018 code").toHaveLength(72);
+    expect(objectives.length - national.length).toBe(18);
   });
 });
 
 describe("the measured gaps are the documented gaps", () => {
-  it("names the one skill with no objective, rather than hiding it", () => {
+  it("leaves no skill without an objective", () => {
     const withObjective = new Set(
       objectives.map((objective) => objective.skill_id).filter((id): id is string => id !== null),
     );
     const orphans = [...skills.keys()].filter((id) => !withObjective.has(id)).sort();
-    // `math-frac-identify` is a Grade 3–4 foundation skill whose outcome is
-    // covered by `obj-math-frac-intro`; it is reported as a gap in
-    // `docs/CURRICULUM_COVERAGE_MATRIX.md` rather than given a duplicate
-    // objective row it does not have.
-    expect(orphans).toEqual(["math-frac-identify"]);
+    expect(orphans).toEqual([]);
   });
 
   it("leaves no objective without a lesson", () => {
@@ -270,8 +282,8 @@ describe("the measured gaps are the documented gaps", () => {
     // The three denominators the audit matrix publishes. Asserting them here
     // keeps the coverage percentages from drifting silently if the seed grows.
     const GRADE_4_5_PERIOD_BUDGET = 1400;
-    const COVERAGE = (50 / GRADE_4_5_PERIOD_BUDGET) * 100;
-    expect(COVERAGE.toFixed(2)).toBe("3.57");
+    const COVERAGE = (100 / GRADE_4_5_PERIOD_BUDGET) * 100;
+    expect(COVERAGE.toFixed(2)).toBe("7.14");
     expect(lessons.length).toBeLessThan(GRADE_4_5_PERIOD_BUDGET / 10);
   });
 });
