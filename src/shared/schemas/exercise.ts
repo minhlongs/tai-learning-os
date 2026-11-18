@@ -12,6 +12,8 @@
  * so malformed or oversized content cannot be persisted.
  */
 
+import { LESSON_STEP_KINDS, type LessonStepKind } from "./attempt";
+
 export type FractionSpec = {
   numerator: number;
   denominator: number;
@@ -42,12 +44,27 @@ export type FractionVisualSpec = {
 };
 
 // --- Interaction 2: English vocabulary ------------------------------------
+export const VOCAB_IMAGES = [
+  "apple",
+  "book",
+  "bottle",
+  "chair",
+  "cat",
+  "dog",
+  "house",
+  "table",
+  "tree",
+  "window",
+] as const;
+
+export type VocabImage = (typeof VOCAB_IMAGES)[number];
+
 export type VocabMatchSpec = {
   type: "vocab_match";
   question_vi: string;
   word: string;
   /** Locally drawn SVG key: no remote or stock imagery. */
-  image: "apple" | "book" | "bottle" | "chair" | "cat" | "dog" | "house" | "table" | "tree" | "window";
+  image: VocabImage;
   choices: { id: string; label_en: string; label_vi: string; correct: boolean }[];
   /** Follow-up: use the word in a simple sentence. */
   sentencePrompt_vi: string;
@@ -306,9 +323,13 @@ export function validateExercise(raw: unknown): ValidationResult {
       ) {
         return { ok: false, error: "sentenceAcceptedWords must be non-empty strings" };
       }
-      const choiceError = choiceArrayError(raw.choices, "label_en");
-      if (choiceError) return { ok: false, error: choiceError };
-      if (!isString(raw.image, 40)) return { ok: false, error: "image key required" };
+      const choiceEnError = choiceArrayError(raw.choices, "label_en");
+      if (choiceEnError) return { ok: false, error: choiceEnError };
+      const choiceViError = choiceArrayError(raw.choices, "label_vi");
+      if (choiceViError) return { ok: false, error: choiceViError };
+      if (!isString(raw.image, 40) || !VOCAB_IMAGES.includes(raw.image as VocabImage)) {
+        return { ok: false, error: `image must be one of: ${VOCAB_IMAGES.join(", ")}` };
+      }
       return { ok: true, value: raw as unknown as VocabMatchSpec };
     }
 
@@ -365,3 +386,250 @@ export function parseAnswerKey(json: string): unknown | null {
     return null;
   }
 }
+
+export type AnswerKeyValidationResult =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; error: string };
+
+/**
+ * Canonical answer-key validator shared across catalogue seeding, offline QA,
+ * parent/teacher lesson authoring, and JSON backup import.
+ *
+ * Accepts either a parsed object (`Record<string, unknown>`) or a JSON string
+ * encoding an object, and verifies exact parity with the validated `ExerciseSpec`.
+ */
+export function validateAnswerKeyForExercise(
+  exercise: ExerciseSpec,
+  rawAnswerKey: unknown,
+): AnswerKeyValidationResult {
+  let candidate: unknown = rawAnswerKey;
+  if (typeof rawAnswerKey === "string") {
+    candidate = parseAnswerKey(rawAnswerKey);
+    if (candidate === null && rawAnswerKey.trim() !== "null") {
+      return { ok: false, error: "answerKey is not valid JSON" };
+    }
+  }
+  if (!isRecord(candidate)) {
+    return { ok: false, error: "answerKey must be a JSON object" };
+  }
+
+  if (exercise.type === "fraction_visual") {
+    if (
+      candidate.correctNumerator !== exercise.correctNumerator ||
+      candidate.correctDenominator !== exercise.correctDenominator
+    ) {
+      return {
+        ok: false,
+        error: `answerKey (${String(candidate.correctNumerator)}/${String(candidate.correctDenominator)}) does not match fraction_visual (${exercise.correctNumerator}/${exercise.correctDenominator})`,
+      };
+    }
+    return { ok: true, value: candidate };
+  }
+
+  const expectedChoice = exercise.choices.find((choice) => choice.correct);
+  if (!expectedChoice || candidate.correctChoiceId !== expectedChoice.id) {
+    return {
+      ok: false,
+      error: `answerKey.correctChoiceId "${String(candidate.correctChoiceId)}" does not match exercise correct choice "${String(expectedChoice?.id)}"`,
+    };
+  }
+
+  if (exercise.type === "vocab_match" && candidate.acceptedWords !== undefined) {
+    if (
+      !Array.isArray(candidate.acceptedWords) ||
+      candidate.acceptedWords.length === 0 ||
+      candidate.acceptedWords.length > 16 ||
+      !candidate.acceptedWords.every((word) => isString(word, 60) && word.trim().length > 0)
+    ) {
+      return {
+        ok: false,
+        error: "answerKey.acceptedWords must be a non-empty array of <= 16 words",
+      };
+    }
+  }
+
+  return { ok: true, value: candidate };
+}
+
+export type CanonicalStepInput = {
+  position: unknown;
+  kind: unknown;
+  content: unknown;
+  answerKey: unknown;
+  explanationVi: unknown;
+};
+
+export type ValidatedCanonicalStep = {
+  position: number;
+  kind: LessonStepKind;
+  content: ExerciseSpec;
+  answerKey: Record<string, unknown>;
+  explanationVi: string;
+};
+
+export type CanonicalStepValidationStage =
+  | "position"
+  | "kind"
+  | "explanation"
+  | "content"
+  | "answer-key"
+  | "answer-leak"
+  | "transfer";
+
+export type CanonicalStepValidationResult =
+  | { ok: true; value: ValidatedCanonicalStep }
+  | { ok: false; stage: CanonicalStepValidationStage; position: number | null; error: string };
+
+export type CanonicalStepSequenceOptions = {
+  requireTransferStep?: boolean;
+  maxSteps?: number;
+  checkLearnerLeak?: boolean;
+};
+
+/**
+ * Validate a single lesson step across all persistence and import boundaries.
+ */
+export function validateCanonicalLessonStep(
+  rawStep: CanonicalStepInput,
+  options?: { maxPosition?: number; checkLearnerLeak?: boolean },
+): CanonicalStepValidationResult {
+  const maxPosition = options?.maxPosition ?? 100;
+  if (!isPositiveInteger(rawStep.position) || rawStep.position > maxPosition) {
+    return {
+      ok: false,
+      stage: "position",
+      position: typeof rawStep.position === "number" ? rawStep.position : null,
+      error: `step position must be an integer in 1..${maxPosition}`,
+    };
+  }
+  const position = rawStep.position;
+
+  if (
+    typeof rawStep.kind !== "string" ||
+    !LESSON_STEP_KINDS.includes(rawStep.kind as LessonStepKind)
+  ) {
+    return {
+      ok: false,
+      stage: "kind",
+      position,
+      error: `step ${position}: invalid kind "${String(rawStep.kind)}"`,
+    };
+  }
+  const kind = rawStep.kind as LessonStepKind;
+
+  if (typeof rawStep.explanationVi !== "string" || rawStep.explanationVi.trim().length === 0) {
+    return {
+      ok: false,
+      stage: "explanation",
+      position,
+      error: `step ${position}: explanationVi must be a non-empty string`,
+    };
+  }
+  if (rawStep.explanationVi.length > MAX_TEXT_LENGTH) {
+    return {
+      ok: false,
+      stage: "explanation",
+      position,
+      error: `step ${position}: explanationVi exceeds ${MAX_TEXT_LENGTH} characters`,
+    };
+  }
+
+  const contentValidation = validateExercise(rawStep.content);
+  if (!contentValidation.ok) {
+    return {
+      ok: false,
+      stage: "content",
+      position,
+      error: `step ${position}: ${contentValidation.error}`,
+    };
+  }
+
+  const answerKeyValidation = validateAnswerKeyForExercise(
+    contentValidation.value,
+    rawStep.answerKey,
+  );
+  if (!answerKeyValidation.ok) {
+    return {
+      ok: false,
+      stage: "answer-key",
+      position,
+      error: `step ${position}: ${answerKeyValidation.error}`,
+    };
+  }
+
+  if (options?.checkLearnerLeak !== false && leaksAnswer(toLearnerExercise(contentValidation.value))) {
+    return {
+      ok: false,
+      stage: "answer-leak",
+      position,
+      error: `step ${position}: toLearnerExercise() leaked an answer-bearing field`,
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      position,
+      kind,
+      content: contentValidation.value,
+      answerKey: answerKeyValidation.value,
+      explanationVi: rawStep.explanationVi.trim(),
+    },
+  };
+}
+
+/**
+ * Validate an ordered sequence of lesson steps: non-empty, contiguous `1..n`
+ * positions, valid `kind` + `explanationVi` + `ExerciseSpec` + `answerKey` +
+ * zero learner answer leakage, and optional `transfer` step requirement.
+ */
+export function validateCanonicalStepSequence(
+  steps: readonly CanonicalStepInput[],
+  options?: CanonicalStepSequenceOptions,
+):
+  | { ok: true; value: ValidatedCanonicalStep[] }
+  | { ok: false; stage: CanonicalStepValidationStage; position: number | null; error: string } {
+  const maxSteps = options?.maxSteps ?? 100;
+  if (!Array.isArray(steps) || steps.length === 0 || steps.length > maxSteps) {
+    return {
+      ok: false,
+      stage: "position",
+      position: null,
+      error: `steps must contain between 1 and ${maxSteps} entries`,
+    };
+  }
+
+  const validated: ValidatedCanonicalStep[] = [];
+  for (const rawStep of steps) {
+    const stepResult = validateCanonicalLessonStep(rawStep, {
+      maxPosition: maxSteps,
+      checkLearnerLeak: options?.checkLearnerLeak,
+    });
+    if (!stepResult.ok) return stepResult;
+    validated.push(stepResult.value);
+  }
+
+  const sortedPositions = validated.map((step) => step.position).sort((a, b) => a - b);
+  for (let i = 0; i < sortedPositions.length; i += 1) {
+    if (sortedPositions[i] !== i + 1) {
+      return {
+        ok: false,
+        stage: "position",
+        position: sortedPositions[i] ?? null,
+        error: `step positions must be contiguous 1..${validated.length}`,
+      };
+    }
+  }
+
+  if (options?.requireTransferStep && !validated.some((step) => step.kind === "transfer")) {
+    return {
+      ok: false,
+      stage: "transfer",
+      position: null,
+      error: "lesson must include at least one transfer step",
+    };
+  }
+
+  return { ok: true, value: validated };
+}
+

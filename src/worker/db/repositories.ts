@@ -2593,7 +2593,8 @@ export function upsertBaselineAssessmentStatement(
          needs_observation_json = excluded.needs_observation_json,
          suggested_lessons_json = excluded.suggested_lessons_json,
          parent_review_required = excluded.parent_review_required,
-         completed_at = excluded.completed_at`,
+         completed_at = excluded.completed_at
+       WHERE baseline_assessments.learner_id = excluded.learner_id`,
     )
     .bind(
       input.id,

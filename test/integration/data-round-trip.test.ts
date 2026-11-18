@@ -182,6 +182,34 @@ async function makeEvidence(): Promise<{ sessionId: string; stepId: string }> {
   return { sessionId: session.sessionId, stepId };
 }
 
+async function captureCanonicalDatabaseSnapshot(targetDb: D1Database = env.DB): Promise<string> {
+  const tableRows =
+    (
+      await targetDb
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'table'
+             AND name NOT LIKE 'sqlite_%'
+             AND name NOT LIKE '_cf_%'
+             AND name != 'd1_migrations'
+           ORDER BY name ASC`,
+        )
+        .all<{ name: string }>()
+    ).results ?? [];
+
+  const dump: Record<string, unknown[]> = {};
+  for (const { name } of tableRows) {
+    const cols =
+      (await targetDb.prepare(`PRAGMA table_info("${name}")`).all<{ name: string }>()).results ??
+      [];
+    const orderBy = cols.map((_, idx) => `${idx + 1} ASC`).join(", ");
+    const query =
+      cols.length > 0 ? `SELECT * FROM "${name}" ORDER BY ${orderBy}` : `SELECT * FROM "${name}"`;
+    dump[name] = ((await targetDb.prepare(query).all()).results ?? []) as unknown[];
+  }
+  return JSON.stringify(dump);
+}
+
 beforeAll(async () => {
   proxy = await openTestDatabase();
   env = {
@@ -2793,6 +2821,393 @@ describe("export/import round trip restores the record from the file", () => {
       json: compatibleExport,
     });
     expect(compatibleImport2.status).toBe(200);
+  });
+
+  it("rejects unshipped catalogue rows (skills, prerequisites, curriculum objectives, subjects, catalogue lessons) before db.batch with zero catalogue or audit side effects", async () => {
+    const exportRes = await call("/api/data/export", { method: "POST" });
+    expect(exportRes.status).toBe(200);
+    const exported = (await exportRes.json()) as ExportEnvelope;
+    await call("/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: `XOA ${LEARNER_NICKNAME}` },
+    });
+
+    const baselineSnapshot = await captureCanonicalDatabaseSnapshot();
+    const realDb = env.DB;
+    let batchCalls = 0;
+    env.DB = {
+      prepare: (sql: string) => realDb.prepare(sql),
+      batch: async (statements: D1PreparedStatement[]) => {
+        batchCalls += 1;
+        return realDb.batch(statements);
+      },
+      exec: (sql: string) => realDb.exec(sql),
+      dump: () => realDb.dump(),
+      withSession: (constraintOrBookmark?: unknown) =>
+        realDb.withSession(constraintOrBookmark as never),
+    } as unknown as D1Database;
+
+    try {
+      // 1. Unshipped skill + prerequisite
+      const unshippedSkillEnv = structuredClone(exported);
+      unshippedSkillEnv.data.skills.push({
+        id: "math-injected-skill-gh73",
+        subjectId: "math",
+        code: "M.GH73",
+        titleVi: "Kỹ năng ngoại lai",
+        descriptionVi: "Không có trong danh mục chính thức",
+        gradeBand: "5",
+      });
+      unshippedSkillEnv.data.skillPrerequisites.push({
+        skillId: "math-injected-skill-gh73",
+        prerequisiteId: exported.data.skills[0]!.id,
+      });
+      const skillRes = await call("/api/data/import", {
+        method: "POST",
+        json: unshippedSkillEnv,
+      });
+      expect(skillRes.status).toBe(409);
+
+      // 2. Unshipped curriculum objective
+      const unshippedObjectiveEnv = structuredClone(exported);
+      unshippedObjectiveEnv.data.curriculumObjectives = [
+        ...(unshippedObjectiveEnv.data.curriculumObjectives ?? []),
+        {
+          id: "obj-injected-gh73",
+          code: "GDPT2018-GH73",
+          framework: "gdpt-2018",
+          subjectId: "math",
+          grade: 5,
+          strandVi: "Số học",
+          titleVi: "Mục tiêu ngoại lai",
+          descriptionVi: "Không có trong danh mục chính thức",
+        },
+      ];
+      const objRes = await call("/api/data/import", {
+        method: "POST",
+        json: unshippedObjectiveEnv,
+      });
+      expect(objRes.status).toBe(409);
+
+      // 3. Unshipped subject
+      const unshippedSubjectEnv = structuredClone(exported);
+      unshippedSubjectEnv.data.subjects.push({
+        id: "astrology-gh73",
+        code: "AST",
+        titleVi: "Chiêm tinh",
+        descriptionVi: "Môn ngoại lai",
+        position: 99,
+      });
+      const subRes = await call("/api/data/import", {
+        method: "POST",
+        json: unshippedSubjectEnv,
+      });
+      expect(subRes.status).toBe(409);
+
+      // 4. Unshipped catalogue lesson
+      const unshippedLessonEnv = structuredClone(exported);
+      unshippedLessonEnv.data.lessons.push({
+        id: "les-unshipped-cat-gh73",
+        skillId: exported.data.skills[0]!.id,
+        titleVi: "Bài danh mục giả mạo",
+        objectiveVi: "Không tồn tại trên máy chủ",
+        gradeBand: "5",
+        estimatedMinutes: 10,
+        version: 1,
+        status: "published",
+        ownershipType: "catalogue",
+        ownerParentId: null,
+        purpose: "official",
+        sourceLessonId: null,
+        sourceVersion: null,
+      });
+      const lesRes = await call("/api/data/import", {
+        method: "POST",
+        json: unshippedLessonEnv,
+      });
+      expect(lesRes.status).toBe(409);
+
+      expect(batchCalls).toBe(0);
+    } finally {
+      env.DB = realDb;
+    }
+
+    expect(await captureCanonicalDatabaseSnapshot()).toBe(baselineSnapshot);
+  });
+
+  it("leaves zero family lessons, zero learner rows, and zero append-only audit rows behind when a late statement inside db.batch fails, and protects existing learners on PK collisions", async () => {
+    const existingLearnerId = learnerId;
+
+    // Populate live learner state (approved lesson, goal, session, attempt, hint floor)
+    const lessonsRes = await call("/api/parent/lessons");
+    expect(lessonsRes.status).toBe(200);
+    const lessonsBody = (await lessonsRes.json()) as { lessons: { id: string }[] };
+    const catalogueLessonId = lessonsBody.lessons[0]!.id;
+    expect(
+      (
+        await call("/api/parent/lessons/approval", {
+          method: "POST",
+          json: { lessonId: catalogueLessonId, status: "approved" },
+        })
+      ).status,
+    ).toBe(200);
+
+    const createGoalRes = await call("/api/parent/goals", {
+      method: "POST",
+      json: {
+        subjectId: "math",
+        titleVi: "Hoàn thành phân số lớp 5",
+        note: "Mục tiêu gốc",
+      },
+    });
+    expect(createGoalRes.status).toBe(200);
+
+    const startSesRes = await call("/api/learner/sessions", {
+      method: "POST",
+      json: { lessonId: catalogueLessonId },
+    });
+    expect(startSesRes.status).toBe(200);
+    const liveSes = (await startSesRes.json()) as {
+      sessionId: string;
+      steps: { id: string }[];
+    };
+
+    // Request a hint so `hint.requested` exists in exported audit history
+    expect(
+      (
+        await call("/api/learner/hints", {
+          method: "POST",
+          json: {
+            sessionId: liveSes.sessionId,
+            stepId: liveSes.steps[0]!.id,
+            currentLevel: 2,
+          },
+        })
+      ).status,
+    ).toBe(200);
+
+    const correctChoiceId = await answerKeyFor(liveSes.steps[0]!.id);
+    expect(
+      (
+        await call("/api/learner/attempts", {
+          method: "POST",
+          json: {
+            sessionId: liveSes.sessionId,
+            stepId: liveSes.steps[0]!.id,
+            submission: { kind: "choice", choiceId: correctChoiceId ?? "a" },
+            helpLevel: 2,
+          },
+        })
+      ).status,
+    ).toBe(200);
+
+    // Also fork a family practice lesson so the export carries family lesson + step statements
+    const createFamRes = await call("/api/parent/lessons/fork", {
+      method: "POST",
+      json: { sourceLessonId: catalogueLessonId },
+    });
+    expect(createFamRes.status).toBe(200);
+    const createdFamily = (await createFamRes.json()) as { lessonId: string };
+
+    // Export full backup containing learner + hint.requested + attempt + family practice lesson
+    const exportRes = await call("/api/data/export", { method: "POST" });
+    expect(exportRes.status).toBe(200);
+    const exported = (await exportRes.json()) as ExportEnvelope;
+    expect(
+      exported.data.auditEvents.some((a) => a.action === "hint.requested"),
+      "backup must include hint.requested audit history",
+    ).toBe(true);
+
+    // Remove the family practice lesson from DB while keeping `existingLearnerId` alive,
+    // so the restore must BOTH insert family lesson rows AND coexist with `existingLearnerId`!
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM lesson_steps WHERE lesson_id = ?1").bind(createdFamily.lessonId),
+      env.DB.prepare("DELETE FROM lesson_versions WHERE lesson_id = ?1").bind(createdFamily.lessonId),
+      env.DB.prepare("DELETE FROM lessons WHERE id = ?1").bind(createdFamily.lessonId),
+    ]);
+
+    // Create a second parent (`parentB`) with no active learner yet so `importRecord` proceeds into `db.batch`
+    // while `existingLearnerId` (owned by Parent A) still holds live PKs in D1!
+    const parentBId = crypto.randomUUID();
+    const nowB = Date.now();
+    await env.DB.prepare(
+      "INSERT INTO parents (id, password_hash, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+    )
+      .bind(parentBId, "hash-parent-b-gh73", "Phụ huynh B GH73", nowB)
+      .run();
+    const jarB = await createParentSessionJar(parentBId, "Phụ huynh B GH73");
+
+    const snapshotBeforeFailedImports = await captureCanonicalDatabaseSnapshot();
+    const auditCountBefore =
+      (await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_events").first<{ n: number }>())?.n ?? 0;
+
+    // Case A: Attempting to import the exact same `learningSessions` / `learningGoals` / `learningAttempts` IDs
+    // via Parent B while `existingLearnerId` still owns those primary keys MUST fail cleanly with 409 Conflict
+    // (NOT overwrite `existingLearnerId`'s rows via ON CONFLICT DO UPDATE!) and leave ZERO side effects.
+    const pkCollisionRes = await callWithJar(jarB, "/api/data/import", {
+      method: "POST",
+      json: exported,
+    });
+    expect(
+      pkCollisionRes.status,
+      JSON.stringify(await pkCollisionRes.clone().json()),
+    ).toBe(409);
+    expect(await captureCanonicalDatabaseSnapshot()).toBe(snapshotBeforeFailedImports);
+
+    // Build a clean remapped-ID copy of the backup so primary keys don't collide with `existingLearnerId`
+    const cleanBackup = structuredClone(exported);
+    cleanBackup.data.schoolYears = cleanBackup.data.schoolYears.map((sy) => ({
+      ...sy,
+      id: `${sy.id}-restored`,
+    }));
+    const syMap = new Map(
+      exported.data.schoolYears.map((sy, idx) => [sy.id, cleanBackup.data.schoolYears[idx]!.id]),
+    );
+    cleanBackup.data.learningGoals = cleanBackup.data.learningGoals.map((g) => ({
+      ...g,
+      id: `${g.id}-restored`,
+    }));
+    cleanBackup.data.learningSessions = cleanBackup.data.learningSessions.map((s) => ({
+      ...s,
+      id: `${s.id}-restored`,
+      schoolYearId: s.schoolYearId ? (syMap.get(s.schoolYearId) ?? null) : null,
+    }));
+    const sesMap = new Map(
+      exported.data.learningSessions.map((s, idx) => [s.id, cleanBackup.data.learningSessions[idx]!.id]),
+    );
+    cleanBackup.data.learningAttempts = cleanBackup.data.learningAttempts.map((a) => ({
+      ...a,
+      id: `${a.id}-restored`,
+      sessionId: sesMap.get(a.sessionId) ?? a.sessionId,
+    }));
+    const attMap = new Map(
+      exported.data.learningAttempts.map((a, idx) => [a.id, cleanBackup.data.learningAttempts[idx]!.id]),
+    );
+    cleanBackup.data.skillEvidence = cleanBackup.data.skillEvidence.map((se) => ({
+      ...se,
+      id: `${se.id}-restored`,
+    }));
+    cleanBackup.data.skillEvidenceObservations = (cleanBackup.data.skillEvidenceObservations ?? []).map(
+      (obs) => ({
+        ...obs,
+        id: `${obs.id}-restored`,
+        attemptId: attMap.get(obs.attemptId) ?? obs.attemptId,
+      }),
+    );
+    cleanBackup.data.skillEstimates = (cleanBackup.data.skillEstimates ?? []).map((est) => ({
+      ...est,
+      id: `${est.id}-restored`,
+      attemptWatermark: est.attemptWatermark ? (attMap.get(est.attemptWatermark) ?? est.attemptWatermark) : null,
+    }));
+    cleanBackup.data.reviewSchedule = cleanBackup.data.reviewSchedule.map((rs) => ({
+      ...rs,
+      id: `${rs.id}-restored`,
+    }));
+    cleanBackup.data.curriculumIntakes = (cleanBackup.data.curriculumIntakes ?? []).map((ci) => ({
+      ...ci,
+      id: `${ci.id}-restored`,
+    }));
+    cleanBackup.data.baselineAssessments = (cleanBackup.data.baselineAssessments ?? []).map((ba) => ({
+      ...ba,
+      id: `${ba.id}-restored`,
+    }));
+    cleanBackup.data.learningPlanItems = (cleanBackup.data.learningPlanItems ?? []).map((pi) => ({
+      ...pi,
+      id: `${pi.id}-restored`,
+    }));
+    cleanBackup.data.sessionReflections = (cleanBackup.data.sessionReflections ?? []).map((sr) => ({
+      ...sr,
+      id: `${sr.id}-restored`,
+      sessionId: sesMap.get(sr.sessionId) ?? sr.sessionId,
+    }));
+    cleanBackup.data.reviewApprovals = cleanBackup.data.reviewApprovals.map((ra) => ({
+      ...ra,
+      id: `${ra.id}-restored`,
+    }));
+    cleanBackup.data.auditEvents = cleanBackup.data.auditEvents.map((ae) => {
+      if (
+        ae.action === "hint.requested" &&
+        typeof ae.detail === "object" &&
+        ae.detail !== null &&
+        !Array.isArray(ae.detail)
+      ) {
+        const d = ae.detail as Record<string, unknown>;
+        return {
+          ...ae,
+          id: `${ae.id}-restored`,
+          detail: {
+            ...d,
+            sessionId: typeof d.sessionId === "string" ? (sesMap.get(d.sessionId) ?? d.sessionId) : d.sessionId,
+          },
+        };
+      }
+      return { ...ae, id: `${ae.id}-restored` };
+    });
+
+    // Case B: Force a late failure inside the single `db.batch` (appending a failing statement at the very tail
+    // after family lessons, learner rows, attempts, and audit_events) and prove SQLite rolls back EVERYTHING.
+    const realDb = env.DB;
+    env.DB = {
+      prepare: (sql: string) => realDb.prepare(sql),
+      batch: async (statements: D1PreparedStatement[]) => {
+        const poisoned = [
+          ...statements,
+          // Trigger an abort on the very last statement of the transaction (after audit_events inserts!)
+          realDb
+            .prepare("INSERT INTO learning_sessions (id, learner_id, lesson_id, lesson_version, started_at, status, steps_seen) VALUES (?1, ?2, ?3, 1, 1, 'invalid_status_constraint_boom', 0)")
+            .bind("boom-ses", existingLearnerId, catalogueLessonId),
+        ];
+        return realDb.batch(poisoned);
+      },
+      exec: (sql: string) => realDb.exec(sql),
+      dump: () => realDb.dump(),
+      withSession: (constraintOrBookmark?: unknown) =>
+        realDb.withSession(constraintOrBookmark as never),
+    } as unknown as D1Database;
+
+    let failedImportRes!: Response;
+    try {
+      failedImportRes = await callWithJar(jarB, "/api/data/import", {
+        method: "POST",
+        json: cleanBackup,
+      });
+    } finally {
+      env.DB = realDb;
+    }
+
+    expect(failedImportRes.status).toBe(500);
+
+    // Zero family lessons, zero new learners, and ZERO append-only `audit_events` survived the failed batch!
+    const familyAfterFailure = await env.DB.prepare("SELECT id FROM lessons WHERE id = ?1")
+      .bind(createdFamily.lessonId)
+      .first();
+    expect(familyAfterFailure).toBeNull();
+
+    const auditCountAfterFailure =
+      (await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_events").first<{ n: number }>())?.n ?? 0;
+    expect(auditCountAfterFailure).toBe(auditCountBefore);
+    expect(await captureCanonicalDatabaseSnapshot()).toBe(snapshotBeforeFailedImports);
+
+    // Retrying the exact same clean backup via Parent B against the restored real DB succeeds cleanly!
+    const retryRes = await callWithJar(jarB, "/api/data/import", {
+      method: "POST",
+      json: cleanBackup,
+    });
+    expect(retryRes.status).toBe(200);
+
+    const familyAfterRetry = await env.DB.prepare("SELECT id FROM lessons WHERE id = ?1")
+      .bind(createdFamily.lessonId)
+      .first<{ id: string }>();
+    expect(familyAfterRetry?.id).toBe(createdFamily.lessonId);
+
+    const activeLearnersAfterRetry =
+      (
+        await env.DB.prepare("SELECT id FROM learners WHERE archived_at IS NULL").all<{
+          id: string;
+        }>()
+      ).results ?? [];
+    expect(activeLearnersAfterRetry).toHaveLength(2);
+    expect(activeLearnersAfterRetry.map((r) => r.id)).toContain(existingLearnerId);
   });
 });
 

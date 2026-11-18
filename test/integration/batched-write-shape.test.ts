@@ -426,6 +426,41 @@ describe("every grouped write touching the watched evidence tables commits as on
     expect(unbatched("audit_events")).toHaveLength(0);
     expect(batched("audit_events")).toHaveLength(1);
   });
+
+  it("restores an exported backup across all watched evidence and audit tables in a single batch", async () => {
+    const lessonId = await approveFirstLesson();
+    const session = await startLesson(lessonId);
+    await answerFirstStepCorrectly(session);
+
+    const exportRes = await call("/api/data/export", { method: "POST" });
+    expect(exportRes.status).toBe(200);
+    const exported = (await exportRes.json()) as ExportResponse;
+
+    const delRes = await call("/api/data/learner", {
+      method: "DELETE",
+      json: { learnerId, confirmation: `XOA ${LEARNER_NICKNAME}` },
+    });
+    expect(delRes.status).toBe(200);
+    resetTracker();
+
+    const importRes = await call("/api/data/import", {
+      method: "POST",
+      json: exported,
+    });
+    expect(importRes.status).toBe(200);
+
+    expect(state.batchCalls, "backup restore must commit in one single db.batch call").toBe(1);
+    expect(unbatched("learning_attempts")).toHaveLength(0);
+    expect(unbatched("skill_evidence")).toHaveLength(0);
+    expect(unbatched("skill_evidence_observation")).toHaveLength(0);
+    expect(unbatched("skill_estimate")).toHaveLength(0);
+    expect(unbatched("audit_events")).toHaveLength(0);
+    expect(batched("learning_attempts").length).toBeGreaterThanOrEqual(1);
+    expect(batched("skill_evidence").length).toBeGreaterThanOrEqual(1);
+    expect(batched("skill_evidence_observation").length).toBeGreaterThanOrEqual(1);
+    expect(batched("skill_estimate").length).toBeGreaterThanOrEqual(1);
+    expect(batched("audit_events").length).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe("single-statement paths are single on purpose", () => {

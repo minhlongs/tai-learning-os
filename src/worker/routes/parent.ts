@@ -46,9 +46,9 @@ import type {
   UpsertCurriculumIntakeRequest,
   UpsertCurriculumIntakeResponse,
 } from "../../shared/api-contract";
-import { APPROVAL_STATUSES, COMPETENCY_STATES, LESSON_STEP_KINDS } from "../../shared/schemas/attempt";
+import { APPROVAL_STATUSES, COMPETENCY_STATES } from "../../shared/schemas/attempt";
 import type { ApprovalStatus, CompetencyState, LessonStepKind } from "../../shared/schemas/attempt";
-import { validateExercise } from "../../shared/schemas/exercise";
+import { validateCanonicalStepSequence, validateExercise } from "../../shared/schemas/exercise";
 import { describeState } from "../../shared/engine/competency";
 import type { AttemptEvidence } from "../../shared/engine/competency";
 import { needsParentAttention } from "../../shared/engine/review";
@@ -2438,36 +2438,27 @@ function validateStepSet(
   if (!Array.isArray(steps) || steps.length === 0) {
     return { ok: false, error: "Bài học cần ít nhất một bước học." };
   }
-  const positions = new Set<number>();
-  const kinds = new Set<string>();
-  for (const step of steps) {
-    if (!Number.isInteger(step.position) || step.position < 1 || step.position > 100) {
-      return { ok: false, error: "Thứ tự bước học không hợp lệ." };
+  const result = validateCanonicalStepSequence(steps, {
+    requireTransferStep: true,
+    checkLearnerLeak: true,
+  });
+  if (!result.ok) {
+    switch (result.stage) {
+      case "position":
+        return { ok: false, error: `Thứ tự bước học không hợp lệ: ${result.error}` };
+      case "kind":
+        return { ok: false, error: `Loại bước học không hợp lệ: ${result.error}` };
+      case "explanation":
+        return { ok: false, error: `Bước ${result.position ?? "?"} cần có phần giải thích.` };
+      case "content":
+        return { ok: false, error: `Nội dung bước ${result.position ?? "?"} không hợp lệ: ${result.error}` };
+      case "answer-key":
+        return { ok: false, error: `Đáp án bước ${result.position ?? "?"} không khớp nội dung bài tập: ${result.error}` };
+      case "answer-leak":
+        return { ok: false, error: `Bước ${result.position ?? "?"} chứa trường rò rỉ đáp án sang giao diện học sinh.` };
+      case "transfer":
+        return { ok: false, error: "Bài học cần ít nhất một bước kiểm tra vận dụng." };
     }
-    if (positions.has(step.position)) {
-      return { ok: false, error: `Trùng thứ tự bước học: ${step.position}` };
-    }
-    positions.add(step.position);
-    if (!LESSON_STEP_KINDS.includes(step.kind as LessonStepKind)) {
-      return { ok: false, error: `Loại bước học không hợp lệ: ${step.kind}` };
-    }
-    kinds.add(step.kind);
-    // Positions must be contiguous from 1: a gap means a step was silently lost.
-    if (positions.size !== step.position) {
-      return { ok: false, error: "Thứ tự bước học phải liên tiếp từ 1." };
-    }
-    const result = validateExercise(step.content);
-    if (!result.ok) {
-      return { ok: false, error: `Nội dung bước ${step.position} không hợp lệ: ${result.error}` };
-    }
-    if (typeof step.explanationVi !== "string" || step.explanationVi.trim().length === 0) {
-      return { ok: false, error: `Bước ${step.position} cần có phần giải thích.` };
-    }
-  }
-  // A pedagogy requirement, not a convenience: without a transfer step the skill
-  // can never be evidenced as TRANSFERRED.
-  if (!kinds.has("transfer")) {
-    return { ok: false, error: "Bài học cần ít nhất một bước kiểm tra vận dụng." };
   }
   return { ok: true };
 }

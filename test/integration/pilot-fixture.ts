@@ -141,7 +141,7 @@ export const PILOT_MATH_LESSON_CONTENT: {
   steps: {
     kind: "guided";
     content: MultipleChoiceSpec;
-    answerKey: { choiceId: string };
+    answerKey: { correctChoiceId: string };
     explanationVi: string;
   }[];
 } = {
@@ -164,7 +164,7 @@ export const PILOT_MATH_LESSON_CONTENT: {
         hint2_vi: "Mẫu số ở dưới, tử số ở trên.",
         hint3_vi: "Chọn 'Mẫu số'.",
       },
-      answerKey: { choiceId: "c2" },
+      answerKey: { correctChoiceId: "c2" },
       explanationVi: "Trong phân số 3/4, 3 là tử số (chỉ số phần lấy đi), 4 là mẫu số (chỉ tổng số phần bằng nhau).",
     },
   ],

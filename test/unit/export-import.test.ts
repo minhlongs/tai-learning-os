@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EXPORT_COLLECTION_MAX_ITEMS,
   TRANSFER_FORMAT_VERSION,
   type ExportBody,
   type ExportEnvelope,
@@ -872,6 +873,239 @@ describe("version-scoped lessonVersions, lineage, and practice purpose validatio
       },
     };
     expect(validateExportEnvelope(preDueForged).ok).toBe(false);
+  });
+
+  it("enforces deterministic per-collection size ceilings (EXPORT_COLLECTION_MAX_ITEMS and schemaVersions)", () => {
+    const envelope = validEnvelope();
+    const tooManyLearners = Array.from(
+      { length: EXPORT_COLLECTION_MAX_ITEMS.learners + 1 },
+      (_, idx) => ({
+        ...validLearner(),
+        id: `lnr-${idx + 1}`,
+      }),
+    );
+    const learnerCeilingRes = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        learners: tooManyLearners,
+      },
+    });
+    expect(learnerCeilingRes.ok).toBe(false);
+    if (!learnerCeilingRes.ok) {
+      expect(learnerCeilingRes.errors.join(" ")).toContain("learners vượt quá giới hạn");
+    }
+
+    const tooManySchemaVersions = Array.from({ length: 501 }, (_, idx) => ({
+      version: idx + 1,
+      description: `Schema ${idx + 1}`,
+    }));
+    const schemaCeilingRes = validateExportEnvelope({
+      ...envelope,
+      data: {
+        ...envelope.data,
+        schemaVersions: tooManySchemaVersions,
+      },
+    });
+    expect(schemaCeilingRes.ok).toBe(false);
+  });
+
+  it("rejects cross-learner and dangling foreign-key references across hint.requested, observations, estimates, baselines, and learner collections", () => {
+    const envelope = validEnvelope();
+
+    // 1. hint.requested actor referencing a learner outside data.learners
+    expect(
+      validateExportEnvelope({
+        ...envelope,
+        data: {
+          ...envelope.data,
+          auditEvents: [
+            {
+              id: "aud-foreign-hint",
+              actor: "learner:foreign-learner-999",
+              action: "hint.requested",
+              subject: "stp-1",
+              detail: { level: 2 },
+              createdAt: 1_700_000_000_000,
+            },
+          ],
+        },
+      }).ok,
+    ).toBe(false);
+
+    // 2. hint.requested referencing a ghost sessionId when learningSessions is empty
+    expect(
+      validateExportEnvelope({
+        ...envelope,
+        data: {
+          ...envelope.data,
+          learningSessions: [],
+          auditEvents: [
+            {
+              id: "aud-ghost-session",
+              actor: "learner:lnr-0001",
+              action: "hint.requested",
+              subject: "stp-1",
+              detail: { level: 1, sessionId: "ghost-session" },
+              createdAt: 1_700_000_000_000,
+            },
+          ],
+        },
+      }).ok,
+    ).toBe(false);
+
+    // 3. skillEvidenceObservations naming a ghost attemptId when learningAttempts is empty
+    expect(
+      validateExportEnvelope({
+        ...envelope,
+        data: {
+          ...envelope.data,
+          learningAttempts: [],
+          skillEvidenceObservations: [
+            {
+              id: "obs-ghost",
+              learnerId: "lnr-0001",
+              skillId: "math-frac-equiv",
+              attemptId: "ghost-attempt",
+              observedKind: "independent",
+              helpLevel: 0,
+              attemptNo: 1,
+              observedAt: 1_700_000_000_000,
+            },
+          ],
+        },
+      }).ok,
+    ).toBe(false);
+
+    // 4. skillEstimates naming a ghost attemptWatermark when learningAttempts is empty
+    expect(
+      validateExportEnvelope({
+        ...envelope,
+        data: {
+          ...envelope.data,
+          learningAttempts: [],
+          skillEstimates: [
+            {
+              id: "est-ghost",
+              learnerId: "lnr-0001",
+              skillId: "math-frac-equiv",
+              stability: 3.5,
+              difficulty: 5.0,
+              retrievabilityAt: 0.9,
+              reps: 1,
+              lapses: 0,
+              fsrsState: 2,
+              scheduledDays: 3,
+              lastReviewAt: 1_700_000_000_000,
+              modelVersion: "fsrs-6.0",
+              computedAt: 1_700_000_000_000,
+              attemptWatermark: "ghost-attempt",
+              attemptCount: 1,
+              createdAt: 1_700_000_000_000,
+              updatedAt: 1_700_000_000_000,
+            },
+          ],
+        },
+      }).ok,
+    ).toBe(false);
+
+    // 5. baselineAssessments referencing a foreign learner or ghost sessionId
+    expect(
+      validateExportEnvelope({
+        ...envelope,
+        data: {
+          ...envelope.data,
+          baselineAssessments: [
+            {
+              id: "base-foreign",
+              learnerId: "lnr-foreign",
+              subjectId: "math",
+              sessionId: null,
+              status: "completed",
+              observedSummaryVi: "Tốt",
+              supportedSummaryVi: "Khá",
+              needsObservationJson: "[]",
+              suggestedLessonsJson: "[]",
+              parentReviewRequired: 0,
+              createdAt: 1_700_000_000_000,
+              completedAt: 1_700_000_010_000,
+            },
+          ],
+        },
+      }).ok,
+    ).toBe(false);
+
+    expect(
+      validateExportEnvelope({
+        ...envelope,
+        data: {
+          ...envelope.data,
+          learningSessions: [],
+          baselineAssessments: [
+            {
+              id: "base-ghost-ses",
+              learnerId: "lnr-0001",
+              subjectId: "math",
+              sessionId: "ghost-ses",
+              status: "in_progress",
+              observedSummaryVi: null,
+              supportedSummaryVi: null,
+              needsObservationJson: "[]",
+              suggestedLessonsJson: "[]",
+              parentReviewRequired: 1,
+              createdAt: 1_700_000_000_000,
+              completedAt: null,
+            },
+          ],
+        },
+      }).ok,
+    ).toBe(false);
+
+    // 6. learningGoals and reviewSchedule referencing a foreign learner
+    expect(
+      validateExportEnvelope({
+        ...envelope,
+        data: {
+          ...envelope.data,
+          learningGoals: [
+            {
+              id: "goal-foreign",
+              learnerId: "lnr-foreign",
+              subjectId: "math",
+              titleVi: "Mục tiêu",
+              note: null,
+              targetDate: null,
+              status: "active",
+              createdAt: 1_700_000_000_000,
+              updatedAt: 1_700_000_000_000,
+            },
+          ],
+        },
+      }).ok,
+    ).toBe(false);
+
+    expect(
+      validateExportEnvelope({
+        ...envelope,
+        data: {
+          ...envelope.data,
+          reviewSchedule: [
+            {
+              id: "rev-foreign",
+              learnerId: "lnr-foreign",
+              skillId: "math-frac-equiv",
+              dueAt: 1_700_086_400_000,
+              intervalDays: 1,
+              lastResult: "passed",
+              lastAttemptAt: 1_700_000_000_000,
+              failureStreak: 0,
+              createdAt: 1_700_000_000_000,
+              updatedAt: 1_700_000_000_000,
+            },
+          ],
+        },
+      }).ok,
+    ).toBe(false);
   });
 });
 
