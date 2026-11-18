@@ -34,10 +34,10 @@ export const findEvidence: LessonDefinition = {
         question_vi: "Dẫn chứng trong bài đọc là gì?",
         question_en: "What is evidence in a text?",
         choices: [
-          { id: "a", label_vi: "Câu trong bài đọc giúp chứng minh câu trả lời của em.", correct: true },
-          { id: "b", label_vi: "Điều em nhớ từ bài đọc hôm trước.", correct: false },
-          { id: "c", label_vi: "Suy nghĩ của em về nhân vật.", correct: false },
-          { id: "d", label_vi: "Tên của tác giả bài đọc.", correct: false },
+          { id: "a", label_vi: "Câu văn trong bài giúp chứng minh câu trả lời của em.", correct: true },
+          { id: "b", label_vi: "Điều em còn nhớ mang máng từ một câu chuyện đã đọc hôm trước.", correct: false },
+          { id: "c", label_vi: "Cảm nghĩ hoặc lời đoán riêng của em dù bài đọc không nhắc tới.", correct: false },
+          { id: "d", label_vi: "Tên tác giả và tên bài đọc in ở đầu trang sách.", correct: false },
         ],
         hint1_vi: "Em hãy nghĩ: làm sao để bạn tin câu trả lời của em là đúng?",
         hint2_vi: "Dẫn chứng phải nằm trong bài đọc, chứ không nằm ngoài trang giấy.",
@@ -45,7 +45,7 @@ export const findEvidence: LessonDefinition = {
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
-        "Dẫn chứng là câu có sẵn trong bài đọc, giúp chứng minh câu trả lời của em đúng. Còn nhớ từ hôm trước hay suy nghĩ của em không nằm trong bài, nên không ai kiểm tra được — dùng chúng thì câu trả lời chỉ là ý kiến riêng.",
+        "Dẫn chứng là câu có sẵn trong bài đọc, giúp chứng minh câu trả lời của em đúng. Còn điều nhớ từ bài hôm trước hay suy nghĩ riêng ngoài văn bản thì không ai kiểm tra lại trong bài được.",
     },
     {
       position: 2,
@@ -56,10 +56,10 @@ export const findEvidence: LessonDefinition = {
           "Khi tìm dẫn chứng, câu em chọn cần thỏa điều kiện nào?",
         question_en: "What must the evidence sentence satisfy?",
         choices: [
-          { id: "a", label_vi: "Phải là câu dài nhất trong bài.", correct: false },
-          { id: "b", label_vi: "Phải có chữ khớp theo thứ tự trong câu hỏi.", correct: false },
-          { id: "c", label_vi: "Phải thật sự nằm trong bài và chứng minh được câu trả lời.", correct: true },
-          { id: "d", label_vi: "Phải là câu cuối cùng của bài.", correct: false },
+          { id: "a", label_vi: "Phải là câu văn dài nhất và có nhiều tính từ miêu tả nhất bài.", correct: false },
+          { id: "b", label_vi: "Phải lặp lại y nguyên từng từ theo đúng thứ tự của câu hỏi.", correct: false },
+          { id: "c", label_vi: "Phải có thật trong bài và chứng minh được câu trả lời.", correct: true },
+          { id: "d", label_vi: "Phải luôn nằm ở câu mở đầu hoặc câu kết thúc của đoạn văn.", correct: false },
         ],
         hint1_vi: "Em hãy kiểm tra câu mình chọn có thật trong bài không.",
         hint2_vi: "Câu dài nhất chưa chắc liên quan đến câu hỏi.",

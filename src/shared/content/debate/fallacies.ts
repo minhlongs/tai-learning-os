@@ -35,25 +35,29 @@ export const fallacies: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Một cách nói rất dài để giải thích kỹ vấn đề",
+            label_vi: "Một đoạn trình bày thật dài có kèm nhiều ví dụ thực tế để giải thích kỹ vấn đề",
             correct: false,
           },
           {
             id: "b",
-            label_vi: "Cách nói đúng mực nhất trong cuộc tranh luận",
+            label_vi: "Cách diễn đạt chuẩn mực và thuyết phục nhất trong buổi thảo luận nhóm",
             correct: false,
           },
-          { id: "c", label_vi: "Việc im lặng khi không đồng ý", correct: false },
+          {
+            id: "c",
+            label_vi: "Việc giữ im lặng lắng nghe bạn nói hết câu trước khi nêu phản hồi",
+            correct: false,
+          },
           {
             id: "d",
-            label_vi: "Cách nói khiến người nghe tưởng đã bị thuyết phục nhưng thực ra chưa có lý lẽ chắc chắn",
+            label_vi: "Cách nói nghe xuôi tai nhưng thực chất thiếu lý lẽ chắc chắn",
             correct: true,
           },
         ],
         hint1_vi: "Hãy nghĩ đến câu nghe có vẻ hợp lý nhưng thực ra lạc đề.",
         hint2_vi: "Lỗi này không phản bác được nội dung đang bàn.",
         hint3_vi:
-          "Đó là câu nghe hay nhưng thiếu lý lẽ, không phản bác được vấn đề.",
+          "Đó là kiểu lập luận tạo cảm giác thuyết phục giả tạo dù không có căn cứ vững vàng.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -67,22 +71,34 @@ export const fallacies: LessonDefinition = {
         question_vi:
           "“Em không nên nghe bạn ấy — bạn ấy hay bị điểm kém mà.” Câu này mắc lỗi gì?",
         choices: [
-          { id: "a", label_vi: "Dùng bằng chứng kiểm chứng được", correct: false },
+          {
+            id: "a",
+            label_vi: "Dùng bằng chứng thực tế kiểm chứng được để đánh giá thẳng vào ý tưởng",
+            correct: false,
+          },
           {
             id: "b",
-            label_vi: "Công kích cá nhân thay vì bàn nội dung",
+            label_vi: "Công kích cá nhân người nói thay vì bàn về nội dung",
             correct: true,
           },
-          { id: "c", label_vi: "Đưa ra một lý do rất chắc chắn", correct: false },
-          { id: "d", label_vi: "Kết luận đúng theo sự thật", correct: false },
+          {
+            id: "c",
+            label_vi: "Đưa ra lý lẽ chặt chẽ và sát chủ đề đang bàn",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Nêu kết luận khách quan dựa trên số liệu",
+            correct: false,
+          },
         ],
-        hint1_vi: "Câu này nói về điểm kém của bạn, không nói về ý của bạn ấy.",
-        hint2_vi: "Nó bàn về người nói thay vì bàn về lập luận.",
-        hint3_vi: "Câu này công kích cá nhân thay vì phản bác nội dung.",
+        hint1_vi: "Câu này chê kết quả học tập của bạn chứ không xét ý kiến bạn nêu.",
+        hint2_vi: "Nó chĩa vào con người phát biểu thay vì phân tích lập luận.",
+        hint3_vi: "Đem chuyện riêng của bạn ra chê để bác bỏ ý kiến chính là lỗi nhắm vào người nói.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Câu trên chỉ trích điểm kém của bạn ấy thay vì phản bác ý kiến, nên là lỗi công kích cá nhân.",
+        "Câu trên chỉ trích chuyện riêng của bạn ấy thay vì phản bác ý kiến, nên là lỗi công kích cá nhân.",
     },
     {
       position: 3,
@@ -94,20 +110,32 @@ export const fallacies: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "So sánh hai loại bút một cách công bằng",
+            label_vi: "So sánh công bằng độ bền ngòi bút và nét mực của các loại",
             correct: false,
           },
-          { id: "b", label_vi: "Công kích cá nhân", correct: false },
-          { id: "c", label_vi: "Lấy số đông làm bằng chứng", correct: true },
-          { id: "d", label_vi: "Khuyến nghị dùng bút hay hơn", correct: false },
+          {
+            id: "b",
+            label_vi: "Chê bai tính cách cá nhân của người dùng bút",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Lấy số đông người dùng làm bằng chứng thay cho chất lượng bút",
+            correct: true,
+          },
+          {
+            id: "d",
+            label_vi: "Thử nghiệm thực tế nét mực trước khi đưa ra kết luận",
+            correct: false,
+          },
         ],
-        hint1_vi: "Câu này dựa vào việc nhiều người dùng.",
-        hint2_vi: "Nhiều người chọn chưa chắc đã là tốt nhất.",
-        hint3_vi: "Đây là lỗi lấy số đông làm bằng chứng.",
+        hint1_vi: "Câu này dựa hoàn toàn vào việc có nhiều bạn đang dùng.",
+        hint2_vi: "Nhiều người chọn chưa chắc đã chứng minh sản phẩm đó viết êm và bền nhất.",
+        hint3_vi: "Dùng sự phổ biến trong tập thể để kết luận chất lượng là ngụy biện dựa vào đám đông.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
-        "Câu này dùng việc nhiều bạn dùng để kết luận bút tốt nhất, thay vì đưa lý do về chất lượng, nên là lỗi lấy số đông làm bằng chứng.",
+        "Câu này dùng việc nhiều bạn dùng để kết luận bút tốt nhất, thay vì đưa lý do về chất lượng ngòi và mực, nên là lỗi lấy số đông làm bằng chứng.",
     },
     {
       position: 4,
@@ -124,27 +152,27 @@ export const fallacies: LessonDefinition = {
           },
           {
             id: "b",
-            label_vi: "Vì bạn ấy im nên ý cũ vẫn đúng",
+            label_vi: "Vì bạn ấy không ngồi tranh luận tiếp nên ý kiến ban đầu chắc chắn đúng",
             correct: false,
           },
           {
             id: "c",
-            label_vi: "Vì bạn ấy đi nên mọi ý cũ đều sai",
+            label_vi: "Vì bạn ấy ra về sớm nên mọi lý lẽ bạn vừa nêu đều hoàn toàn sai",
             correct: false,
           },
           {
             id: "d",
-            label_vi: "Câu này là lý do chắc chắn nhất",
+            label_vi: "Câu nhận xét trên là bằng chứng vững chắc nhất",
             correct: false,
           },
         ],
-        hint1_vi: "Hãy nhìn vào việc có ai phản bác được nội dung không.",
-        hint2_vi: "Giữ im lặng không kết luận được đúng hay sai.",
-        hint3_vi: "Bỏ về không chứng minh được nội dung đúng hay sai.",
+        hint1_vi: "Hãy nhìn vào việc có ai đưa ra căn cứ phản biện nội dung chưa.",
+        hint2_vi: "Hành động rời khỏi cuộc họp không tự động làm một ý kiến trở thành đúng hay sai.",
+        hint3_vi: "Chuyện người nói đi về là thái độ ứng xử, không chứng minh được giá trị của luận điểm.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
-        "Việc bạn ấy bỏ về là hành động, không phải lý do phản bác nội dung; không thể vì thế mà kết luận ý cũ đúng hoặc sai.",
+        "Việc bạn ấy bỏ về là hành động cá nhân, không phải lý do phản bác nội dung; không thể vì thế mà kết luận ý cũ đúng hoặc sai.",
     },
     {
       position: 5,
@@ -156,24 +184,32 @@ export const fallacies: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Lý do này đủ mạnh nên có thể giữ nguyên",
+            label_vi: "Lý do này đã đủ sức thuyết phục cả trường nên nhóm không cần bổ sung thêm dẫn chứng nào",
             correct: false,
           },
-          { id: "b", label_vi: "Nên mắng bạn vì lý do thiếu căn cứ", correct: false },
-          { id: "c", label_vi: "Nên im lặng không nêu ý kiến gì", correct: false },
+          {
+            id: "b",
+            label_vi: "Nên trách mắng bạn thật gay gắt trước lớp vì nêu lý do thiếu căn cứ",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Nên giữ im lặng bỏ qua luôn không góp ý thêm điều gì cho bạn",
+            correct: false,
+          },
           {
             id: "d",
             label_vi: "Cần đưa lý do về lợi ích thể thao, không chỉ dựa vào ý muốn của một người",
             correct: true,
           },
         ],
-        hint1_vi: "Một bạn thích chưa phải là lý do dùng cho cả lớp.",
-        hint2_vi: "Nên thay bằng lý do nêu lợi ích của thể thao.",
-        hint3_vi: "Nên thay lý do bằng lợi ích thể thao cho học sinh.",
+        hint1_vi: "Một bạn thích chưa phải là lý do thuyết phục cho quyết định chung của tập thể.",
+        hint2_vi: "Nên gợi ý bạn bổ sung tác dụng rèn luyện sức khỏe của hoạt động vận động.",
+        hint3_vi: "Hãy góp ý lịch sự để bạn thay sở thích cá nhân bằng tác dụng thực tế đối với học sinh.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
-        "Ý thích của một người không đủ làm lý do cho quyết định chung; cần lý do về lợi ích thể thao, và ta nhắc nhắp khéo chứ không công kích.",
+        "Ý thích của một người không đủ làm lý do cho quyết định chung; cần nêu lý do về lợi ích sức khỏe của thể thao, và góp ý khéo léo chứ không công kích.",
     },
   ],
 };

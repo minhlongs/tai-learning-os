@@ -45,7 +45,7 @@ export const sentenceLinking: LessonDefinition = {
             correct: false,
           },
           { id: "c", label_vi: "Đoạn văn có thật nhiều từ khó", correct: false },
-          { id: "d", label_vi: "Câu nào cũng dài như nhau", correct: false },
+          { id: "d", label_vi: "Câu nào trong đoạn cũng dài bằng nhau", correct: false },
         ],
         hint1_vi: "Hãy nghĩ đến cảm giác khi đọc một đoạn trôi chảy.",
         hint2_vi: "Các ý cần có quan hệ rõ ràng với nhau.",
@@ -70,7 +70,7 @@ export const sentenceLinking: LessonDefinition = {
         ],
         hint1_vi: "Vế sau là kết quả của việc trời mưa.",
         hint2_vi: "Cần từ nối thể hiện quan hệ nguyên nhân – kết quả.",
-        hint3_vi: "“Vì vậy” dùng để giới thiệu kết quả.",
+        hint3_vi: "Hãy chọn quan hệ từ mở đầu cho vế chỉ kết quả kéo theo.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -128,7 +128,7 @@ export const sentenceLinking: LessonDefinition = {
         ],
         hint1_vi: "Hai ý có sự trái ngược: luyện tập nhiều nhưng vẫn hồi hộp.",
         hint2_vi: "Cần từ nối chỉ quan hệ tương phản.",
-        hint3_vi: "“Tuy nhiên” dùng để nối hai ý trái ngược.",
+        hint3_vi: "Hãy chọn từ nối biểu thị ý ngược lại với dự đoán ở câu trước.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:

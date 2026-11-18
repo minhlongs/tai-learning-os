@@ -34,18 +34,18 @@ export const figurativeLanguage: LessonDefinition = {
         type: "multiple_choice",
         question_vi: "Câu nào sử dụng biện pháp so sánh?",
         choices: [
-          { id: "a", label_vi: "Mặt hồ rất phẳng.", correct: false },
+          { id: "a", label_vi: "Mặt hồ buổi sớm phẳng lặng và trong vắt.", correct: false },
           { id: "b", label_vi: "Mặt hồ phẳng như tấm gương.", correct: true },
-          { id: "c", label_vi: "Mặt hồ ở sau ngôi nhà.", correct: false },
-          { id: "d", label_vi: "Em đi quanh mặt hồ.", correct: false },
+          { id: "c", label_vi: "Mặt hồ nằm ngay phía sau ngôi nhà nhỏ.", correct: false },
+          { id: "d", label_vi: "Em dạo bước quanh bờ hồ.", correct: false },
         ],
         hint1_vi: "So sánh đặt hai sự vật cạnh nhau vì có nét giống nhau.",
         hint2_vi: "Từ “như” thường báo hiệu một phép so sánh.",
-        hint3_vi: "Câu có “mặt hồ ... như tấm gương” là câu so sánh.",
+        hint3_vi: "Hãy tìm câu đối chiếu mặt nước phẳng với một vật phản chiếu quen thuộc.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Câu “Mặt hồ phẳng như tấm gương” dùng từ “như” để so sánh, giúp người đọc hình dung rõ hơn.",
+        "Câu “Mặt hồ phẳng như tấm gương.” dùng từ “như” để so sánh, giúp người đọc hình dung rõ hơn.",
     },
     {
       position: 2,
@@ -55,14 +55,14 @@ export const figurativeLanguage: LessonDefinition = {
         question_vi: "Câu nào sử dụng biện pháp nhân hóa?",
         choices: [
           { id: "a", label_vi: "Hàng cây cao năm mét.", correct: false },
-          { id: "b", label_vi: "Hàng cây có nhiều lá xanh.", correct: false },
+          { id: "b", label_vi: "Hàng cây xanh rợp lá bên lề đường.", correct: false },
           { id: "c", label_vi: "Hàng cây mọc bên đường.", correct: false },
           { id: "d", label_vi: "Hàng cây dang tay đón gió.", correct: true },
         ],
         hint1_vi:
-          "Nhân hóa làm cho sự vật mang hành động hoặc đặc điểm của con người.",
+          "Nhân hóa làm cho sự vật mang cử chỉ, hành động hoặc tính nết của con người.",
         hint2_vi: "Cây không có tay thật như con người.",
-        hint3_vi: "“Dang tay đón gió” là hành động được gán cho hàng cây.",
+        hint3_vi: "Cử chỉ giang rộng vòng tay đón làn gió vốn là hành động của người.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -77,13 +77,13 @@ export const figurativeLanguage: LessonDefinition = {
           "Trong câu “Những giọt sương long lanh như hạt ngọc”, hai sự vật nào được so sánh?",
         choices: [
           { id: "a", label_vi: "Giọt sương và hạt ngọc", correct: true },
-          { id: "b", label_vi: "Ánh nắng và lá cây", correct: false },
-          { id: "c", label_vi: "Giọt sương và ánh nắng", correct: false },
-          { id: "d", label_vi: "Hạt ngọc và lá cây", correct: false },
+          { id: "b", label_vi: "Ánh nắng sớm và vòm lá cây", correct: false },
+          { id: "c", label_vi: "Những giọt sương và tia nắng", correct: false },
+          { id: "d", label_vi: "Viên ngọc sáng và chiếc lá non", correct: false },
         ],
         hint1_vi: "Tìm từ “như” trong câu.",
         hint2_vi: "Sự vật trước “như” được đặt cạnh sự vật sau “như”.",
-        hint3_vi: "Câu đặt giọt sương cạnh hạt ngọc vì đều long lanh.",
+        hint3_vi: "Một sự vật đọng trên lá sớm mai được đối chiếu với một vật quý sáng trong.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -99,24 +99,24 @@ export const figurativeLanguage: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Cho biết chính xác chiều dài dòng sông",
+            label_vi: "Cho người đọc biết chính xác số đo chiều dài và độ sâu của con sông",
             correct: false,
           },
-          { id: "b", label_vi: "Giải thích vì sao nước sông trong", correct: false },
+          { id: "b", label_vi: "Giải thích nguyên nhân khiến mặt nước sông luôn trong", correct: false },
           {
             id: "c",
-            label_vi: "Làm dòng sông hiện lên mềm mại, sinh động như một cơ thể sống",
+            label_vi: "Giúp dòng sông hiện lên mềm mại, sinh động và gần gũi hơn",
             correct: true,
           },
-          { id: "d", label_vi: "Nêu tên địa phương có dòng sông", correct: false },
+          { id: "d", label_vi: "Giới thiệu tên gọi vùng quê nơi con sông chảy ngang qua", correct: false },
         ],
         hint1_vi: "“Uốn mình” vốn là hành động của người hoặc động vật.",
         hint2_vi: "Hành động đó khiến dòng sông có vẻ sống động hơn.",
-        hint3_vi: "Câu văn gợi hình dáng cong mềm của dòng sông.",
+        hint3_vi: "Câu văn gợi hình dáng cong mềm và vẻ có hồn của dòng sông.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
-        "Nhân hóa qua từ “uốn mình” khiến dòng sông hiện lên như một cơ thể sống, mềm mại và sinh động.",
+        "Nhân hóa qua từ “uốn mình” khiến dòng sông hiện lên mềm mại, sinh động và gần gũi như một cơ thể sống.",
     },
     {
       position: 5,
@@ -127,7 +127,7 @@ export const figurativeLanguage: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Tiếng trống trường có âm thanh.",
+            label_vi: "Tiếng trống trường vang rất to ngoài sân.",
             correct: false,
           },
           {
@@ -135,20 +135,20 @@ export const figurativeLanguage: LessonDefinition = {
             label_vi: "Tiếng trống trường giục giã gọi chúng em vào lớp.",
             correct: true,
           },
-          { id: "c", label_vi: "Trống trường làm bằng gỗ.", correct: false },
+          { id: "c", label_vi: "Chiếc trống trường được đóng bằng gỗ mít.", correct: false },
           {
             id: "d",
-            label_vi: "Trống trường đặt ở hành lang.",
+            label_vi: "Trống trường đặt ngay đầu dãy hành lang.",
             correct: false,
           },
         ],
         hint1_vi: "Hãy tìm câu gán cho tiếng trống hành động của con người.",
         hint2_vi: "“Gọi” là hành động giao tiếp của con người.",
-        hint3_vi: "Câu có “gọi chúng em vào lớp” dùng nhân hóa.",
+        hint3_vi: "Hãy tìm câu tả âm thanh tiếng trống biết cất lời thúc giục học sinh.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Câu “gọi chúng em vào lớp” gán cho tiếng trống hành động của con người nên đã dùng nhân hóa, làm âm thanh trở nên gần gũi.",
+        "Hành động thúc giục và cất tiếng gọi học sinh vào lớp vốn là của con người nên câu đã dùng nhân hóa, làm âm thanh trở nên gần gũi.",
     },
   ],
 };

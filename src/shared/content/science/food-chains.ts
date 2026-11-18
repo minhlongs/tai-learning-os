@@ -66,10 +66,14 @@ export const foodChains: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Con cáo, vì cáo ăn thỏ",
+            label_vi: "Con cáo, vì cáo săn bắt thỏ trên cánh đồng cỏ để làm thức ăn",
             correct: false,
           },
-          { id: "b", label_vi: "Con thỏ, vì thỏ ăn cỏ", correct: false },
+          {
+            id: "b",
+            label_vi: "Con thỏ, vì thỏ gặm lá cỏ non xanh mượt mỗi ngày",
+            correct: false,
+          },
           {
             id: "c",
             label_vi:
@@ -78,14 +82,14 @@ export const foodChains: LessonDefinition = {
           },
           {
             id: "d",
-            label_vi: "Con đại bàng, vì đại bàng bay cao nhất",
+            label_vi: "Con đại bàng, vì đại bàng bay cao nhất trên bầu trời",
             correct: false,
           },
         ],
         hint1_vi: "Sinh vật đó phải đứng ở đầu chuỗi thức ăn.",
         hint2_vi: "Nó cần ánh sáng mặt trời để tự tạo thức ăn cho mình.",
         hint3_vi:
-          "Cây xanh tự tạo chất dinh dưỡng nhờ quang hợp nên là sinh vật sản xuất.",
+          "Cây xanh tự tổng hợp chất dinh dưỡng nhờ quang hợp nên là sinh vật sản xuất.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -99,7 +103,7 @@ export const foodChains: LessonDefinition = {
         question_vi:
           "Chuỗi thức ăn nào được viết đúng thứ tự từ sinh vật sản xuất đến sinh vật tiêu thụ bậc cao?",
         choices: [
-          { id: "a", label_vi: "Cỏ → châu chấu → ếch → rắn", correct: true },
+          { id: "a", label_vi: "Cỏ xanh → châu chấu → ếch đồng → rắn", correct: true },
           { id: "b", label_vi: "Ếch → cỏ → rắn → châu chấu", correct: false },
           { id: "c", label_vi: "Rắn → ếch → châu chấu → cỏ", correct: false },
           { id: "d", label_vi: "Châu chấu → cỏ → rắn → ếch", correct: false },
@@ -107,7 +111,7 @@ export const foodChains: LessonDefinition = {
         hint1_vi: "Mũi tên chỉ từ sinh vật bị ăn đến sinh vật ăn.",
         hint2_vi: "Đầu chuỗi phải là cây xanh tự tạo thức ăn.",
         hint3_vi:
-          "Thứ tự đúng là cỏ, châu chấu ăn cỏ, ếch ăn châu chấu, rắn ăn ếch.",
+          "Thứ tự đúng bắt đầu từ cỏ, đến châu chấu ăn cỏ, ếch ăn châu chấu và rắn ăn ếch.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -121,18 +125,30 @@ export const foodChains: LessonDefinition = {
         question_vi:
           "Trong chuỗi “Cỏ → châu chấu → ếch”, châu chấu là sinh vật gì?",
         choices: [
-          { id: "a", label_vi: "Sinh vật sản xuất tự tạo thức ăn", correct: false },
+          {
+            id: "a",
+            label_vi: "Sinh vật sản xuất tự tổng hợp chất hữu cơ nuôi sống cả chuỗi",
+            correct: false,
+          },
           {
             id: "b",
             label_vi: "Sinh vật tiêu thụ bậc một ăn sinh vật sản xuất",
             correct: true,
           },
-          { id: "c", label_vi: "Sinh vật tiêu thụ bậc ba", correct: false },
-          { id: "d", label_vi: "Sinh vật phân hủy", correct: false },
+          {
+            id: "c",
+            label_vi: "Sinh vật tiêu thụ bậc ba đứng ở vị trí cuối chuỗi thức ăn",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Sinh vật phân hủy chuyên phân giải xác lá rụng trong đất ẩm",
+            correct: false,
+          },
         ],
         hint1_vi: "Hãy xem châu chấu ăn sinh vật nào trong chuỗi.",
         hint2_vi: "Châu chấu lấy thức ăn trực tiếp từ cây xanh.",
-        hint3_vi: "Châu chấu ăn cỏ nên là sinh vật tiêu thụ bậc một.",
+        hint3_vi: "Châu chấu ăn cỏ nên đóng vai trò sinh vật tiêu thụ bậc một.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:

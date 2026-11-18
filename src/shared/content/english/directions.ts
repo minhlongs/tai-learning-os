@@ -34,9 +34,9 @@ export const directions: LessonDefinition = {
         question_vi: "Câu nào dùng để hỏi đường đến thư viện?",
         question_en: "Which sentence asks for directions to the library?",
         choices: [
-          { id: "a", label_vi: "The library reads a book.", correct: false },
-          { id: "b", label_vi: "I am a library.", correct: false },
-          { id: "c", label_vi: "How old is the library?", correct: false },
+          { id: "a", label_vi: "The quiet library is reading a big storybook.", correct: false },
+          { id: "b", label_vi: "I like reading funny books inside the library.", correct: false },
+          { id: "c", label_vi: "Excuse me, how many books has the library?", correct: false },
           {
             id: "d",
             label_vi: "Excuse me, how can I get to the library?",
@@ -46,7 +46,7 @@ export const directions: LessonDefinition = {
         hint1_vi: "Một câu hỏi đường lịch sự thường bắt đầu bằng “Excuse me”.",
         hint2_vi:
           "Cụm “how can I get to...” có nghĩa là “tôi đến ... bằng cách nào”.",
-        hint3_vi: "Chọn câu có cả “Excuse me” và “get to the library”.",
+        hint3_vi: "Chọn câu hỏi cách đi tới nơi chứ không hỏi số lượng sách.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -67,7 +67,7 @@ export const directions: LessonDefinition = {
         ],
         hint1_vi: "Cụm này chỉ hai vật hoặc hai nơi ở sát nhau.",
         hint2_vi: "Ví dụ: “The bank is next to the post office.”",
-        hint3_vi: "“Next to” nghĩa là ngay bên cạnh.",
+        hint3_vi: "Hai địa điểm có tường liền kề nhau chứ không cách qua đường hay đứng xa.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
@@ -106,7 +106,7 @@ export const directions: LessonDefinition = {
         ],
         hint1_vi: "Cần một giới từ diễn tả vị trí ở giữa hai đối tượng.",
         hint2_vi: "Cấu trúc là “___ A and B”.",
-        hint3_vi: "Từ đúng là “between”.",
+        hint3_vi: "Giới từ bắt đầu bằng chữ “b” dùng khi một nơi nằm kẹp giữa hai nơi khác.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -127,13 +127,13 @@ export const directions: LessonDefinition = {
             label_vi: "Đi thẳng rồi rẽ trái tại đèn giao thông",
             correct: true,
           },
-          { id: "b", label_vi: "Rẽ phải ngay lập tức", correct: false },
-          { id: "c", label_vi: "Quay lại phía sau", correct: false },
-          { id: "d", label_vi: "Dừng lại trước ngã tư", correct: false },
+          { id: "b", label_vi: "Rẽ phải ngay lập tức rồi đi qua ngã tư", correct: false },
+          { id: "c", label_vi: "Quay ngược lại phía sau rồi đứng chờ đèn", correct: false },
+          { id: "d", label_vi: "Dừng hẳn lại trước ngã tư và rẽ sang phải", correct: false },
         ],
-        hint1_vi: "“Go straight” nghĩa là đi thẳng.",
-        hint2_vi: "“Turn left” nghĩa là rẽ trái.",
-        hint3_vi: "“At the traffic lights” cho biết chỗ cần rẽ.",
+        hint1_vi: "“Go straight” nghĩa là tiến về phía trước mà chưa rẽ.",
+        hint2_vi: "“Turn left” chỉ hướng rẽ sang bên tay trái.",
+        hint3_vi: "“At the traffic lights” cho biết cột mốc nơi bắt đầu đổi hướng.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -172,7 +172,7 @@ export const directions: LessonDefinition = {
         ],
         hint1_vi: "Cần một giới từ chỉ hai nơi nằm đối diện qua đường.",
         hint2_vi: "“Opposite” có nghĩa là ở phía đối diện.",
-        hint3_vi: "Mẫu câu là “The park is opposite the hospital.”",
+        hint3_vi: "Sau động từ “is”, đặt giới từ chỉ vị trí đối diện rồi đến tên địa điểm kia.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:

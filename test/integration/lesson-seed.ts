@@ -404,9 +404,15 @@ export function storedCanonical(lesson: LessonRow, steps: readonly StepRow[]): s
   });
 }
 
-/** Stable across runs, so an attempt pointing at a step id keeps pointing at it. */
-export function stepId(lessonId: string, position: number): string {
-  return `${lessonId}-s${position}`;
+/**
+ * Stable across runs, so an attempt pointing at a step id keeps pointing at it.
+ * Version 1 uses `${lessonId}-s${position}`; bumped versions (`version > 1`)
+ * allocate distinct immutable snapshot IDs `${lessonId}-v${version}-s${position}`
+ * with `source_step_id` pointing back at the v1 root step so historical
+ * `v1` attempts/sessions are never overwritten in place.
+ */
+export function stepId(lessonId: string, position: number, version = 1): string {
+  return version <= 1 ? `${lessonId}-s${position}` : `${lessonId}-v${version}-s${position}`;
 }
 
 export interface SeedResult {
@@ -469,8 +475,10 @@ export async function seedLessons(
     }
 
     const stepRows = await db
-      .prepare("select * from lesson_steps where lesson_id = ? order by position")
-      .bind(lesson.id)
+      .prepare(
+        "select * from lesson_steps where lesson_id = ? and content_version = ? order by position",
+      )
+      .bind(lesson.id, existing.version)
       .all<StepRow>();
 
     if (canonical(lesson.id) === storedCanonical(existing, stepRows.results ?? [])) {
@@ -601,19 +609,17 @@ async function writeLesson(db: D1Database, lessonId: string, version: number): P
       db
         .prepare(
           `insert into lesson_steps
-             (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version)
-           values (?, ?, ?, ?, ?, ?, ?, ?)
-           on conflict(id) do update set
-             lesson_id = excluded.lesson_id,
-             position = excluded.position,
+             (id, lesson_id, position, kind, content, answer_key, explanation_vi, content_version, source_step_id)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           on conflict(lesson_id, content_version, position) do update set
              kind = excluded.kind,
              content = excluded.content,
              answer_key = excluded.answer_key,
              explanation_vi = excluded.explanation_vi,
-             content_version = excluded.content_version`,
+             source_step_id = excluded.source_step_id`,
         )
         .bind(
-          stepId(lesson.id, step.position),
+          stepId(lesson.id, step.position, version),
           lesson.id,
           step.position,
           step.kind,
@@ -621,8 +627,30 @@ async function writeLesson(db: D1Database, lessonId: string, version: number): P
           step.answerKey,
           step.explanationVi,
           version,
+          version > 1 ? stepId(lesson.id, step.position, 1) : null,
         ),
     ),
+    ...(version > 1
+      ? [
+          db
+            .prepare(
+              `update learning_sessions
+               set continuation_deadline = case
+                 when continuation_deadline is null then ?
+                 when continuation_deadline > ? then ?
+                 else continuation_deadline
+               end
+               where lesson_id = ? and lesson_version < ? and status = 'in_progress'`,
+            )
+            .bind(
+              now + 30 * 60 * 1000,
+              now + 30 * 60 * 1000,
+              now + 30 * 60 * 1000,
+              lesson.id,
+              version,
+            ),
+        ]
+      : []),
     db
       .prepare(
         `insert into lesson_metadata

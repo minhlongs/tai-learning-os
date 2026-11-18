@@ -36,19 +36,19 @@ export const inference: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Đoán bất kì điều gì không cần bằng chứng",
+            label_vi: "Tự nghĩ ra bất kì chi tiết li kì nào dù bài đọc không có dấu hiệu",
             correct: false,
           },
           {
             id: "b",
             label_vi:
-              "Dùng chi tiết trong bài và hiểu biết hợp lý để rút ra điều chưa nói thẳng",
+              "Dựa vào chi tiết trong bài để hiểu điều tác giả không nói thẳng",
             correct: true,
           },
-          { id: "c", label_vi: "Chép lại nguyên câu đầu tiên", correct: false },
+          { id: "c", label_vi: "Chép lại nguyên văn câu mở đầu hoặc câu kết thúc của đoạn văn đó", correct: false },
           {
             id: "d",
-            label_vi: "Bỏ qua các chi tiết trong bài",
+            label_vi: "Bỏ qua các chi tiết nhỏ và chỉ nhớ tên của nhân vật",
             correct: false,
           },
         ],
@@ -99,7 +99,7 @@ export const inference: LessonDefinition = {
           },
           { id: "b", label_vi: "Lan định mang hộp đến trường", correct: false },
           { id: "c", label_vi: "Lan muốn cất đồ chơi của mình", correct: false },
-          { id: "d", label_vi: "Lan đang dọn bàn học", correct: false },
+          { id: "d", label_vi: "Lan đang dọn dẹp lại góc bàn học", correct: false },
         ],
         evidenceSentence_vi:
           "Lan đặt chiếc hộp có nơ đỏ lên bàn mẹ rồi nhẹ nhàng bước ra. Hôm sau là ngày 8 tháng 3.",
@@ -118,9 +118,9 @@ export const inference: LessonDefinition = {
           "Dù các bạn đã ra về, Huy vẫn ở lại sân tập từng cú phát bóng. Bạn xem lại động tác, sửa tư thế rồi thử lần nữa. Sáng mai đội của Huy sẽ thi đấu trận chung kết.",
         question_vi: "Có thể suy ra Huy là người như thế nào?",
         choices: [
-          { id: "a", label_vi: "Không thích chơi thể thao", correct: false },
-          { id: "b", label_vi: "Luôn bỏ cuộc khi gặp khó", correct: false },
-          { id: "c", label_vi: "Không quan tâm đến trận đấu", correct: false },
+          { id: "a", label_vi: "Không hào hứng với các môn thể thao đồng đội", correct: false },
+          { id: "b", label_vi: "Hay nản lòng và bỏ dở bài tập khi gặp động tác khó", correct: false },
+          { id: "c", label_vi: "Thờ ơ trước trận đấu chung kết", correct: false },
           { id: "d", label_vi: "Kiên trì và có trách nhiệm với đội", correct: true },
         ],
         evidenceSentence_vi:

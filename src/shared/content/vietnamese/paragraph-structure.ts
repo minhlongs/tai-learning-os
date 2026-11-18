@@ -34,14 +34,14 @@ export const paragraphStructure: LessonDefinition = {
         type: "multiple_choice",
         question_vi: "Câu mở đoạn thường có nhiệm vụ gì?",
         choices: [
-          { id: "a", label_vi: "Kể mọi chi tiết nhỏ", correct: false },
-          { id: "b", label_vi: "Lặp nguyên câu cuối đoạn", correct: false },
-          { id: "c", label_vi: "Giới thiệu ý chính của đoạn văn", correct: true },
-          { id: "d", label_vi: "Đưa ra một ý không liên quan", correct: false },
+          { id: "a", label_vi: "Liệt kê hết mọi chi tiết nhỏ sẽ kể trong đoạn.", correct: false },
+          { id: "b", label_vi: "Chép lại nguyên vẹn câu kết ở cuối đoạn văn.", correct: false },
+          { id: "c", label_vi: "Giới thiệu chủ đề của đoạn văn.", correct: true },
+          { id: "d", label_vi: "Nêu thêm một sự việc nằm ngoài nội dung đoạn.", correct: false },
         ],
         hint1_vi: "Hãy nghĩ đến điều người đọc cần biết đầu tiên.",
-        hint2_vi: "Câu này giúp người đọc biết đoạn văn sẽ nói về chủ đề nào.",
-        hint3_vi: "Câu mở đoạn giới thiệu ý chính.",
+        hint2_vi: "Câu này giúp người đọc biết đoạn văn sẽ nói về nội dung nào.",
+        hint3_vi: "Câu đầu tiên mở ra hướng triển khai chung cho các câu đứng sau.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -56,20 +56,20 @@ export const paragraphStructure: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Giải thích hoặc làm rõ ý chính bằng chi tiết",
+            label_vi: "Làm rõ ý chính bằng các chi tiết, lí lẽ cụ thể.",
             correct: true,
           },
-          { id: "b", label_vi: "Chỉ lặp lại đúng câu mở đoạn", correct: false },
+          { id: "b", label_vi: "Lặp lại nguyên xi từ ngữ đã có ở câu mở đầu.", correct: false },
           {
             id: "c",
-            label_vi: "Chuyển sang một chủ đề hoàn toàn khác",
+            label_vi: "Chuyển hẳn sang kể một câu chuyện khác không liên quan.",
             correct: false,
           },
-          { id: "d", label_vi: "Không cần liên quan đến nhau", correct: false },
+          { id: "d", label_vi: "Ghép các câu rời rạc, mỗi câu nói về một việc.", correct: false },
         ],
         hint1_vi: "Phần thân nằm giữa câu mở và câu kết.",
         hint2_vi: "Nó cần cung cấp ví dụ, lý do hoặc miêu tả.",
-        hint3_vi: "Các chi tiết trong thân đoạn phải làm rõ ý chính.",
+        hint3_vi: "Các ý ở phần giữa đoạn đều phải xoay quanh và bổ sung cho câu mở.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -94,7 +94,7 @@ export const paragraphStructure: LessonDefinition = {
           },
           {
             id: "c",
-            label_vi: "Ve sầu kêu râm ran trên cành.",
+            label_vi: "Tiếng ve sầu kêu râm ran trên những vòm lá.",
             correct: false,
           },
           {
@@ -105,8 +105,8 @@ export const paragraphStructure: LessonDefinition = {
           },
         ],
         hint1_vi: "Câu mở cần giới thiệu đối tượng chính là cây phượng.",
-        hint2_vi: "Câu này nên bao quát hơn các chi tiết về hoa và ve.",
-        hint3_vi: "Chọn câu giới thiệu cây phượng là người bạn của học sinh.",
+        hint2_vi: "Câu này nên bao quát hơn các chi tiết về hoa và tiếng ve.",
+        hint3_vi: "Hãy tìm câu nêu cái nhìn bao quát về cây phượng giữa sân trường.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -120,22 +120,31 @@ export const paragraphStructure: LessonDefinition = {
         question_vi:
           "Sau câu mở “Thư viện trường em là nơi rất thú vị”, câu nào phù hợp nhất để triển khai?",
         choices: [
-          { id: "a", label_vi: "Sáng nay trời có mưa lớn.", correct: false },
+          {
+            id: "a",
+            label_vi: "Sân vận động cạnh trường rất rộng rãi nên chiều nào cũng đông học sinh.",
+            correct: false,
+          },
           {
             id: "b",
-            label_vi: "Các giá sách đầy truyện hay, bàn đọc luôn sạch sẽ và cô thủ thư rất thân thiện.",
+            label_vi: "Giá sách đầy truyện hay, bàn đọc sạch sẽ và cô thủ thư thân thiện.",
             correct: true,
           },
-          { id: "c", label_vi: "Em thích ăn món canh chua.", correct: false },
-          { id: "d", label_vi: "Bóng đá là môn thể thao phổ biến.", correct: false },
+          { id: "c", label_vi: "Buổi sáng hôm nay bầu trời trong xanh và có nắng ấm.", correct: false },
+          {
+            id: "d",
+            label_vi: "Nhà ăn của trường phục vụ nhiều món canh nóng hổi vào mỗi buổi trưa.",
+            correct: false,
+          },
         ],
         hint1_vi: "Câu triển khai phải cùng nói về thư viện.",
         hint2_vi: "Tìm câu nêu chi tiết chứng minh thư viện thú vị.",
-        hint3_vi: "Giá sách, bàn đọc và cô thủ thư đều là chi tiết liên quan.",
+        hint3_vi: "Hãy tìm những hình ảnh quen thuộc bên trong phòng đọc sách.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Câu đưa ra ba chi tiết cụ thể — giá sách đầy truyện hay, bàn đọc sạch sẽ và cô thủ thư thân thiện — làm rõ vì sao thư viện thú vị; các câu còn lại không liên quan đến chủ đề.",    },
+        "Câu đưa ra ba chi tiết cụ thể — giá sách đầy truyện hay, bàn đọc sạch sẽ và cô thủ thư thân thiện — làm rõ vì sao thư viện thú vị; các câu còn lại nói sang sân vận động, thời tiết hoặc nhà ăn nên lạc chủ đề.",
+    },
     {
       position: 5,
       kind: "transfer",
@@ -146,24 +155,32 @@ export const paragraphStructure: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Buổi trồng cây giúp chúng em hiểu rằng chăm sóc môi trường là trách nhiệm của mỗi người.",
+            label_vi: "Buổi trồng cây nhắc chúng em cùng chung tay chăm sóc môi trường xanh.",
             correct: true,
           },
           {
             id: "b",
-            label_vi: "Cô giáo phát cho mỗi bạn một chiếc xẻng.",
+            label_vi: "Đầu giờ sáng, cô giáo phát cho mỗi tổ hai chiếc xẻng nhỏ và một bình tưới nước.",
             correct: false,
           },
-          { id: "c", label_vi: "Nam đào hố còn Lan tưới nước.", correct: false },
-          { id: "d", label_vi: "Cây giống được đặt cạnh hàng rào.", correct: false },
+          {
+            id: "c",
+            label_vi: "Bạn Nam đào hố đất mềm còn bạn Lan nhẹ tay đặt bầu cây giống.",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Những bầu cây non được xếp ngay ngắn dọc theo hàng rào cuối sân.",
+            correct: false,
+          },
         ],
         hint1_vi: "Câu kết nên khép lại ý nghĩa của cả hoạt động.",
         hint2_vi: "Các chi tiết ai làm gì phù hợp hơn với phần thân.",
-        hint3_vi: "Chọn câu nêu bài học về trách nhiệm với môi trường.",
+        hint3_vi: "Hãy tìm câu nêu ý nghĩa chung đọng lại sau hoạt động của cả lớp.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
-        "Câu nêu rằng chăm sóc môi trường là trách nhiệm của mỗi người nên tổng kết ý nghĩa buổi trồng cây, phù hợp làm câu kết đoạn. Ba câu còn lại chỉ kể chi tiết phần thân.",
+        "Câu nêu ý nghĩa cùng chung tay chăm sóc môi trường xanh đã tổng kết trọn vẹn buổi trồng cây, phù hợp làm câu kết đoạn. Ba câu còn lại chỉ kể chi tiết phần thân.",
     },
   ],
 };

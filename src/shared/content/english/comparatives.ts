@@ -66,7 +66,7 @@ export const comparatives: LessonDefinition = {
         ],
         hint1_vi: "Mẫu câu là “A is ... B”.",
         hint2_vi: "Từ cần điền có nghĩa là “so với”.",
-        hint3_vi: "Mẫu hoàn chỉnh: “A is taller than B.”",
+        hint3_vi: "Từ nối ngắn bốn chữ cái bắt đầu bằng “th-” đặt trước đối tượng thứ hai.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -88,7 +88,7 @@ export const comparatives: LessonDefinition = {
         hint1_vi: "Tính từ “small” là tính từ ngắn.",
         hint2_vi:
           "Thêm “-er” vào “small”, rồi đặt “than” trước đối tượng thứ hai.",
-        hint3_vi: "Mẫu câu là “The cat is smaller than the dog.”",
+        hint3_vi: "Động từ “is” đứng ngay sau chủ ngữ “The cat”, rồi mới tới tính từ so sánh hơn.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
@@ -109,7 +109,7 @@ export const comparatives: LessonDefinition = {
         ],
         hint1_vi: "Câu đang so sánh tốc độ của hai phương tiện.",
         hint2_vi: "“Fast” là tính từ ngắn nên thêm “-er”.",
-        hint3_vi: "“Fast” trở thành “faster”.",
+        hint3_vi: "Không dùng thêm chữ “more” trước tính từ ngắn đã gắn đuôi “-er”.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -130,8 +130,8 @@ export const comparatives: LessonDefinition = {
           { id: "d", label_vi: "Lan older Mai.", correct: false },
         ],
         hint1_vi: "Người 11 tuổi lớn tuổi hơn người 10 tuổi.",
-        hint2_vi: "“Old” thêm “-er” thành “older”.",
-        hint3_vi: "Dùng mẫu “Lan is older than Mai.”",
+        hint2_vi: "“Old” thêm “-er” để diễn tả nhiều tuổi hơn.",
+        hint3_vi: "Câu cần đủ động từ “is”, tính từ có đuôi “-er” và từ nối “than”.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:

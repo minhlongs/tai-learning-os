@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { LESSONS } from "../../src/shared/content/index";
-import { WAVE1_LEGACY_IDS } from "../../src/shared/content/wave1-legacy";
 import { LESSON_STEP_KINDS } from "../../src/shared/schemas/attempt";
 import { correctChoiceId, gradeSubmission } from "../../src/shared/schemas/answer";
 import { validateExercise } from "../../src/shared/schemas/exercise";
@@ -114,13 +113,53 @@ describe("lesson registry — shape", () => {
     expect(new Set(patterns).size, "distinct Grade 4 answer sequences").toBeGreaterThan(1);
   });
 
-  it("keeps choice lengths balanced so clicking the longest option cannot game mastery", () => {
-    // Wave 1 shipped before choice-length parity was gated; any lesson added from
-    // Wave 2 onward is held to the strict per-subject and per-step ceilings so a
-    // learner cannot pass FSRS/BKT thresholds by picking the longest string.
-    const wave1LegacyIds = WAVE1_LEGACY_IDS;
+  it("distributes bridge-grade (gradeFrom !== gradeTo) answers across all four positions and bans mono-answer lessons", () => {
+    const bridgeLessons = LESSONS.filter((lesson) => lesson.gradeFrom !== lesson.gradeTo);
+    expect(bridgeLessons.length).toBeGreaterThan(0);
 
-    const postWave1BySubject = new Map<
+    const bridgeChoiceIds = bridgeLessons.flatMap((lesson) =>
+      lesson.steps.flatMap((step) => {
+        if (step.content.type === "fraction_visual") return [];
+        return [correctChoiceId(step.content)];
+      }),
+    );
+    const counts = new Map<string, number>();
+    for (const id of bridgeChoiceIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+
+    expect([...counts.keys()].sort()).toEqual(["a", "b", "c", "d"]);
+    for (const [choiceId, count] of counts) {
+      expect(count / bridgeChoiceIds.length, `bridge choice "${choiceId}" share`).toBeLessThanOrEqual(
+        0.3,
+      );
+    }
+
+    const patterns = bridgeLessons
+      .filter((lesson) => lesson.steps.length >= 5)
+      .map((lesson) =>
+        lesson.steps
+          .map((step) =>
+            step.content.type === "fraction_visual" ? "-" : correctChoiceId(step.content),
+          )
+          .join(""),
+      );
+    expect(new Set(patterns).size, "distinct bridge-grade answer sequences").toBeGreaterThan(1);
+
+    const monoAnswerLessons: string[] = [];
+    for (const lesson of LESSONS) {
+      const choiceIds = lesson.steps.flatMap((step) =>
+        step.content.type === "fraction_visual" ? [] : [correctChoiceId(step.content)],
+      );
+      if (choiceIds.length >= 4 && new Set(choiceIds).size === 1) {
+        monoAnswerLessons.push(`${lesson.id} (${choiceIds.join("")})`);
+      }
+    }
+    expect(monoAnswerLessons, "lessons with >=4 MC steps sharing a single answer position").toEqual(
+      [],
+    );
+  });
+
+  it("keeps choice lengths balanced across all 100 lessons so clicking the longest option cannot game mastery", () => {
+    const bySubject = new Map<
       string,
       { total: number; ranks: [number, number, number, number] }
     >();
@@ -133,7 +172,6 @@ describe("lesson registry — shape", () => {
     const distinguishableBySubject = new Map<string, { total: number; longest: number }>();
 
     for (const lesson of LESSONS) {
-      if (wave1LegacyIds.has(lesson.id)) continue;
       const lessonRanks: number[] = [];
 
       for (const step of lesson.steps) {
@@ -156,7 +194,7 @@ describe("lesson registry — shape", () => {
         const rank = descending.findIndex((entry) => entry.choice.correct);
         lessonRanks.push(rank);
 
-        const bucket = postWave1BySubject.get(lesson.subjectId) ?? {
+        const bucket = bySubject.get(lesson.subjectId) ?? {
           total: 0,
           ranks: [0, 0, 0, 0],
         };
@@ -164,7 +202,7 @@ describe("lesson registry — shape", () => {
         if (rank >= 0 && rank < 4) {
           bucket.ranks[rank] += 1;
         }
-        postWave1BySubject.set(lesson.subjectId, bucket);
+        bySubject.set(lesson.subjectId, bucket);
 
         const correctLen = correctEntry.len;
         const maxDistractorLen = distractorLens[distractorLens.length - 1] ?? 0;
@@ -208,7 +246,7 @@ describe("lesson registry — shape", () => {
     }
 
     for (const [subjectId, dist] of distinguishableBySubject) {
-      if (dist.total > 0 && dist.longest / dist.total > 0.4) {
+      if (dist.total > 0 && dist.longest / dist.total > 0.35) {
         indistinguishableDilution.push(
           `${subjectId}: correct is strictly longest in ${dist.longest}/${dist.total} distinguishable steps`,
         );
@@ -231,21 +269,21 @@ describe("lesson registry — shape", () => {
     // four options are bare numerals ("5", "7", "12", "15") puts the correct
     // answer at a random rank no matter how the labels are written. Those rows
     // dilute the picture, so the tell is also measured only across steps whose
-    // choice lengths actually differ enough tobe distinguishable.
+    // choice lengths actually differ enough to be distinguishable.
     expect(
       indistinguishableDilution,
-      "steps where the correct answer is strictly longest among choices that differ by >2 chars",
+      "steps where the correct answer is strictly longest among choices that differ by >2 chars (>35%)",
     ).toEqual([]);
-    expect(postWave1BySubject.size).toBe(5);
-    for (const [subjectId, { total, ranks }] of postWave1BySubject) {
+    expect(bySubject.size).toBe(5);
+    for (const [subjectId, { total, ranks }] of bySubject) {
       expect(
         ranks[0] / total,
-        `${subjectId} post-Wave-1 rank #1 (longest) floor so longest is not an auto-elimination tell`,
+        `${subjectId} rank #1 (longest) floor so longest is not an auto-elimination tell`,
       ).toBeGreaterThanOrEqual(0.1);
       ranks.forEach((count, rankIndex) => {
         expect(
           count / total,
-          `${subjectId} post-Wave-1 rank #${rankIndex + 1} share`,
+          `${subjectId} rank #${rankIndex + 1} share`,
         ).toBeLessThanOrEqual(0.4);
       });
     }

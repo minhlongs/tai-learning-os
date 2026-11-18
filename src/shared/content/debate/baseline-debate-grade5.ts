@@ -35,28 +35,32 @@ export const baselineDebateGrade5: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Câu chuyện em kể cho bạn cười",
+            label_vi: "Câu chuyện vui em kể đầu giờ cho các bạn cười",
             correct: false,
           },
           {
             id: "b",
-            label_vi: "Quan điểm em muốn bạn cùng nghe hiểu và bảo vệ",
+            label_vi: "Quan điểm chính em nêu ra và muốn bảo vệ bằng lý lẽ",
             correct: true,
           },
           {
             id: "c",
-            label_vi: "Lời chào hỏi trước khi vào việc",
+            label_vi: "Lời chào hỏi lịch sự trước khi bắt đầu họp",
             correct: false,
           },
-          { id: "d", label_vi: "Một từ mới em vừa học được", correct: false },
+          {
+            id: "d",
+            label_vi: "Một từ mới khó đọc em vừa học sáng nay",
+            correct: false,
+          },
         ],
         hint1_vi: "Hãy nghĩ đến điều em muốn bạn đồng ý cùng mình.",
-        hint2_vi: "Đó là ý chính sẽ được bảo vệ bằng lý do.",
-        hint3_vi: "Luận điểm là quan điểm em muốn bảo vệ.",
+        hint2_vi: "Đó là ý cốt lõi sẽ được chứng minh bằng căn cứ.",
+        hint3_vi: "Hãy chọn phương án chỉ kết luận trọng tâm mà người nói đưa ra để thuyết phục nhóm.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Luận điểm là quan điểm em nêu ra và muốn bảo vệ bằng lý do; chuyện cười, lời chào hay từ mới không phải luận điểm.",
+        "Luận điểm là quan điểm chính em nêu ra và muốn bảo vệ bằng lý lẽ; chuyện cười, lời chào hay từ mới không phải luận điểm.",
     },
     {
       position: 2,
@@ -71,13 +75,25 @@ export const baselineDebateGrade5: LessonDefinition = {
             label_vi: "Đủ sách giúp em theo được bài trên lớp",
             correct: true,
           },
-          { id: "b", label_vi: "Bạn Nam cao nhất lớp", correct: false },
-          { id: "c", label_vi: "Cặp của em màu xanh", correct: false },
-          { id: "d", label_vi: "Hôm nay trời nắng to", correct: false },
+          {
+            id: "b",
+            label_vi: "Bạn Nam ngồi bàn đầu hiện là học sinh cao nhất trong lớp",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Chiếc cặp đi học của em may bằng vải xanh đậm",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Hôm nay ngoài sân trời nắng đẹp",
+            correct: false,
+          },
         ],
         hint1_vi: "Lý do phải cùng nói về sách vở với việc học.",
-        hint2_vi: "Hãy chọn câu nêu lợi ích của việc mang đủ sách.",
-        hint3_vi: "Mang đủ sách giúp theo bài là lý do đúng trọng tâm.",
+        hint2_vi: "Hãy chọn câu nêu lợi ích của việc chuẩn bị đủ đồ dùng học tập.",
+        hint3_vi: "Có sẵn tài liệu trước mặt để nắm bài giảng dễ dàng là căn cứ sát chủ đề nhất.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -92,11 +108,19 @@ export const baselineDebateGrade5: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Nói với nhóm khác rằng bạn sai",
+            label_vi: "Quay sang bàn bên cạnh rỉ tai các bạn khác rằng ý kiến đó hoàn toàn sai",
             correct: false,
           },
-          { id: "b", label_vi: "Chế giễu bạn ngay trong lớp", correct: false },
-          { id: "c", label_vi: "Cắt lời và nói to hơn bạn", correct: false },
+          {
+            id: "b",
+            label_vi: "Đem lời bạn vừa phát biểu ra chế giễu ngay tại lớp",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Ngắt ngang câu nói và cất giọng át cả lời bạn",
+            correct: false,
+          },
           {
             id: "d",
             label_vi:
@@ -104,9 +128,9 @@ export const baselineDebateGrade5: LessonDefinition = {
             correct: true,
           },
         ],
-        hint1_vi: "Cần thể hiện không đồng ý mà vẫn giữ lịch sự.",
-        hint2_vi: "Nên hỏi để làm rõ lý lẽ của bạn.",
-        hint3_vi: "Nêu điểm chưa đồng ý và hỏi bạn vì sao lại nghĩ vậy.",
+        hint1_vi: "Cần thể hiện sự khác biệt góc nhìn mà vẫn giữ lịch sự.",
+        hint2_vi: "Nên đặt câu hỏi để hiểu rõ căn cứ trong lập luận của bạn.",
+        hint3_vi: "Chia sẻ bình tĩnh chỗ còn băn khoăn và mời bạn giải thích thêm là cách ứng xử tôn trọng.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -122,21 +146,28 @@ export const baselineDebateGrade5: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Nêu lý do rất rõ ràng nên không có vấn đề",
+            label_vi: "Đã đưa ra căn cứ thực tế rất đầy đủ nên cả lớp không cần bàn bạc thêm",
             correct: false,
           },
-          { id: "b", label_vi: "Công kích người nói khác ý", correct: false },
+          {
+            id: "b",
+            label_vi: "Dùng lời lẽ chê bai nặng nề đối với những bạn có ý kiến trái chiều",
+            correct: false,
+          },
           {
             id: "c",
-            label_vi: "Lấy số đông làm lý do, chưa nói được vì sao món đó phù hợp",
+            label_vi: "Dựa vào số đông mà chưa nêu lý do vì sao món đó hợp",
             correct: true,
           },
-          { id: "d", label_vi: "Chứng minh được món đó là tốt nhất", correct: false },
+          {
+            id: "d",
+            label_vi: "Chứng minh chắc chắn món ăn đó bổ dưỡng và hợp túi tiền nhất",
+            correct: false,
+          },
         ],
-        hint1_vi: "Câu này chỉ dựa vào việc nhiều bạn thích.",
-        hint2_vi: "Nhiều người thích chưa phải lý do về sự phù hợp.",
-        hint3_vi:
-          "Đây là lỗi lấy số đông làm lý do chứ chưa nêu được vì sao phù hợp.",
+        hint1_vi: "Câu này chỉ dựa vào việc có nhiều bạn yêu thích.",
+        hint2_vi: "Nhiều người thích chưa phải là căn cứ về dinh dưỡng hay ngân sách của lớp.",
+        hint3_vi: "Đây là lỗi viện dẫn đám đông thay vì giải thích tính phù hợp thực tế của lựa chọn.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -155,14 +186,25 @@ export const baselineDebateGrade5: LessonDefinition = {
             label_vi: "Ô chữ vừa vui vừa giúp ta nhớ từ mới, nên ta cùng chơi nhé",
             correct: true,
           },
-          { id: "b", label_vi: "Chơi đi vì tớ thích mà tớ bảo rồi", correct: false },
-          { id: "c", label_vi: "Không chơi là bạn kém lắm", correct: false },
-          { id: "d", label_vi: "Tớ ép bạn phải chơi cho bằng được", correct: false },
+          {
+            id: "b",
+            label_vi: "Cứ chơi trò này đi vì riêng tớ thích và đã chọn rồi",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Bạn nào không chịu chơi cùng là thiếu hòa đồng",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Mọi người bắt buộc phải chơi theo ý tớ nhé",
+            correct: false,
+          },
         ],
-        hint1_vi: "Cần có luận điểm và lý do ở trong câu.",
-        hint2_vi: "Lý do phải nêu lợi ích của trò ô chữ.",
-        hint3_vi:
-          "“Ô chữ vừa vui vừa giúp nhớ từ mới” là luận điểm có lý do rõ ràng.",
+        hint1_vi: "Cần có cả lời đề xuất và lý do thuyết phục ở trong câu.",
+        hint2_vi: "Lý do phải nêu được tác dụng tích cực của hoạt động giải ô chữ.",
+        hint3_vi: "Kết hợp sự hào hứng và lợi ích ghi nhớ bài học để rủ bạn cùng tham gia.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:

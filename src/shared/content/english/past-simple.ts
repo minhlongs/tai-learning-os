@@ -43,8 +43,8 @@ export const pastSimple: LessonDefinition = {
         ],
         hint1_vi: "Cụm “yesterday” (hôm qua) cho biết việc đã xảy ra rồi.",
         hint2_vi:
-          "Theo từ “yesterday” ở đầu câu, em hãy chọn thì dùng cho việc đã kết thúc trong quá khứ.",
-        hint3_vi: "Ta gọi dạng này là thì quá khứ đơn (past simple).",
+          "Theo từ “yesterday” ở đầu câu, em hãy chọn thì dùng cho việc đã kết thúc.",
+        hint3_vi: "Tên của thì này nhắc đến khoảng thời gian đã lùi về trước hiện tại.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -87,7 +87,7 @@ export const pastSimple: LessonDefinition = {
         hint1_vi: "Cụm “last night” bắt buộc dùng thì quá khứ.",
         hint2_vi:
           "Động từ chính phải ở dạng quá khứ, không phải dạng nguyên mẫu.",
-        hint3_vi: "Dạng quá khứ của “watch” là “watched”.",
+        hint3_vi: "Em hãy tìm câu có động từ “watch” đã thêm đuôi “-ed”.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
@@ -109,8 +109,8 @@ export const pastSimple: LessonDefinition = {
           { id: "d", label_vi: "By car — đi ô tô", correct: false },
         ],
         hint1_vi: "Tìm động từ trong câu nói về cách Minh đến trường.",
-        hint2_vi: "Động từ “walked” cho biết Minh đã đi bộ.",
-        hint3_vi: "Đi bộ mà không dùng phương tiện được gọi là “on foot”.",
+        hint2_vi: "Động từ “walked” là dạng quá khứ của “walk”.",
+        hint3_vi: "“Walk” diễn tả việc bước đi trên đường mà không dùng xe cộ.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -146,7 +146,7 @@ export const pastSimple: LessonDefinition = {
         hint1_vi: "Cụm “last weekend” cho biết việc thuộc quá khứ.",
         hint2_vi:
           "Động từ “help” cần chuyển sang dạng quá khứ bằng cách thêm “-ed”.",
-        hint3_vi: "Dạng quá khứ của “help” là “helped”.",
+        hint3_vi: "Không dùng “will” hay “am -ing” với mốc thời gian đã qua.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:

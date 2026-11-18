@@ -41,8 +41,8 @@ export const energyForms: LessonDefinition = {
           { id: "d", label_vi: "Năng lượng dự trữ trong pin khô", correct: false },
         ],
         hint1_vi: "Hãy nghĩ đến điều em nhìn thấy khi bật công tắc đèn.",
-        hint2_vi: "Dạng năng lượng đó giúp em nhìn rõ trong bóng tối.",
-        hint3_vi: "Điện năng chuyển thành năng lượng sáng.",
+        hint2_vi: "Dạng năng lượng đó giúp em nhìn rõ mọi vật trong phòng tối.",
+        hint3_vi: "Dòng điện qua bóng đèn biến đổi thành ánh sáng tỏa ra xung quanh.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -64,7 +64,7 @@ export const energyForms: LessonDefinition = {
         hint1_vi:
           "Dạng năng lượng này gắn với vị trí hoặc hình dạng bị biến đổi.",
         hint2_vi: "Lò xo bị nén hoặc căng ra rồi sẽ đẩy vật chuyển động.",
-        hint3_vi: "Năng lượng dự trữ trong vật bị biến dạng là năng lượng cơ.",
+        hint3_vi: "Vật bị uốn nén hay kéo căng tích trữ cơ năng để sinh lực đẩy.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -78,7 +78,7 @@ export const energyForms: LessonDefinition = {
         question_vi:
           "Quạt điện bật lên giúp cánh quạt quay. Điều đó chứng tỏ điện năng đã chuyển hóa thành dạng năng lượng nào?",
         choices: [
-          { id: "a", label_vi: "Năng lượng hóa học", correct: false },
+          { id: "a", label_vi: "Năng lượng hóa học dự trữ sẵn", correct: false },
           { id: "b", label_vi: "Năng lượng sáng", correct: false },
           { id: "c", label_vi: "Năng lượng nhiệt", correct: false },
           { id: "d", label_vi: "Năng lượng chuyển động", correct: true },
@@ -86,7 +86,7 @@ export const energyForms: LessonDefinition = {
         hint1_vi: "Hãy nghĩ đến cánh quạt khi quay.",
         hint2_vi: "Em hãy nghĩ đến điều gì đã xảy ra với cánh quạt, rồi tìm dạng năng lượng mô tả sự thay đổi đó.",
         hint3_vi:
-          "Điện năng chuyển thành năng lượng chuyển động để quay cánh quạt.",
+          "Dòng điện làm cánh quạt quay tít tạo thành luồng gió mát trong phòng.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -105,9 +105,9 @@ export const energyForms: LessonDefinition = {
           { id: "c", label_vi: "Năng lượng âm thanh", correct: false },
           { id: "d", label_vi: "Năng lượng chuyển động", correct: false },
         ],
-        hint1_vi: "Hãy nghĩ đến cảm giác khi chạm tay vào bếp đang đun nóng.",
-        hint2_vi: "Dạng năng lượng đó làm nước trong nồi nóng lên.",
-        hint3_vi: "Điện năng chuyển thành năng lượng nhiệt.",
+        hint1_vi: "Hãy nghĩ đến cảm giác khi đặt tay gần mặt bếp đang đun nước.",
+        hint2_vi: "Dạng năng lượng đó làm nước trong nồi nóng dần rồi sôi lên.",
+        hint3_vi: "Dòng điện qua mâm bếp tỏa ra sức nóng để đun sôi nồi nước.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:

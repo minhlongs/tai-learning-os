@@ -35,9 +35,9 @@ export const baselineMathGrade5: LessonDefinition = {
         question_vi: "Dấu phẩy trong số thập phân có tác dụng gì?",
         question_en: "What does the decimal point do in a decimal number?",
         choices: [
-          { id: "a", label_vi: "Phân chia hai số cần nhân với nhau", correct: false },
-          { id: "b", label_vi: "Cho biết kết quả đang bị làm tròn", correct: false },
-          { id: "c", label_vi: "Chỉ dùng để viết số đo cân nặng", correct: false },
+          { id: "a", label_vi: "Phân chia hai con số cần đem nhân lại với nhau", correct: false },
+          { id: "b", label_vi: "Cho biết kết quả phép tính đang được làm tròn", correct: false },
+          { id: "c", label_vi: "Chỉ dùng riêng khi viết các số đo khối lượng", correct: false },
           {
             id: "d",
             label_vi: "Ngăn cách phần nguyên và phần thập phân",
@@ -46,7 +46,7 @@ export const baselineMathGrade5: LessonDefinition = {
         ],
         hint1_vi: "Nhìn vào số 3,47: bên trái dấu phẩy là phần nguyên.",
         hint2_vi: "Bên phải dấu phẩy là các hàng nhỏ hơn một đơn vị.",
-        hint3_vi: "Dấu phẩy là ranh giới giữa phần nguyên và phần thập phân.",
+        hint3_vi: "Dấu phẩy là ranh giới giữa hai phần lớn và nhỏ hơn đơn vị.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -61,9 +61,9 @@ export const baselineMathGrade5: LessonDefinition = {
         question_en: "In 6.2, which place is the digit 2 in?",
         choices: [
           { id: "a", label_vi: "Hàng phần mười", correct: true },
-          { id: "b", label_vi: "Hàng phần trăm", correct: false },
-          { id: "c", label_vi: "Hàng đơn vị", correct: false },
-          { id: "d", label_vi: "Hàng chục", correct: false },
+          { id: "b", label_vi: "Hàng phần nghìn", correct: false },
+          { id: "c", label_vi: "Hàng phần trăm", correct: false },
+          { id: "d", label_vi: "Hàng đơn vị", correct: false },
         ],
         hint1_vi: "Em hãy đọc lại số 6,2 và tìm xem chữ số 2 đứng ở đâu so với dấu phẩy.",
         hint2_vi: "Các hàng nhỏ hơn đơn vị nằm về bên phải dấu phẩy, xếp theo thứ tự từ trái sang phải.",
@@ -88,7 +88,7 @@ export const baselineMathGrade5: LessonDefinition = {
         ],
         hint1_vi: "Muốn có mẫu số 10, nhân cả tử và mẫu với cùng một số.",
         hint2_vi: "5 nhân 2 được 10, nên tử số 3 cũng nhân 2.",
-        hint3_vi: "3 × 2 = 6 nên 3/5 bằng 6/10, viết là 0,6.",
+        hint3_vi: "3 × 2 = 6 nên 3/5 bằng 6/10, viết thành số có một chữ số sau dấu phẩy.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:

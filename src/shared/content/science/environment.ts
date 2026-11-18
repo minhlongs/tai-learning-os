@@ -68,8 +68,8 @@ export const environment: LessonDefinition = {
           { id: "d", label_vi: "Tắt điện khi ra khỏi lớp", correct: true },
         ],
         hint1_vi: "Hãy chọn việc tiết kiệm và giữ sạch.",
-        hint2_vi: "Việc làm đó giúp giảm lãng phí điện năng.",
-        hint3_vi: "Tắt điện khi ra khỏi lớp là hành động bảo vệ môi trường.",
+        hint2_vi: "Việc làm đó giúp giảm lãng phí điện năng khi phòng học không còn người.",
+        hint3_vi: "Ngắt công tắc đèn quạt trước lúc rời phòng học là hành động bảo vệ môi trường.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -83,14 +83,18 @@ export const environment: LessonDefinition = {
         question_vi:
           "Rác thải nhựa trong sông suối gây hại chủ yếu cho đối tượng nào?",
         choices: [
-          { id: "a", label_vi: "Không gây hại cho sinh vật nào", correct: false },
-          { id: "b", label_vi: "Cây cối trên núi cao", correct: false },
+          {
+            id: "a",
+            label_vi: "Không gây hại gì cho bất kỳ loài sinh vật tự nhiên nào",
+            correct: false,
+          },
+          { id: "b", label_vi: "Cây cối mọc trên sườn núi cao", correct: false },
           { id: "c", label_vi: "Cá và các sinh vật sống dưới nước", correct: true },
-          { id: "d", label_vi: "Chim sống trong tổ trên cây", correct: false },
+          { id: "d", label_vi: "Chim làm tổ trên ngọn cây cao", correct: false },
         ],
         hint1_vi: "Rác đổ ở đâu thì sinh vật ở đó chịu ảnh hưởng trước.",
         hint2_vi: "Có sinh vật ở trong nước ăn nhầm rác và bị nghẹt.",
-        hint3_vi: "Rác nhựa trong nước làm hại cá và sinh vật dưới nước.",
+        hint3_vi: "Rác nhựa trôi nổi trên sông suối làm hại trực tiếp các loài thủy sinh.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -112,24 +116,26 @@ export const environment: LessonDefinition = {
           },
           {
             id: "b",
-            label_vi: "Đốt rác ngay sau nhà để khỏi phải đi xa",
+            label_vi:
+              "Đốt toàn bộ rác sinh hoạt và túi nhựa ngay ở sân sau nhà mỗi tối",
             correct: false,
           },
           {
             id: "c",
-            label_vi: "Thêm bỏ túi nilon mỗi lần đi chợ",
+            label_vi:
+              "Xin thêm thật nhiều túi nilon dùng một lần mỗi khi đi mua đồ ở chợ",
             correct: false,
           },
           {
             id: "d",
-            label_vi: "Đổ nước thải ra mương gần nhà",
+            label_vi: "Đổ thẳng nước thải chưa xử lý ra mương nước cạnh nhà",
             correct: false,
           },
         ],
         hint1_vi: "Hãy chọn việc làm giảm được chất thải.",
         hint2_vi: "Việc làm đó giúp rác không tràn ra đường hay mương.",
         hint3_vi:
-          "Thu gom rác đúng nơi quy định và tái sử dụng đồ còn dùng được là biện pháp phù hợp.",
+          "Bỏ rác đúng chỗ và tận dụng lại đồ dùng còn bền giúp giữ gìn khu phố sạch đẹp.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
