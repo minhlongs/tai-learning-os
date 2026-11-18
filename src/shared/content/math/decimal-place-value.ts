@@ -37,8 +37,8 @@ export const decimalPlaceValue: LessonDefinition = {
         choices: [
           { id: "a", label_vi: "Hàng phần mười", correct: true },
           { id: "b", label_vi: "Hàng đơn vị", correct: false },
-          { id: "c", label_vi: "Hàng chục", correct: false },
-          { id: "d", label_vi: "Hàng phần trăm", correct: false },
+          { id: "c", label_vi: "Hàng phần trăm", correct: false },
+          { id: "d", label_vi: "Hàng phần nghìn", correct: false },
         ],
         hint1_vi:
           "Dấu phẩy tách phần nguyên bên trái và phần thập phân bên phải.",
@@ -59,7 +59,7 @@ export const decimalPlaceValue: LessonDefinition = {
         choices: [
           { id: "a", label_vi: "0,7", correct: false },
           { id: "b", label_vi: "0,07", correct: false },
-          { id: "c", label_vi: "7", correct: false },
+          { id: "c", label_vi: "0,0007", correct: false },
           { id: "d", label_vi: "0,007", correct: true },
         ],
         hint1_vi: "Đếm xem chữ số 7 đứng ở hàng thứ mấy sau dấu phẩy.",
@@ -78,10 +78,10 @@ export const decimalPlaceValue: LessonDefinition = {
         question_vi: "Số 5,06 được đọc như thế nào?",
         question_en: "How do you read 5.06?",
         choices: [
-          { id: "a", label_vi: "Năm phẩy sáu mươi", correct: false },
-          { id: "b", label_vi: "Năm phẩy sáu", correct: false },
+          { id: "a", label_vi: "Năm mươi phẩy không sáu", correct: false },
+          { id: "b", label_vi: "Năm phẩy sáu mươi", correct: false },
           { id: "c", label_vi: "Năm phẩy không sáu", correct: true },
-          { id: "d", label_vi: "Năm mươi sáu", correct: false },
+          { id: "d", label_vi: "Không phẩy năm mươi sáu", correct: false },
         ],
         hint1_vi: "Đọc phần nguyên trước, rồi đọc 'phẩy'.",
         hint2_vi: "Sau dấu phẩy, đọc từng chữ số theo thứ tự.",

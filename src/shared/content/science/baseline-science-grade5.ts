@@ -40,8 +40,8 @@ export const baselineScienceGrade5: LessonDefinition = {
           { id: "d", label_vi: "Được đặt trên bàn học", correct: false },
         ],
         hint1_vi: "Hãy nghĩ đến điều mà người và cây đều làm được.",
-        hint2_vi: "Sinh vật sống phải lấy thức ăn, nước và lớn lên.",
-        hint3_vi: "Sinh vật sống cần nước, lớn lên và sinh sản được.",
+        hint2_vi: "Sinh vật sống phải lấy thức ăn, uống nước và phát triển theo thời gian.",
+        hint3_vi: "Cơ thể sống luôn trao đổi chất, tăng kích thước và tạo ra thế hệ con non.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -61,7 +61,7 @@ export const baselineScienceGrade5: LessonDefinition = {
         ],
         hint1_vi: "Sinh vật sản xuất đứng ở đầu chuỗi thức ăn.",
         hint2_vi: "Chỉ cây xanh tự tạo được chất dinh dưỡng nhờ ánh sáng.",
-        hint3_vi: "Cỏ là cây xanh nên là sinh vật sản xuất.",
+        hint3_vi: "Loài thực vật đứng đầu chuỗi trên cánh đồng chính là sinh vật sản xuất.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -74,14 +74,14 @@ export const baselineScienceGrade5: LessonDefinition = {
         type: "multiple_choice",
         question_vi: "Vòng đời của một chú bướm được bắt đầu từ đâu?",
         choices: [
-          { id: "a", label_vi: "Chú sâu đã lớn", correct: false },
+          { id: "a", label_vi: "Chú sâu bướm đã ăn no lá xanh", correct: false },
           { id: "b", label_vi: "Quả trứng do bướm mẹ đẻ ra", correct: true },
-          { id: "c", label_vi: "Chiếc lá non trên cành cây", correct: false },
+          { id: "c", label_vi: "Chiếc lá non mọc trên cành cây", correct: false },
           { id: "d", label_vi: "Chiếc nhộng trên cành khô", correct: false },
         ],
         hint1_vi: "Hãy nghĩ đến giai đoạn đầu tiên trước khi sâu xuất hiện.",
         hint2_vi: "Bướm mẹ không sinh ra sâu trực tiếp.",
-        hint3_vi: "Vòng đời bắt đầu từ quả trứng.",
+        hint3_vi: "Vòng đời bắt đầu từ hạt nhỏ xíu mà bướm mẹ đẻ trên mặt lá.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
@@ -109,7 +109,7 @@ export const baselineScienceGrade5: LessonDefinition = {
         ],
         hint1_vi: "Hãy chọn việc làm bẩn nguồn nước hoặc đất.",
         hint2_vi: "Nước sông bị bẩn sẽ ảnh hưởng đến cá và sinh vật dưới nước.",
-        hint3_vi: "Đổ rác xuống sông làm ô nhiễm nước.",
+        hint3_vi: "Xả chất thải sinh hoạt trực tiếp ra dòng nước làm ô nhiễm môi trường.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -124,21 +124,29 @@ export const baselineScienceGrade5: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Mở điện suốt ngày dù không ai ở phòng",
+            label_vi: "Bật sáng hết đèn quạt suốt cả ngày dù trong phòng không có ai",
             correct: false,
           },
-          { id: "b", label_vi: "Vứt vỏ bánh xuống sân", correct: false },
+          {
+            id: "b",
+            label_vi: "Vứt vỏ bánh kẹo và túi nhựa bừa bãi ra sân trước nhà",
+            correct: false,
+          },
           {
             id: "c",
             label_vi: "Dùng bình nước cá nhân thay cho chai nhựa dùng một lần",
             correct: true,
           },
-          { id: "d", label_vi: "Xả nước thừa ra đường", correct: false },
+          {
+            id: "d",
+            label_vi: "Đổ thẳng nước xà phòng bẩn chưa qua cống ra mặt đường",
+            correct: false,
+          },
         ],
         hint1_vi: "Hãy chọn việc làm giảm được lượng rác thải.",
         hint2_vi: "Việc làm đó giúp bớt chai nhựa bỏ đi mỗi ngày.",
         hint3_vi:
-          "Dùng bình nước cá nhân nhiều lần thay cho chai nhựa dùng một lần.",
+          "Mang theo bình đựng nước riêng dùng lại nhiều lần giúp giảm hẳn vỏ chai nhựa thải ra.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:

@@ -18,7 +18,6 @@
  *   node scripts/check-choice-lengths.mjs               # whole corpus, summary
  *   node scripts/check-choice-lengths.mjs --subject vietnamese
  *   node scripts/check-choice-lengths.mjs --lesson vie-personification
- *   node scripts/check-choice-lengths.mjs --wave2       # only post-Wave-1 lessons
  *   node scripts/check-choice-lengths.mjs --json
  *
  * Exit code is non-zero when any hard limit is breached, so this is usable as a
@@ -29,13 +28,6 @@ import { registerTsSpecifiers } from "./resolve-ts-specifiers.mjs";
 
 registerTsSpecifiers();
 const { LESSONS } = await import("../src/shared/content/index.ts");
-const { WAVE1_LEGACY_IDS } = await import("../src/shared/content/wave1-legacy.ts");
-
-/**
- * Lessons that shipped in Wave 1, before length parity was gated. Imported from
- * the single source shared with `test/unit/content-registry.test.ts` so the
- * local checker and the merge gate can never exempt different sets.
- */
 
 
 /** Hard limits a gated lesson must satisfy. */
@@ -64,7 +56,7 @@ export const LIMITS = {
    * are dominated by tied rows in subjects like maths, so they can pass while
    * this share sits at 50%; that is the tell this limit exists to catch.
    */
-  maxDistinguishableLongestShare: 0.4,
+  maxDistinguishableLongestShare: 0.35,
 };
 
 const args = process.argv.slice(2);
@@ -74,7 +66,6 @@ const value = (name) => {
   return hit >= 0 ? args[hit + 1] : undefined;
 };
 
-const wave2Only = flag("wave2");
 const subjectFilter = value("subject");
 const lessonFilter = value("lesson");
 
@@ -135,7 +126,6 @@ function lessonSteps(lesson) {
 }
 
 const lessons = LESSONS.filter((lesson) => {
-  if (wave2Only && WAVE1_LEGACY_IDS.has(lesson.id)) return false;
   if (subjectFilter && lesson.subjectId !== subjectFilter) return false;
   if (lessonFilter && !lesson.id.endsWith(lessonFilter)) return false;
   return true;

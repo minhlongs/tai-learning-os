@@ -35,28 +35,28 @@ export const storyLesson: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Hành động của nhân vật trước khó khăn và kết quả mà nhân vật nhận được.",
+            label_vi: "Cách nhân vật hành động trước thử thách và kết quả nhận được.",
             correct: true,
           },
           {
             id: "b",
-            label_vi: "Số lượng câu văn có trong bài đọc.",
+            label_vi: "Tổng số câu văn và độ dài của từng đoạn hội thoại trong truyện.",
             correct: false,
           },
           {
             id: "c",
-            label_vi: "Màu áo hoặc tên gọi của từng nhân vật.",
+            label_vi: "Màu sắc trang phục hoặc tên gọi riêng của tất cả nhân vật phụ.",
             correct: false,
           },
           {
             id: "d",
-            label_vi: "Chỉ đọc câu đầu tiên của câu chuyện.",
+            label_vi: "Chỉ đọc câu mở đầu giới thiệu thời gian và nơi chốn.",
             correct: false,
           },
         ],
         hint1_vi: "Bài học của câu chuyện thường nằm ở cách nhân vật cư xử và kết quả cuối bài.",
-        hint2_vi: "Màu áo hay số lượng câu văn có cho ta biết điều nên làm hay không nên làm không?",
-        hint3_vi: "Hãy nối hành động của nhân vật với kết quả tốt đẹp ở cuối truyện.",
+        hint2_vi: "Trang phục nhân vật hay số lượng câu văn có cho ta biết điều nên làm không?",
+        hint3_vi: "Hãy nối việc làm của nhân vật lúc gặp khó khăn với kết quả tốt đẹp cuối truyện.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -89,7 +89,7 @@ export const storyLesson: LessonDefinition = {
           },
           {
             id: "d",
-            label_vi: "Hạt giống thứ nhất vẫn nằm im trong bóng tối.",
+            label_vi: "Hạt giống thứ hai mỗi ngày đều cố gắng vươn rễ xuống sâu và đẩy mầm xanh lên khỏi mặt đất.",
             correct: false,
           },
         ],
@@ -112,7 +112,7 @@ export const storyLesson: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Con suối nhỏ sau cơn mưa lớn bị cuốn trôi mất lối đi.",
+            label_vi: "Chỉ một lúc sau, cả ba bạn đã bắc xong chiếc cầu vững chắc qua suối.",
             correct: false,
           },
           {
@@ -122,19 +122,19 @@ export const storyLesson: LessonDefinition = {
           },
           {
             id: "c",
-            label_vi: "Ba bạn nhận ra rằng khi biết hợp sức cùng nhau, công việc nặng nhọc mấy cũng hoàn thành được.",
-            correct: true,
+            label_vi: "Thấy vậy, Gấu Con và Thỏ Trắng cùng chạy lại đỡ hai đầu khúc gỗ.",
+            correct: false,
           },
           {
             id: "d",
-            label_vi: "Thấy vậy, Gấu Con và Thỏ Trắng cùng chạy lại đỡ hai đầu khúc gỗ.",
-            correct: false,
+            label_vi: "Ba bạn nhận ra rằng khi biết hợp sức cùng nhau, công việc nặng nhọc mấy cũng hoàn thành được.",
+            correct: true,
           },
         ],
         evidenceSentence_vi:
           "Ba bạn nhận ra rằng khi biết hợp sức cùng nhau, công việc nặng nhọc mấy cũng hoàn thành được.",
       },
-      answerKey: JSON.stringify({ correctChoiceId: "c" }),
+      answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
         "Câu cuối bài nêu rõ bài học về tinh thần đoàn kết: khi biết hợp sức cùng nhau thì việc khó cũng hoàn thành được.",
     },
@@ -149,32 +149,32 @@ export const storyLesson: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Để một bạn làm hết mọi việc, các bạn khác ngồi xem.",
+            label_vi: "Giao hết mọi phần việc cho bạn tổ trưởng làm, còn các bạn khác ngồi nhìn.",
             correct: false,
           },
           {
             id: "b",
-            label_vi: "Mỗi bạn nhận một phần việc vừa sức và cùng phối hợp để hoàn thành góc học tập.",
+            label_vi: "Chia đều việc vừa sức cho từng bạn rồi cùng phối hợp hoàn thành.",
             correct: true,
           },
           {
             id: "c",
-            label_vi: "Bỏ cuộc ngay vì thấy có nhiều giấy màu cần cắt.",
+            label_vi: "Xin cô giáo đổi sang việc khác ngay vì thấy có nhiều giấy màu phải cắt.",
             correct: false,
           },
           {
             id: "d",
-            label_vi: "Tranh cãi xem việc của ai nhẹ hơn.",
+            label_vi: "Ngồi tranh luận thật lâu xem phần việc của bạn nào nhẹ nhàng hơn.",
             correct: false,
           },
         ],
         hint1_vi: "Bài học từ câu chuyện chiếc cầu gỗ là sự hợp sức giữa các bạn.",
         hint2_vi: "Khi trang trí lớp học, làm thế nào để mọi người cùng góp sức nhịp nhàng?",
-        hint3_vi: "Chọn đáp án nói về việc phân chia công việc và cùng nhau phối hợp.",
+        hint3_vi: "Hãy nghĩ đến cách cả tổ cùng chia sẻ công việc và hỗ trợ lẫn nhau.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Phân chia công việc và cùng phối hợp giúp cả tổ hoàn thành góc học tập nhanh và đẹp, đúng với bài học đoàn kết từ câu chuyện.",
+        "Phân chia công việc vừa sức và cùng phối hợp giúp cả tổ hoàn thành góc học tập nhanh và đẹp, đúng với bài học đoàn kết từ câu chuyện.",
     },
   ],
 };

@@ -34,9 +34,9 @@ export const percentOfNumber: LessonDefinition = {
         question_vi: "25% nghĩa là gì?",
         question_en: "What does 25% mean?",
         choices: [
-          { id: "a", label_vi: "25 lần một số", correct: false },
+          { id: "a", label_vi: "25 phần trong 10 phần bằng nhau", correct: false },
           { id: "b", label_vi: "25 phần trong 1 000 phần bằng nhau", correct: false },
-          { id: "c", label_vi: "25 trên 10", correct: false },
+          { id: "c", label_vi: "Lấy số đã cho cộng thêm 25 đơn vị", correct: false },
           { id: "d", label_vi: "25 phần trong 100 phần bằng nhau", correct: true },
         ],
         hint1_vi: "Kí hiệu % đọc là 'phần trăm'.",

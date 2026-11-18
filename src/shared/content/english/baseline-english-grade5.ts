@@ -84,7 +84,7 @@ export const baselineEnglishGrade5: LessonDefinition = {
         ],
         hint1_vi: "“Đây là” được diễn đạt bằng “This is”.",
         hint2_vi: "“Ngôi nhà của tôi” là “my house”.",
-        hint3_vi: "Ghép lại thành “This is my house.”",
+        hint3_vi: "Số ít dùng động từ “is”, tiếp theo là cụm chỉ ngôi nhà của mình.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -106,7 +106,7 @@ export const baselineEnglishGrade5: LessonDefinition = {
         hint1_vi: "“Every day” cho biết đây là thói quen ở hiện tại.",
         hint2_vi:
           "Với chủ ngữ “she”, động từ hiện tại đơn cần thêm “-s” hoặc “-es”.",
-        hint3_vi: "Động từ “go” thêm “-es” thành “goes”.",
+        hint3_vi: "Động từ tận cùng bằng “-o” khi đi với “she” sẽ nhận thêm đuôi “-es”.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
@@ -128,7 +128,7 @@ export const baselineEnglishGrade5: LessonDefinition = {
         ],
         hint1_vi: "“Yesterday” cho biết việc đã xảy ra trong quá khứ.",
         hint2_vi: "Động từ “play” là động từ có quy tắc.",
-        hint3_vi: "Thêm “-ed” vào “play” để được “played”.",
+        hint3_vi: "Thêm đuôi quá khứ “-ed” vào sau động từ chỉ việc chơi cầu lông.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:

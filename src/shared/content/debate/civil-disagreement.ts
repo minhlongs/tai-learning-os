@@ -39,13 +39,25 @@ export const civilDisagreement: LessonDefinition = {
             label_vi: "Giữ bình tĩnh, nêu rõ điểm em không đồng ý và lý do",
             correct: true,
           },
-          { id: "b", label_vi: "Cắt lời bạn và nói to hơn", correct: false },
-          { id: "c", label_vi: "Chế giễu bạn ngay trong lớp", correct: false },
-          { id: "d", label_vi: "Im lặng và bỏ ra ngoài", correct: false },
+          {
+            id: "b",
+            label_vi: "Cắt ngang lời bạn ngay lập tức và nói to hơn để áp đảo cả nhóm",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Đem ý kiến của bạn ra trêu đùa ngay trước lớp",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Đứng phắt dậy bỏ ra ngoài không thèm nghe",
+            correct: false,
+          },
         ],
-        hint1_vi: "Hãy nghĩ đến việc thể hiện không đồng ý mà vẫn giữ lịch sự.",
-        hint2_vi: "Phản ứng đó cần nêu cả điểm không đồng ý và lý do.",
-        hint3_vi: "Giữ bình tĩnh và nêu lý do là cách văn minh.",
+        hint1_vi: "Hãy nghĩ đến việc thể hiện sự khác biệt góc nhìn mà vẫn giữ lịch sự.",
+        hint2_vi: "Phản ứng tốt cần điềm đạm và giải thích rõ căn cứ của mình.",
+        hint3_vi: "Thái độ ôn hòa đi kèm lập luận cụ thể là biểu hiện của người biết đối thoại.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -59,18 +71,30 @@ export const civilDisagreement: LessonDefinition = {
         question_vi:
           "Trước khi chỉ ra chỗ bạn chưa đúng, em nên làm gì với điểm hợp lý của bạn?",
         choices: [
-          { id: "a", label_vi: "Phản đối mọi điều bạn nói", correct: false },
-          { id: "b", label_vi: "Bỏ qua vì không cần nói", correct: false },
-          { id: "c", label_vi: "Ghi nhận điểm đúng đó trước", correct: true },
+          {
+            id: "a",
+            label_vi: "Bác bỏ sạch toàn bộ mọi câu chữ mà bạn vừa trình bày",
+            correct: false,
+          },
+          {
+            id: "b",
+            label_vi: "Lờ đi hoàn toàn vì không cần nhắc tới phần đúng",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Ghi nhận điểm đúng đó trước",
+            correct: true,
+          },
           {
             id: "d",
-            label_vi: "Chỉ tập trung vào chỗ sai để chê",
+            label_vi: "Chỉ xoáy sâu vào chỗ sơ hở để bắt bẻ bạn",
             correct: false,
           },
         ],
-        hint1_vi: "Một cuộc bàn bạc tốt ghi nhận điều đúng trước.",
-        hint2_vi: "Việc đó giúp bạn cảm thấy được tôn trọng.",
-        hint3_vi: "Em nên ghi nhận điểm hợp lý của bạn trước.",
+        hint1_vi: "Một cuộc bàn bạc tích cực luôn trân trọng những ý có căn cứ của người đối thoại.",
+        hint2_vi: "Việc đó giúp bạn cảm thấy được lắng nghe và cởi mở hơn.",
+        hint3_vi: "Hãy bắt đầu bằng lời công nhận phần hợp lý trong ý kiến của bạn.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -84,18 +108,30 @@ export const civilDisagreement: LessonDefinition = {
         question_vi:
           "Em không đồng ý với lý lẽ của bạn. Câu trả lời nào văn minh nhất?",
         choices: [
-          { id: "a", label_vi: "Mình không thèm bàn với bạn nữa.", correct: false },
+          {
+            id: "a",
+            label_vi: "Mình không muốn nghe thêm câu nào nữa vì ý kiến của bạn lúc nào cũng lạc đề và mất thời gian.",
+            correct: false,
+          },
           {
             id: "b",
             label_vi: "Mình thấy ý bạn có lý, nhưng mình còn băn khoăn vì … nên muốn hỏi thêm.",
             correct: true,
           },
-          { id: "c", label_vi: "Bạn nói chẳng ra gì cả.", correct: false },
-          { id: "d", label_vi: "Ai cũng biết bạn sai rồi.", correct: false },
+          {
+            id: "c",
+            label_vi: "Bạn chưa tìm hiểu kỹ gì hết mà cứ phát biểu liều, cả nhóm đừng ai nghe theo ý kiến đó nhé.",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Ai nhìn vào cũng biết ngay là bạn đã nghĩ sai hoàn toàn rồi.",
+            correct: false,
+          },
         ],
-        hint1_vi: "Câu nên công nhận điểm hợp lý rồi mới nêu băn khoăn.",
-        hint2_vi: "Câu cần hỏi để làm rõ lập luận, không chê người nói.",
-        hint3_vi: "“Băn khoăn vì … nên muốn hỏi thêm” là cách văn minh.",
+        hint1_vi: "Câu nên công nhận phần hợp lý rồi mới nêu điều chưa rõ.",
+        hint2_vi: "Câu cần đặt câu hỏi để làm rõ lập luận chứ không chê người nói.",
+        hint3_vi: "Vừa trân trọng góc nhìn của bạn vừa nêu câu hỏi trao đổi thêm là cách ứng xử lịch sự.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
@@ -108,18 +144,30 @@ export const civilDisagreement: LessonDefinition = {
         type: "multiple_choice",
         question_vi: "Bạn nói lớn tiếng và tỏ ra giận. Em nên phản ứng sao?",
         choices: [
-          { id: "a", label_vi: "Nói to hơn bạn để được lời", correct: false },
-          { id: "b", label_vi: "Dọa sẽ mách cô ngay", correct: false },
-          { id: "c", label_vi: "Cười nhạo bạn", correct: false },
+          {
+            id: "a",
+            label_vi: "Nói vọt lên thật to hơn bạn để giành phần thắng",
+            correct: false,
+          },
+          {
+            id: "b",
+            label_vi: "Dọa sẽ báo ngay với cô giáo để phạt bạn ấy",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Cười chế nhạo thái độ nóng nảy của bạn",
+            correct: false,
+          },
           {
             id: "d",
             label_vi: "Nói nhẹ nhàng rằng ta cùng bàn chậm lại cho dễ nghe",
             correct: true,
           },
         ],
-        hint1_vi: "Hãy chọn cách giúp hai bạn bàn lại bình tĩnh.",
-        hint2_vi: "Cách đó không nói to, không đe dọa, không chế giễu.",
-        hint3_vi: "Nên đề nghị cùng bàn chậm lại một cách nhẹ nhàng.",
+        hint1_vi: "Hãy chọn cách giúp hai bạn hạ nhiệt và quay lại trao đổi bình tĩnh.",
+        hint2_vi: "Cách đó không lớn tiếng đáp trả, không đe dọa, không chế giễu.",
+        hint3_vi: "Lời rủ ôn tồn để giảm nhịp độ cuộc trò chuyện sẽ giúp cả hai dễ lắng nghe nhau.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -133,10 +181,14 @@ export const civilDisagreement: LessonDefinition = {
         question_vi:
           "Trong nhóm, bạn đưa ý kiến khác em và bạn vẫn nói rất rõ ràng. Em nên làm gì để kết thúc phần thảo luận cho tốt?",
         choices: [
-          { id: "a", label_vi: "Bắt buộc bạn phải đồng ý với em", correct: false },
+          {
+            id: "a",
+            label_vi: "Ép bạn phải gạt bỏ hết lý lẽ riêng để làm theo đúng phương án ban đầu của em",
+            correct: false,
+          },
           {
             id: "b",
-            label_vi: "Tự quyết định và không cần lắng nghe bạn",
+            label_vi: "Tự ghi luôn quyết định của riêng em vào biên bản nhóm mà không cần hỏi lại bạn",
             correct: false,
           },
           {
@@ -144,12 +196,16 @@ export const civilDisagreement: LessonDefinition = {
             label_vi: "Nêu ý em, nghe bạn, rồi cùng chọn phần hai bên tạm đồng ý",
             correct: true,
           },
-          { id: "d", label_vi: "Nói xấu bạn với nhóm khác", correct: false },
+          {
+            id: "d",
+            label_vi: "Sang kể xấu bạn với các tổ khác ngay sau giờ học",
+            correct: false,
+          },
         ],
         hint1_vi:
-          "Một cuộc thảo luận tốt kết thúc bằng điểm hai bên cùng nhận.",
-        hint2_vi: "Cần vừa nêu ý mình, vừa lắng nghe bạn.",
-        hint3_vi: "Nên nêu ý em, nghe bạn, rồi cùng chọn phần tạm đồng ý.",
+          "Một cuộc thảo luận tốt khép lại bằng điểm chung mà hai phía cùng chấp nhận được.",
+        hint2_vi: "Cần vừa trình bày góc nhìn của mình vừa tôn trọng lắng nghe bạn.",
+        hint3_vi: "Sau khi chia sẻ và lắng nghe đầy đủ, hai bên hãy thống nhất những nội dung chung trước.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:

@@ -153,29 +153,29 @@ export const lifeCycles: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Gà con lớn lên thành gà trưởng thành, gà trưởng thành đẻ trứng và ấp thành gà con",
+            label_vi: "Gà con lớn thành gà trưởng thành rồi đẻ trứng, ấp nở ra gà con",
             correct: true,
           },
           {
             id: "b",
-            label_vi: "Gà lớn lên hoàn toàn giống gà mẹ ngay từ lúc mới nở",
+            label_vi: "Gà mới nở đã có bộ lông và kích thước y hệt gà mẹ trưởng thành ngoài sân",
             correct: false,
           },
           {
             id: "c",
-            label_vi: "Gà trưởng thành biến thành nhộng rồi hóa thành gà",
+            label_vi: "Gà trưởng thành tự quấn kén biến thành nhộng cứng rồi mới hóa lại thành gà",
             correct: false,
           },
           {
             id: "d",
-            label_vi: "Gà đẻ trứng nhưng trứng không liên quan đến vòng đời của gà",
+            label_vi: "Gà mái đẻ trứng hằng ngày nhưng quả trứng không thuộc vòng đời của loài gà",
             correct: false,
           },
         ],
         hint1_vi: "Gà nở ra từ đâu?",
         hint2_vi: "Trước khi lớn, gà trải qua giai đoạn là gà con.",
         hint3_vi:
-          "Gà con lớn thành gà trưởng thành, rồi đẻ trứng và tiếp tục sinh ra gà con.",
+          "Gà nở từ trứng thành gà con, lớn lên rồi lại đẻ trứng để tiếp nối vòng đời.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:

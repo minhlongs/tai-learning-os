@@ -32,10 +32,14 @@ export const argumentStructure: LessonDefinition = {
         type: "multiple_choice",
         question_vi: "Luận điểm trong một lập luận là gì?",
         choices: [
-          { id: "a", label_vi: "Câu chuyện kể để giải trí người nghe", correct: false },
+          {
+            id: "a",
+            label_vi: "Câu chuyện vui mở đầu nhằm thu hút sự chú ý và gây cười cho cả lớp",
+            correct: false,
+          },
           {
             id: "b",
-            label_vi: "Một từ ngữ rất khó để người nghe chú ý",
+            label_vi: "Một thuật ngữ thật khó hiểu để người nghe tưởng bài nói sâu sắc",
             correct: false,
           },
           {
@@ -43,11 +47,15 @@ export const argumentStructure: LessonDefinition = {
             label_vi: "Quan điểm hoặc kết luận mà người nói muốn bảo vệ",
             correct: true,
           },
-          { id: "d", label_vi: "Phần chào hỏi đầu bài nói", correct: false },
+          {
+            id: "d",
+            label_vi: "Lời chào xã giao trước khi trình bày ý",
+            correct: false,
+          },
         ],
         hint1_vi: "Hãy nghĩ đến điều người nói muốn bạn đồng ý.",
         hint2_vi: "Đó là ý chính sẽ được bảo vệ bằng lý do.",
-        hint3_vi: "Luận điểm là quan điểm người nói muốn bảo vệ.",
+        hint3_vi: "Hãy tìm phương án chỉ ý kiến cốt lõi người nói đưa ra để thuyết phục người nghe.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
@@ -60,14 +68,30 @@ export const argumentStructure: LessonDefinition = {
         type: "multiple_choice",
         question_vi: "Lý do trong lập luận có vai trò gì?",
         choices: [
-          { id: "a", label_vi: "Thay thế luận điểm bằng một ý mới", correct: false },
-          { id: "b", label_vi: "Làm cho bài nói dài hơn cho đủ ý", correct: false },
-          { id: "c", label_vi: "Chỉ dùng để chào hỏi người nghe", correct: false },
-          { id: "d", label_vi: "Giải thích vì sao luận điểm là hợp lý", correct: true },
+          {
+            id: "a",
+            label_vi: "Thay thế luận điểm ban đầu bằng một chủ đề hoàn toàn khác biệt",
+            correct: false,
+          },
+          {
+            id: "b",
+            label_vi: "Kéo dài dung lượng bài phát biểu để nghe có vẻ trang trọng",
+            correct: false,
+          },
+          {
+            id: "c",
+            label_vi: "Dùng làm lời mở đầu chào hỏi các bạn trong nhóm",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Giải thích vì sao luận điểm là hợp lý",
+            correct: true,
+          },
         ],
         hint1_vi: "Hãy nghĩ đến điều giúp người nghe hiểu vì sao nên tin.",
-        hint2_vi: "Nó cho thấy luận điểm có căn cứ.",
-        hint3_vi: "Lý do giải thích vì sao luận điểm hợp lý.",
+        hint2_vi: "Nó cho thấy luận điểm có căn cứ rõ ràng.",
+        hint3_vi: "Tìm câu nêu vai trò làm rõ nguyên nhân khiến kết luận trở nên đáng tin.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "d" }),
       explanationVi:
@@ -86,18 +110,25 @@ export const argumentStructure: LessonDefinition = {
             label_vi: "Cây xanh che mát sân trường và lọc bụi trong không khí",
             correct: true,
           },
-          { id: "b", label_vi: "Thời khóa biểu tuần sau có tiết vẽ", correct: false },
           {
-            id: "c",
-            label_vi: "Bạn Nam rất thích banh và muốn ra sân đá banh",
+            id: "b",
+            label_vi: "Thời khóa biểu tuần sau của lớp có thêm tiết vẽ",
             correct: false,
           },
-          { id: "d", label_vi: "Trường em có hai dãy nhà", correct: false },
+          {
+            id: "c",
+            label_vi: "Bạn Nam rất mê môn bóng đá nên giờ ra chơi nào cũng rủ bạn đá bóng",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Trường em hiện được xây thành hai dãy nhà",
+            correct: false,
+          },
         ],
         hint1_vi: "Lý do phải cùng nói về cây xanh và sân trường.",
         hint2_vi: "Hãy chọn câu nêu lợi ích của việc trồng cây.",
-        hint3_vi:
-          "Cây xanh mát sân và lọc bụi là lý do trực tiếp hỗ trợ luận điểm.",
+        hint3_vi: "Tác dụng tỏa bóng râm và giữ không khí trong lành hỗ trợ thẳng vào đề xuất trồng cây.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "a" }),
       explanationVi:
@@ -111,22 +142,35 @@ export const argumentStructure: LessonDefinition = {
         question_vi:
           "Luận điểm: “Nên tắt điện khi ra khỏi lớp.” Câu nào hỗ trợ luận điểm tốt nhất?",
         choices: [
-          { id: "a", label_vi: "Hôm nay trời rất đẹp", correct: false },
+          {
+            id: "a",
+            label_vi: "Thời tiết ngoài sân trường hôm nay dịu mát",
+            correct: false,
+          },
           {
             id: "b",
             label_vi: "Tắt điện không dùng đến giúp tiết kiệm điện năng",
             correct: true,
           },
-          { id: "c", label_vi: "Bạn Hòa mặc áo xanh", correct: false },
-          { id: "d", label_vi: "Tiết trước là tiếng Anh", correct: false },
+          {
+            id: "c",
+            label_vi: "Bạn Hòa hôm nay đeo chiếc khăn quàng đỏ thắm",
+            correct: false,
+          },
+          {
+            id: "d",
+            label_vi: "Tiết học ngay trước giờ ra chơi là Toán",
+            correct: false,
+          },
         ],
-        hint1_vi: "Lý do phải nói về tắt điện.",
-        hint2_vi: "Hãy chọn câu nêu lợi ích của việc tắt điện.",
-        hint3_vi: "Tiết kiệm điện năng là lợi ích trực tiếp của việc tắt điện.",
+        hint1_vi: "Lý do phải nói về việc sử dụng điện trong phòng học.",
+        hint2_vi: "Hãy chọn câu nêu lợi ích thực tế của việc ngắt công tắc đèn quạt.",
+        hint3_vi: "Tránh lãng phí nguồn năng lượng chung là tác dụng trực tiếp khi ra khỏi phòng nhớ tắt đèn.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "b" }),
       explanationVi:
-        "Câu “Tắt điện không dùng đến giúp tiết kiệm điện năng” nêu đúng lợi ích nên hỗ trợ trực tiếp luận điểm tắt điện khi ra khỏi lớp; các câu còn lại không liên quan.",    },
+        "Câu “Tắt điện không dùng đến giúp tiết kiệm điện năng” nêu đúng lợi ích nên hỗ trợ trực tiếp luận điểm tắt điện khi ra khỏi lớp; các câu còn lại không liên quan.",
+    },
     {
       position: 5,
       kind: "transfer",
@@ -137,33 +181,32 @@ export const argumentStructure: LessonDefinition = {
         choices: [
           {
             id: "a",
-            label_vi: "Ta nên đọc sách mỗi ngày vì bạn Lan rất giỏi toán",
+            label_vi: "Ta nên đọc sách 15 phút mỗi ngày vì bạn Lan lớp trưởng học rất giỏi môn Toán và viết chữ rất đẹp",
             correct: false,
           },
           {
             id: "b",
-            label_vi: "Ta nên đọc sách mỗi ngày vì mai trời có thể mưa",
+            label_vi: "Ta nên đọc sách 15 phút mỗi ngày vì dự báo thời tiết báo chiều mai khu phố mình có mưa rào",
             correct: false,
           },
           {
             id: "c",
-            label_vi: "Ta nên đọc sách 15 phút mỗi ngày vì đọc thường xuyên giúp mở rộng từ vựng và hiểu bài tốt hơn",
+            label_vi: "Ta nên đọc sách 15 phút mỗi ngày vì việc này giúp mở rộng vốn từ và hiểu bài sâu",
             correct: true,
           },
           {
             id: "d",
-            label_vi: "Ta nên đọc sách mỗi ngày vì đọc chơi chơi cho vui",
+            label_vi: "Ta nên đọc sách 15 phút mỗi ngày vì ai trong nhóm cũng phải làm theo mà không cần hỏi",
             correct: false,
           },
         ],
         hint1_vi: "Cần có cả luận điểm rõ ràng và lý do cùng chủ đề.",
-        hint2_vi: "Lý do phải nói lợi ích của việc đọc.",
-        hint3_vi:
-          "Câu “vì đọc giúp mở rộng từ vựng và hiểu bài” là lý do đúng trọng tâm.",
+        hint2_vi: "Lý do phải nêu lợi ích trực tiếp của thói quen đọc sách hằng ngày.",
+        hint3_vi: "Tích lũy thêm từ ngữ và nắm chắc kiến thức là căn cứ sát trọng tâm cho lời khuyên đọc sách.",
       },
       answerKey: JSON.stringify({ correctChoiceId: "c" }),
       explanationVi:
-        "Câu ghép vừa nêu rõ luận điểm nên đọc sách 15 phút mỗi ngày, vừa đưa lý do đúng trọng tâm là mở rộng từ vựng và hiểu bài; các câu còn lại đưa lý do lạc đề.",
+        "Câu ghép vừa nêu rõ luận điểm nên đọc sách 15 phút mỗi ngày, vừa đưa lý do đúng trọng tâm là mở rộng vốn từ và hiểu bài sâu; các câu còn lại đưa lý do lạc đề hoặc áp đặt.",
     },
   ],
 };
