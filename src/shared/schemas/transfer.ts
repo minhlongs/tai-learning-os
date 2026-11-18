@@ -361,10 +361,9 @@ import {
   APPROVAL_STATUSES,
   COMPETENCY_STATES,
   EVIDENCE_KINDS,
-  LESSON_STEP_KINDS,
   SESSION_STATUSES,
 } from "./attempt";
-import { validateExercise } from "./exercise";
+import { validateCanonicalLessonStep } from "./exercise";
 
 /** Every row-bearing collection. `schemaVersions` is checked separately. */
 export const EXPORT_COLLECTIONS = [
@@ -392,6 +391,47 @@ export const EXPORT_COLLECTIONS = [
   "learningGoals",
   "auditEvents",
 ] as const satisfies readonly (keyof ExportBody)[];
+
+/**
+ * Per-collection row ceilings enforced before statement construction.
+ *
+ * Sized generously for multi-year household learning (10+ school years of daily
+ * sessions, attempts, FSRS observations, and reflections) while bounding memory
+ * and SQL statement fan-out inside a single atomic `db.batch`.
+ */
+export const EXPORT_COLLECTION_MAX_ITEMS: Readonly<
+  Record<(typeof EXPORT_COLLECTIONS)[number], number>
+> = {
+  learners: 10,
+  schoolYears: 50,
+  subjects: 50,
+  skills: 2_000,
+  skillPrerequisites: 5_000,
+  curriculumObjectives: 2_000,
+  curriculumIntakes: 250,
+  lessons: 1_000,
+  lessonVersions: 5_000,
+  lessonSteps: 10_000,
+  lessonMetadata: 1_000,
+  reviewApprovals: 5_000,
+  learningSessions: 10_000,
+  learningAttempts: 25_000,
+  skillEvidence: 2_000,
+  skillEvidenceObservations: 25_000,
+  skillEstimates: 2_000,
+  reviewSchedule: 2_000,
+  baselineAssessments: 500,
+  learningPlanItems: 5_000,
+  sessionReflections: 10_000,
+  learningGoals: 1_000,
+  auditEvents: 25_000,
+};
+
+/**
+ * Hard pre-batch ceiling on the total number of SQL statements `POST /api/data/import`
+ * will submit to `env.DB.batch([...])`. Checked deterministically before any D1 call.
+ */
+export const MAX_IMPORT_BATCH_STATEMENTS = 50_000;
 
 export type EnvelopeValidation =
   | { ok: true; envelope: ExportEnvelope; warnings: string[] }
@@ -477,6 +517,14 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       errors.push(`Danh sách ${key} không hợp lệ.`);
       continue;
     }
+    const maxItems = EXPORT_COLLECTION_MAX_ITEMS[key];
+    if (rows.length > maxItems) {
+      errors.push(
+        `Danh sách ${key} vượt quá giới hạn cho phép (${rows.length} > ${maxItems}).`,
+      );
+      continue;
+    }
+    const seenPrimaryKeys = new Set<string>();
     for (const row of rows) {
       if (typeof row !== "object" || row === null || Array.isArray(row)) {
         errors.push(`Một dòng trong ${key} không hợp lệ.`);
@@ -485,19 +533,34 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       // A row's identity is whatever its table's primary key is. Most tables
       // have a single `id` column; `skill_prerequisites` does not, and its row
       // is identified by the pair of skills it joins — so it is checked on that
-      // pair rather than on an `id` it never had. `lessonMetadata` and `lessonVersions` are keyed by `lessonId`.
+      // pair rather than on an `id` it never had. `lessonMetadata` is keyed by
+      // `lessonId`, and `lessonVersions` is keyed by `(lessonId, version)`.
       const identity = key === "skillPrerequisites"
         ? (["skillId", "prerequisiteId"] as const).map((field) => (row as Record<string, unknown>)[field])
-        : key === "lessonMetadata" || key === "lessonVersions"
+        : key === "lessonMetadata"
           ? [(row as { lessonId?: unknown }).lessonId]
-          : [(row as { id?: unknown }).id];
+          : key === "lessonVersions"
+            ? [(row as { lessonId?: unknown }).lessonId]
+            : [(row as { id?: unknown }).id];
       if (identity.some((value) => typeof value !== "string" || value.length === 0)) {
         errors.push(`Một dòng trong ${key} thiếu mã định danh.`);
+        continue;
+      }
+      const pkKey =
+        key === "lessonVersions"
+          ? `${String((row as { lessonId?: unknown }).lessonId)}@${String((row as { version?: unknown }).version)}`
+          : (identity as string[]).join("::");
+      if (seenPrimaryKeys.has(pkKey)) {
+        errors.push(`Danh sách ${key} chứa mã định danh trùng lặp (${pkKey}).`);
+      } else {
+        seenPrimaryKeys.add(pkKey);
       }
     }
   }
   if (!Array.isArray(data.schemaVersions)) {
     errors.push("Danh sách phiên bản lược đồ không hợp lệ.");
+  } else if (data.schemaVersions.length > 500) {
+    errors.push(`Danh sách schemaVersions vượt quá giới hạn cho phép (${data.schemaVersions.length} > 500).`);
   }
   const exportedLessonsById = new Map<string, number>();
   const practiceLessonIds = new Set<string>();
@@ -677,15 +740,46 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       }
       seenStepVersionPos.add(posKey);
     }
-    if (!LESSON_STEP_KINDS.includes(step.kind)) {
-      errors.push(`Loại bước học không hợp lệ: ${String(step.kind)}`);
+    const canonicalStep = validateCanonicalLessonStep(
+      {
+        position: step.position,
+        kind: step.kind,
+        content: step.content,
+        answerKey: step.answerKey,
+        explanationVi: step.explanationVi,
+      },
+      { checkLearnerLeak: true },
+    );
+    if (!canonicalStep.ok) {
+      errors.push(`Bước học ${String(step.position)} của bài ${step.lessonId}: ${canonicalStep.error}`);
     }
-    const result = validateExercise(step.content);
-    if (!result.ok) {
-      errors.push(`Bước học ${step.position} của bài ${step.lessonId}: ${result.error}`);
+  }
+
+  // Enforce contiguous 1..k step positions per (lessonId, contentVersion).
+  const positionsByLessonVersion = new Map<string, number[]>();
+  for (const step of data.lessonSteps) {
+    if (
+      typeof step.lessonId === "string" &&
+      typeof step.contentVersion === "number" &&
+      Number.isInteger(step.contentVersion) &&
+      typeof step.position === "number" &&
+      Number.isInteger(step.position)
+    ) {
+      const lvKey = `${step.lessonId}@${step.contentVersion}`;
+      const list = positionsByLessonVersion.get(lvKey) ?? [];
+      list.push(step.position);
+      positionsByLessonVersion.set(lvKey, list);
     }
-    if (typeof step.explanationVi !== "string" || step.explanationVi.trim().length === 0) {
-      errors.push(`Bước học ${step.position} của bài ${step.lessonId} cần có giải thích.`);
+  }
+  for (const [lvKey, positions] of positionsByLessonVersion.entries()) {
+    const sorted = [...positions].sort((a, b) => a - b);
+    for (let i = 0; i < sorted.length; i += 1) {
+      if (sorted[i] !== i + 1) {
+        errors.push(
+          `Thứ tự bước học của ${lvKey} phải liên tiếp từ 1..${sorted.length} (thiếu vị trí ${i + 1}).`,
+        );
+        break;
+      }
     }
   }
 
@@ -833,6 +927,37 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
 
   const exportedLearnerIds = new Set(data.learners.map((l) => l.id));
   const exportedSessionIds = new Set(data.learningSessions.map((s) => s.id));
+  for (const sy of data.schoolYears) {
+    if (!exportedLearnerIds.has(sy.learnerId)) {
+      errors.push(`Năm học ${sy.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+  }
+  for (const session of data.learningSessions) {
+    if (!exportedLearnerIds.has(session.learnerId)) {
+      errors.push(`Phiên học ${session.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+  }
+  for (const goal of data.learningGoals) {
+    if (!exportedLearnerIds.has(goal.learnerId)) {
+      errors.push(`Mục tiêu học tập ${goal.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+  }
+  const seenBaselineKeys = new Set<string>();
+  for (const b of data.baselineAssessments ?? []) {
+    if (!exportedLearnerIds.has(b.learnerId)) {
+      errors.push(`Đánh giá đầu vào ${b.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+    if (b.sessionId !== null && b.sessionId !== undefined && !exportedSessionIds.has(b.sessionId)) {
+      errors.push(`Đánh giá đầu vào ${b.id} tham chiếu đến phiên học không có trong tệp (${b.sessionId}).`);
+    }
+    const bKey = `${b.learnerId}::${b.subjectId}`;
+    if (seenBaselineKeys.has(bKey)) {
+      errors.push(`Danh sách baselineAssessments chứa bản ghi trùng lặp cho (${bKey}).`);
+    } else {
+      seenBaselineKeys.add(bKey);
+    }
+  }
+  const seenApprovalKeys = new Set<string>();
   for (const approval of data.reviewApprovals) {
     if (
       approval.learnerId !== undefined &&
@@ -840,6 +965,88 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       !exportedLearnerIds.has(approval.learnerId)
     ) {
       errors.push("Bản ghi phê duyệt tham chiếu đến người học không tồn tại trong tệp.");
+    }
+    const appVer = approval.lessonVersion ?? 1;
+    const approvalNaturalKey = `${approval.learnerId ?? "__legacy__"}::${approval.lessonId}::${appVer}`;
+    if (seenApprovalKeys.has(approvalNaturalKey)) {
+      errors.push(`Danh sách reviewApprovals chứa bản ghi trùng lặp cho (${approvalNaturalKey}).`);
+    } else {
+      seenApprovalKeys.add(approvalNaturalKey);
+    }
+  }
+
+  const seenSkillEvidenceKeys = new Set<string>();
+  for (const row of data.skillEvidence) {
+    if (!exportedLearnerIds.has(row.learnerId)) {
+      errors.push(`Bằng chứng kỹ năng ${row.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+    const k = `${row.learnerId}::${row.skillId}`;
+    if (seenSkillEvidenceKeys.has(k)) {
+      errors.push(`Danh sách skillEvidence chứa bản ghi trùng lặp cho (${k}).`);
+    } else {
+      seenSkillEvidenceKeys.add(k);
+    }
+  }
+
+  const seenSkillEstimateKeys = new Set<string>();
+  for (const row of data.skillEstimates ?? []) {
+    const k = `${row.learnerId}::${row.skillId}`;
+    if (seenSkillEstimateKeys.has(k)) {
+      errors.push(`Danh sách skillEstimates chứa bản ghi trùng lặp cho (${k}).`);
+    } else {
+      seenSkillEstimateKeys.add(k);
+    }
+  }
+
+  const seenReviewScheduleKeys = new Set<string>();
+  for (const row of data.reviewSchedule) {
+    if (!exportedLearnerIds.has(row.learnerId)) {
+      errors.push(`Lịch ôn tập ${row.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+    const k = `${row.learnerId}::${row.skillId}`;
+    if (seenReviewScheduleKeys.has(k)) {
+      errors.push(`Danh sách reviewSchedule chứa bản ghi trùng lặp cho (${k}).`);
+    } else {
+      seenReviewScheduleKeys.add(k);
+    }
+  }
+
+  const seenObservationAttemptIds = new Set<string>();
+  for (const row of data.skillEvidenceObservations ?? []) {
+    if (seenObservationAttemptIds.has(row.attemptId)) {
+      errors.push(
+        `Danh sách skillEvidenceObservations chứa attemptId trùng lặp (${row.attemptId}).`,
+      );
+    } else {
+      seenObservationAttemptIds.add(row.attemptId);
+    }
+  }
+
+  const seenIntakeKeys = new Set<string>();
+  for (const row of data.curriculumIntakes ?? []) {
+    if (!exportedLearnerIds.has(row.learnerId)) {
+      errors.push(`Bản ghi tiếp nhận chương trình ${row.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+    const k = `${row.learnerId}::${row.subjectId}::${row.schoolYearLabel}`;
+    if (seenIntakeKeys.has(k)) {
+      errors.push(`Danh sách curriculumIntakes chứa bản ghi trùng lặp cho (${k}).`);
+    } else {
+      seenIntakeKeys.add(k);
+    }
+  }
+
+  const seenReflectionSessionIds = new Set<string>();
+  for (const row of data.sessionReflections ?? []) {
+    if (!exportedLearnerIds.has(row.learnerId)) {
+      errors.push(`Cảm nhận phiên học ${row.id} tham chiếu đến người học không tồn tại trong tệp.`);
+    }
+    if (!exportedSessionIds.has(row.sessionId)) {
+      errors.push(`Cảm nhận phiên học ${row.id} tham chiếu đến phiên học không có trong tệp (${row.sessionId}).`);
+    }
+    if (seenReflectionSessionIds.has(row.sessionId)) {
+      errors.push(`Danh sách sessionReflections chứa sessionId trùng lặp (${row.sessionId}).`);
+    } else {
+      seenReflectionSessionIds.add(row.sessionId);
     }
   }
 
@@ -921,8 +1128,8 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
       }
       if (
         detailObj.sessionId !== undefined &&
-        (typeof detailObj.sessionId !== "string" ||
-          (exportedSessionIds.size > 0 && !exportedSessionIds.has(detailObj.sessionId)))
+        detailObj.sessionId !== null &&
+        (typeof detailObj.sessionId !== "string" || !exportedSessionIds.has(detailObj.sessionId))
       ) {
         errors.push("Sự kiện gợi ý (hint.requested) tham chiếu đến phiên học không hợp lệ.");
         continue;
@@ -1119,7 +1326,7 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     if (!Number.isInteger(row.helpLevel) || row.helpLevel < 0 || row.helpLevel > 4) {
       errors.push(`Quan sát bằng chứng ${row.id} có mức gợi ý ngoài khoảng 0..4.`);
     }
-    if (exportedAttemptIds.size > 0 && !exportedAttemptIds.has(row.attemptId)) {
+    if (!exportedAttemptIds.has(row.attemptId)) {
       errors.push(
         `Quan sát bằng chứng ${row.id} tham chiếu đến lượt làm bài không có trong tệp (${row.attemptId}).`,
       );
@@ -1162,7 +1369,6 @@ export function validateExportEnvelope(raw: unknown): EnvelopeValidation {
     // estimate against history the importer cannot see.
     if (
       row.attemptWatermark !== null &&
-      exportedAttemptIds.size > 0 &&
       !exportedAttemptIds.has(row.attemptWatermark)
     ) {
       errors.push(

@@ -23,7 +23,13 @@
 import { LESSONS } from "./index";
 import type { CurriculumProvenance, LessonDefinition, LessonStep } from "./types";
 import { correctChoiceId, gradeSubmission } from "../schemas/answer";
-import { leaksAnswer, toLearnerExercise, validateExercise, type ExerciseSpec } from "../schemas/exercise";
+import {
+  leaksAnswer,
+  toLearnerExercise,
+  validateAnswerKeyForExercise,
+  validateExercise,
+  type ExerciseSpec,
+} from "../schemas/exercise";
 
 export const MATH_ERROR_RATE_CEILING = 0.003;
 
@@ -788,39 +794,22 @@ export function runContentQaGate(
         }
       }
 
-      // Parse stored answerKey JSON
-      let parsedAnswerKey: Record<string, unknown> | null = null;
-      try {
-        const parsed = JSON.parse(step.answerKey) as unknown;
-        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-          parsedAnswerKey = parsed as Record<string, unknown>;
-        }
-      } catch {
-        parsedAnswerKey = null;
-      }
-      if (!parsedAnswerKey) {
+      // Validate stored answerKey JSON via shared canonical validator
+      const answerKeyValidation = validateAnswerKeyForExercise(exercise, step.answerKey);
+      if (!answerKeyValidation.ok) {
         recordFinding(
           lesson.id,
           step.position,
           "math-equivalence",
-          "step.answerKey is not a valid JSON object",
+          answerKeyValidation.error,
         );
-        return;
+        if (typeof step.answerKey !== "string" || !step.answerKey.trim().startsWith("{")) {
+          return;
+        }
       }
 
       // Math & grading verification per exercise type
       if (exercise.type === "fraction_visual") {
-        if (
-          parsedAnswerKey.correctNumerator !== exercise.correctNumerator ||
-          parsedAnswerKey.correctDenominator !== exercise.correctDenominator
-        ) {
-          recordFinding(
-            lesson.id,
-            step.position,
-            "math-equivalence",
-            "fraction_visual answerKey does not match correctNumerator/correctDenominator",
-          );
-        }
 
         if (!exercise.allowedDenominators.includes(exercise.correctDenominator)) {
           recordFinding(
@@ -897,15 +886,6 @@ export function runContentQaGate(
         }
       } else {
         const expectedChoiceId = correctChoiceId(exercise);
-        if (!expectedChoiceId || parsedAnswerKey.correctChoiceId !== expectedChoiceId) {
-          recordFinding(
-            lesson.id,
-            step.position,
-            "math-equivalence",
-            `answerKey.correctChoiceId "${String(parsedAnswerKey.correctChoiceId)}" does not match correct choice "${String(expectedChoiceId)}"`,
-          );
-        }
-
         if (expectedChoiceId) {
           const correctGrade = gradeSubmission(
             exercise,

@@ -22,7 +22,7 @@ import type {
   SubmitOrgLessonReviewRequest,
   SubmitOrgLessonReviewResponse,
 } from "../../shared/api-contract";
-import { validateExercise } from "../../shared/schemas/exercise";
+import { validateCanonicalStepSequence } from "../../shared/schemas/exercise";
 import type { LessonRow } from "../db/schema";
 import * as repo from "../db/repositories";
 import { badRequest, forbidden, notFound, ok, readJsonBody } from "../http/response";
@@ -66,12 +66,20 @@ export const createOrgDraftLessonRoute: Handler = async (context) => {
     return badRequest("Bài học phải có ít nhất một bước học.");
   }
 
-  // Validate all exercises in steps
-  for (const step of body.steps) {
-    const val = validateExercise(step.content);
-    if (!val.ok) {
-      return badRequest(`Nội dung bài tập bước ${step.position} không hợp lệ: ${val.error}`);
-    }
+  const candidateSteps = body.steps.map((s, idx) => ({
+    position: s?.position ?? idx + 1,
+    kind: s?.kind,
+    content: s?.content,
+    answerKey: s?.answerKey,
+    explanationVi: s?.explanationVi,
+  }));
+
+  const stepValidation = validateCanonicalStepSequence(candidateSteps, {
+    requireTransferStep: false,
+    checkLearnerLeak: true,
+  });
+  if (!stepValidation.ok) {
+    return badRequest(`Dữ liệu bước học không hợp lệ (${stepValidation.stage}): ${stepValidation.error}`);
   }
 
   const lessonId = crypto.randomUUID();
@@ -97,9 +105,9 @@ export const createOrgDraftLessonRoute: Handler = async (context) => {
     updated_at: now,
   };
 
-  const stepRows = body.steps.map((s, idx) => ({
+  const stepRows = stepValidation.value.map((s) => ({
     id: crypto.randomUUID(),
-    position: s.position ?? idx + 1,
+    position: s.position,
     kind: s.kind,
     content: JSON.stringify(s.content),
     answerKey: JSON.stringify(s.answerKey),

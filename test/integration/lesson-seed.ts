@@ -14,8 +14,12 @@
  */
 import { LESSONS } from "../../src/shared/content/index";
 import type { CurriculumProvenance, LessonDefinition, LessonStep } from "../../src/shared/content/types";
-import { correctChoiceId } from "../../src/shared/schemas/answer";
-import { leaksAnswer, toLearnerExercise, validateExercise } from "../../src/shared/schemas/exercise";
+import {
+  leaksAnswer,
+  toLearnerExercise,
+  validateAnswerKeyForExercise,
+  validateExercise,
+} from "../../src/shared/schemas/exercise";
 
 /** Every lesson-level column, as stored. */
 export interface LessonRow {
@@ -227,29 +231,9 @@ export function validateRegistry(
       if (!result.ok) {
         fail("schema", `step ${step.position}: ${result.error}`);
       } else {
-        try {
-          const parsedKey = JSON.parse(step.answerKey) as Record<string, unknown>;
-          if (step.content.type === "fraction_visual") {
-            if (
-              parsedKey.correctNumerator !== step.content.correctNumerator ||
-              parsedKey.correctDenominator !== step.content.correctDenominator
-            ) {
-              fail(
-                "answer-key",
-                `step ${step.position}: answerKey fraction does not match exercise correctNumerator/correctDenominator`,
-              );
-            }
-          } else {
-            const expectedChoiceId = correctChoiceId(step.content);
-            if (parsedKey.correctChoiceId !== expectedChoiceId) {
-              fail(
-                "answer-key",
-                `step ${step.position}: answerKey correctChoiceId "${String(parsedKey.correctChoiceId)}" does not match exercise correct choice "${String(expectedChoiceId)}"`,
-              );
-            }
-          }
-        } catch {
-          fail("answer-key", `step ${step.position}: answerKey is not valid JSON`);
+        const keyResult = validateAnswerKeyForExercise(result.value, step.answerKey);
+        if (!keyResult.ok) {
+          fail("answer-key", `step ${step.position}: ${keyResult.error}`);
         }
       }
     });

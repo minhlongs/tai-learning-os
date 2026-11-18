@@ -18,6 +18,7 @@
 import type { ExportResponse, ImportResponse } from "../../shared/api-contract";
 import {
   EXPORT_COLLECTIONS,
+  MAX_IMPORT_BATCH_STATEMENTS,
   TRANSFER_FORMAT_VERSION,
   type ExportBody,
   validateExportEnvelope,
@@ -731,6 +732,12 @@ export const importRecord: Handler = async (context) => {
     now: Date.now(),
   });
 
+  if (statements.length > MAX_IMPORT_BATCH_STATEMENTS) {
+    return badRequest(
+      `Bản sao lưu vượt quá giới hạn câu lệnh nguyên tử cho phép (${statements.length} > ${MAX_IMPORT_BATCH_STATEMENTS}). Không có dữ liệu nào bị ghi dở dang.`,
+    );
+  }
+
   try {
     await db.batch(statements);
 
@@ -756,6 +763,11 @@ export const importRecord: Handler = async (context) => {
     if (/UNIQUE constraint failed:\s*lesson_(?:versions|steps)\./i.test(message)) {
       return conflict(
         "Xung đột phiên bản bài học: bài học riêng đã được chỉnh sửa đồng thời trong khi khôi phục. Không có dữ liệu nào bị ghi dở dang.",
+      );
+    }
+    if (/UNIQUE constraint failed:/i.test(message)) {
+      return conflict(
+        "Xung đột mã định danh dữ liệu: tệp sao lưu chứa bản ghi trùng mã với dữ liệu hiện có trong hệ thống. Không có dữ liệu nào bị ghi dở dang.",
       );
     }
     if (isOversizedBatchError(message)) {
@@ -1403,25 +1415,65 @@ function buildImportStatements(
   // NEVER grant live authorization. Any imported approval claiming `status = 'approved'`
   // is downgraded to `'draft'` so the parent must explicitly review and re-approve
   // the lesson version for the restored learner before new sessions or continuation
-  // can occur.
+  // can occur. Learner-scoped rows insert plainly (no `ON CONFLICT`), so any primary-key
+  // collision with an existing row aborts `db.batch` atomically instead of overwriting.
   for (const approval of data.reviewApprovals) {
     const version =
       typeof approval.lessonVersion === "number" && Number.isInteger(approval.lessonVersion) && approval.lessonVersion >= 1
         ? approval.lessonVersion
         : 1;
     const importedStatus = approval.status === "approved" ? "draft" : approval.status;
-    statements.push(
-      ...repo.setApprovalStatements(db, {
-        id: approval.id,
-        learnerId: approval.learnerId ?? null,
-        lessonId: approval.lessonId,
-        version,
-        status: importedStatus,
-        decidedBy: approval.decidedBy,
-        note: approval.note,
-        now: approval.decidedAt,
-      }),
-    );
+    const learnerId = approval.learnerId ?? null;
+    if (learnerId === null) {
+      statements.push(
+        db
+          .prepare(
+            `DELETE FROM review_approvals
+             WHERE lesson_id = ?1
+               AND lesson_version = ?2
+               AND learner_id IS NULL
+               AND (
+                 NOT EXISTS (SELECT 1 FROM lessons WHERE id = ?1 AND ownership_type = 'family')
+                 OR EXISTS (SELECT 1 FROM lessons WHERE id = ?1 AND ownership_type = 'family' AND owner_parent_id = ?3)
+               )`,
+          )
+          .bind(approval.lessonId, version, importingParentId),
+        db
+          .prepare(
+            `INSERT INTO review_approvals
+               (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
+             VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7)`,
+          )
+          .bind(
+            approval.id,
+            approval.lessonId,
+            version,
+            importedStatus,
+            approval.decidedBy,
+            approval.decidedAt,
+            approval.note,
+          ),
+      );
+    } else {
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO review_approvals
+               (id, learner_id, lesson_id, lesson_version, status, decided_by, decided_at, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+          )
+          .bind(
+            approval.id,
+            learnerId,
+            approval.lessonId,
+            version,
+            importedStatus,
+            approval.decidedBy,
+            approval.decidedAt,
+            approval.note,
+          ),
+      );
+    }
   }
 
   for (const session of data.learningSessions) {
@@ -1450,7 +1502,7 @@ function buildImportStatements(
     statements.push(
       db
         .prepare(
-          `INSERT OR IGNORE INTO learning_sessions
+          `INSERT INTO learning_sessions
              (id, learner_id, lesson_id, lesson_version, school_year_id, started_at, ended_at, status, steps_seen, continuation_deadline, purpose)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
         )
@@ -1508,38 +1560,55 @@ function buildImportStatements(
 
   // Evidence is restored verbatim, INCLUDING a parent correction: the import
   // must not silently re-derive and thereby overwrite a recorded decision.
+  // Plain INSERTs ensure any primary-key collision with a pre-existing row
+  // aborts `db.batch` atomically instead of overwriting or silently skipping.
   for (const row of data.skillEvidence) {
     statements.push(
-      repo.skillEvidenceUpsert(db, {
-        id: row.id,
-        learnerId: row.learnerId,
-        skillId: row.skillId,
-        state: row.state,
-        independentCount: row.independentCount,
-        assistedCount: row.assistedCount,
-        correctCount: row.correctCount,
-        lastIndependentAt: row.lastIndependentAt,
-        lastObservedAt: row.lastObservedAt,
-        source: row.source,
-        correctionNote: row.correctionNote,
-        now: row.updatedAt,
-      }),
+      db
+        .prepare(
+          `INSERT INTO skill_evidence
+             (id, learner_id, skill_id, state, independent_count, assisted_count, correct_count,
+              last_independent_at, last_observed_at, source, correction_note, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+        )
+        .bind(
+          row.id,
+          row.learnerId,
+          row.skillId,
+          row.state,
+          row.independentCount,
+          row.assistedCount,
+          row.correctCount,
+          row.lastIndependentAt,
+          row.lastObservedAt,
+          row.source,
+          row.correctionNote,
+          row.updatedAt,
+        ),
     );
   }
 
   for (const row of data.reviewSchedule) {
     statements.push(
-      repo.reviewScheduleUpsert(db, {
-        id: row.id,
-        learnerId: row.learnerId,
-        skillId: row.skillId,
-        dueAt: row.dueAt,
-        intervalDays: row.intervalDays,
-        lastResult: row.lastResult ?? "failed",
-        lastAttemptAt: row.lastAttemptAt ?? row.createdAt,
-        failureStreak: row.failureStreak,
-        now: row.updatedAt,
-      }),
+      db
+        .prepare(
+          `INSERT INTO review_schedule
+             (id, learner_id, skill_id, due_at, interval_days, last_result, last_attempt_at,
+              failure_streak, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+        )
+        .bind(
+          row.id,
+          row.learnerId,
+          row.skillId,
+          row.dueAt,
+          row.intervalDays,
+          row.lastResult ?? "failed",
+          row.lastAttemptAt ?? row.createdAt,
+          row.failureStreak,
+          row.createdAt,
+          row.updatedAt,
+        ),
     );
   }
 
@@ -1561,28 +1630,33 @@ function buildImportStatements(
 
   for (const row of data.skillEstimates ?? []) {
     statements.push(
-      repo.skillEstimateUpsert(db, {
-        id: row.id,
-        learnerId: row.learnerId,
-        skillId: row.skillId,
-        stability: row.stability,
-        difficulty: row.difficulty,
-        retrievabilityAt: row.retrievabilityAt,
-        reps: row.reps,
-        lapses: row.lapses,
-        fsrsState: row.fsrsState,
-        scheduledDays: row.scheduledDays,
-        lastReviewAt: row.lastReviewAt,
-        modelVersion: row.modelVersion,
-        attemptWatermark: row.attemptWatermark,
-        attemptCount: row.attemptCount,
-        // `computedAt` keeps the instant the model produced these numbers; the
-        // upsert's `now` stamps created/updated the way the review-schedule
-        // restore does, because the export's `updatedAt` is the last time this
-        // estimate changed, which is what a restored row should report.
-        computedAt: row.computedAt,
-        now: row.updatedAt,
-      }),
+      db
+        .prepare(
+          `INSERT INTO skill_estimate
+             (id, learner_id, skill_id, stability, difficulty, retrievability_at, reps, lapses,
+              fsrs_state, scheduled_days, last_review_at, model_version, computed_at,
+              attempt_watermark, attempt_count, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+        )
+        .bind(
+          row.id,
+          row.learnerId,
+          row.skillId,
+          row.stability,
+          row.difficulty,
+          row.retrievabilityAt,
+          row.reps,
+          row.lapses,
+          row.fsrsState,
+          row.scheduledDays,
+          row.lastReviewAt,
+          row.modelVersion,
+          row.computedAt,
+          row.attemptWatermark,
+          row.attemptCount,
+          row.createdAt,
+          row.updatedAt,
+        ),
     );
   }
 
@@ -1592,7 +1666,7 @@ function buildImportStatements(
     statements.push(
       db
         .prepare(
-          `INSERT OR IGNORE INTO learning_goals
+          `INSERT INTO learning_goals
              (id, learner_id, subject_id, title_vi, note, target_date, status, created_at, updated_at)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
         )
@@ -1612,25 +1686,31 @@ function buildImportStatements(
 
   for (const intake of data.curriculumIntakes ?? []) {
     statements.push(
-      repo.upsertCurriculumIntakeStatement(db, {
-        intake: {
-          id: intake.id,
-          learner_id: intake.learnerId,
-          school_year_label: intake.schoolYearLabel,
-          grade: intake.grade,
-          subject_id: intake.subjectId,
-          textbook_series: intake.textbookSeries,
-          current_unit: intake.currentUnit,
-          current_lesson: intake.currentLesson,
-          weekly_sessions: intake.weeklySessions,
-          session_duration_minutes: intake.sessionDurationMinutes,
-          material_reference: intake.materialReference,
-          learning_goals_vi: intake.learningGoalsVi,
-          provenance: intake.provenance,
-          created_at: intake.createdAt,
-          updated_at: intake.updatedAt,
-        },
-      }),
+      db
+        .prepare(
+          `INSERT INTO curriculum_intakes
+             (id, learner_id, school_year_label, grade, subject_id, textbook_series, current_unit,
+              current_lesson, weekly_sessions, session_duration_minutes, material_reference,
+              learning_goals_vi, provenance, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+        )
+        .bind(
+          intake.id,
+          intake.learnerId,
+          intake.schoolYearLabel,
+          intake.grade,
+          intake.subjectId,
+          intake.textbookSeries,
+          intake.currentUnit,
+          intake.currentLesson,
+          intake.weeklySessions,
+          intake.sessionDurationMinutes,
+          intake.materialReference,
+          intake.learningGoalsVi,
+          intake.provenance,
+          intake.createdAt,
+          intake.updatedAt,
+        ),
     );
   }
 
@@ -1639,35 +1719,66 @@ function buildImportStatements(
       continue;
     }
     statements.push(
-      repo.upsertLessonMetadataStatement(db, {
-        lessonId: meta.lessonId,
-        objectiveId: meta.objectiveId,
-        provenance: meta.provenance,
-        sourceRef: meta.sourceRef,
-        expectedDurationMinutes: meta.expectedDurationMinutes,
-        reviewRecommendationVi: meta.reviewRecommendationVi,
-        isBaseline: false,
-        now: meta.updatedAt,
-      }),
+      db
+        .prepare(
+          `INSERT INTO lesson_metadata
+             (lesson_id, objective_id, provenance, source_ref, expected_duration_minutes,
+              review_recommendation_vi, is_baseline, updated_at)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, 0, ?7
+           WHERE EXISTS (
+             SELECT 1 FROM lessons
+             WHERE id = ?1 AND ownership_type = 'family' AND owner_parent_id = ?8
+           )
+           ON CONFLICT(lesson_id) DO UPDATE SET
+             objective_id = excluded.objective_id,
+             provenance = excluded.provenance,
+             source_ref = excluded.source_ref,
+             expected_duration_minutes = excluded.expected_duration_minutes,
+             review_recommendation_vi = excluded.review_recommendation_vi,
+             is_baseline = excluded.is_baseline,
+             updated_at = excluded.updated_at
+           WHERE EXISTS (
+             SELECT 1 FROM lessons
+             WHERE id = lesson_metadata.lesson_id AND ownership_type = 'family' AND owner_parent_id = ?8
+           )`,
+        )
+        .bind(
+          meta.lessonId,
+          meta.objectiveId,
+          meta.provenance,
+          meta.sourceRef,
+          meta.expectedDurationMinutes,
+          meta.reviewRecommendationVi,
+          meta.updatedAt,
+          importingParentId,
+        ),
     );
   }
 
   for (const b of data.baselineAssessments ?? []) {
     statements.push(
-      repo.upsertBaselineAssessmentStatement(db, {
-        id: b.id,
-        learnerId: b.learnerId,
-        subjectId: b.subjectId,
-        sessionId: b.sessionId,
-        status: b.status,
-        observedSummaryVi: b.observedSummaryVi,
-        supportedSummaryVi: b.supportedSummaryVi,
-        needsObservationJson: b.needsObservationJson,
-        suggestedLessonsJson: b.suggestedLessonsJson,
-        parentReviewRequired: b.parentReviewRequired === 1,
-        now: b.createdAt,
-        completedAt: b.completedAt,
-      }),
+      db
+        .prepare(
+          `INSERT INTO baseline_assessments
+             (id, learner_id, subject_id, session_id, status, observed_summary_vi,
+              supported_summary_vi, needs_observation_json, suggested_lessons_json,
+              parent_review_required, created_at, completed_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+        )
+        .bind(
+          b.id,
+          b.learnerId,
+          b.subjectId,
+          b.sessionId,
+          b.status,
+          b.observedSummaryVi,
+          b.supportedSummaryVi,
+          b.needsObservationJson,
+          b.suggestedLessonsJson,
+          b.parentReviewRequired === 1 ? 1 : 0,
+          b.createdAt,
+          b.completedAt,
+        ),
     );
   }
 

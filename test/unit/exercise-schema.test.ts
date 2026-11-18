@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { validateExercise } from "../../src/shared/schemas/exercise";
+import {
+  validateAnswerKeyForExercise,
+  validateCanonicalLessonStep,
+  validateCanonicalStepSequence,
+  validateExercise,
+} from "../../src/shared/schemas/exercise";
 
 /**
  * The validator is the gate for untrusted content (JSON import), so it must
@@ -235,11 +240,7 @@ describe("validateExercise — malformed shapes", () => {
       sentencePrompt_vi: "Viết một câu có chữ apple",
       sentenceAcceptedWords: ["apple"],
     });
-    // GAP (source, not this suite): `image` is only length-checked, so a URL
-    // passes. `VocabMatchSpec.image` declares a closed union of 10 local SVG
-    // keys. Pinned as the CURRENT contract so the tightening is a deliberate,
-    // visible change rather than a silent behaviour shift.
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
   });
 
   it("accepts extra unknown properties at the top level", () => {
@@ -270,3 +271,124 @@ describe("validateExercise — malformed shapes", () => {
     expect(result.value.image).toBe("apple");
   });
 });
+
+describe("canonical step and answer-key validation across authoring, seed, and import", () => {
+  it("synchronises answerKey with fraction_visual and choice exercises and rejects mismatches", () => {
+    const mcRes = validateExercise(validMultipleChoice);
+    expect(mcRes.ok).toBe(true);
+    if (!mcRes.ok) throw new Error("expected ok");
+
+    expect(validateAnswerKeyForExercise(mcRes.value, { correctChoiceId: "half" }).ok).toBe(true);
+    expect(validateAnswerKeyForExercise(mcRes.value, { correctChoiceId: "third" }).ok).toBe(false);
+    expect(validateAnswerKeyForExercise(mcRes.value, { choiceId: "half" }).ok).toBe(false);
+
+    const fracRes = validateExercise({
+      type: "fraction_visual",
+      question_vi: "Phần được tô là phân số nào?",
+      question_en: "Which fraction is highlighted?",
+      allowedDenominators: [2, 4, 8],
+      maxParts: 8,
+      correctNumerator: 3,
+      correctDenominator: 4,
+      bar: { parts: 4, highlighted: 3 },
+    });
+    expect(fracRes.ok).toBe(true);
+    if (!fracRes.ok) throw new Error("expected ok");
+
+    expect(
+      validateAnswerKeyForExercise(fracRes.value, {
+        correctNumerator: 3,
+        correctDenominator: 4,
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateAnswerKeyForExercise(fracRes.value, {
+        correctNumerator: 1,
+        correctDenominator: 4,
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("enforces vocab_match acceptedWords bounds and rejects empty explanationVi", () => {
+    const stepOk = validateCanonicalLessonStep({
+      position: 1,
+      kind: "guided",
+      content: {
+        type: "vocab_match",
+        question_vi: "Chọn từ đúng",
+        word: "apple",
+        image: "apple",
+        choices: [
+          { id: "a", label_en: "apple", label_vi: "quả táo", correct: true },
+          { id: "b", label_en: "book", label_vi: "quyển sách", correct: false },
+        ],
+        sentencePrompt_vi: "Viết một câu có từ apple",
+        sentenceAcceptedWords: ["apple"],
+      },
+      answerKey: { correctChoiceId: "a", acceptedWords: ["apple", "apples"] },
+      explanationVi: "Apple nghĩa là quả táo.",
+    });
+    expect(stepOk.ok).toBe(true);
+
+    const badAcceptedWords = validateCanonicalLessonStep({
+      position: 1,
+      kind: "guided",
+      content: {
+        type: "vocab_match",
+        question_vi: "Chọn từ đúng",
+        word: "apple",
+        image: "apple",
+        choices: [
+          { id: "a", label_en: "apple", label_vi: "quả táo", correct: true },
+          { id: "b", label_en: "book", label_vi: "quyển sách", correct: false },
+        ],
+        sentencePrompt_vi: "Viết một câu có từ apple",
+        sentenceAcceptedWords: ["apple"],
+      },
+      answerKey: { correctChoiceId: "a", acceptedWords: [] },
+      explanationVi: "Apple nghĩa là quả táo.",
+    });
+    expect(badAcceptedWords.ok).toBe(false);
+
+    const blankExplanation = validateCanonicalLessonStep({
+      position: 1,
+      kind: "guided",
+      content: validMultipleChoice,
+      answerKey: { correctChoiceId: "half" },
+      explanationVi: "   ",
+    });
+    expect(blankExplanation.ok).toBe(false);
+  });
+
+  it("enforces contiguous 1..k step positions and transfer-step requirements", () => {
+    const guidedStep = {
+      position: 1,
+      kind: "guided",
+      content: validMultipleChoice,
+      answerKey: { correctChoiceId: "half" },
+      explanationVi: "Một phần hai là 1/2.",
+    };
+    const transferStep = {
+      ...guidedStep,
+      position: 2,
+      kind: "transfer",
+    };
+
+    expect(
+      validateCanonicalStepSequence([guidedStep], { requireTransferStep: true }).ok,
+    ).toBe(false);
+    expect(
+      validateCanonicalStepSequence([guidedStep], { requireTransferStep: false }).ok,
+    ).toBe(true);
+    expect(
+      validateCanonicalStepSequence([guidedStep, transferStep], { requireTransferStep: true }).ok,
+    ).toBe(true);
+    expect(
+      validateCanonicalStepSequence(
+        [guidedStep, { ...transferStep, position: 3 }],
+        { requireTransferStep: true },
+      ).ok,
+    ).toBe(false);
+  });
+});
+

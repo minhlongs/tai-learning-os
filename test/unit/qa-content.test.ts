@@ -110,6 +110,7 @@ describe("G13 Rational & Math AST equivalence engine", () => {
         baseMath.steps[0]!,
         {
           ...step2,
+          answerKey: JSON.stringify({ correctChoiceId: "c" }),
           content: {
             ...(step2.content as Extract<ExerciseSpec, { type: "multiple_choice" }>),
             choices: [
@@ -135,6 +136,7 @@ describe("G13 Rational & Math AST equivalence engine", () => {
         ...baseline4.steps.slice(0, 4),
         {
           ...step5,
+          answerKey: JSON.stringify({ correctChoiceId: "a" }),
           content: {
             ...(step5.content as Extract<ExerciseSpec, { type: "multiple_choice" }>),
             choices: [
